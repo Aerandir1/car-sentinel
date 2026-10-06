@@ -108,6 +108,9 @@ Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la sec
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
   exemples de pyserial), puis `$env:CLIO_ARGS="--port rfc2217://host.docker.internal:2217"`.
 
+Port 8080 déjà pris (« port is already allocated ») : `$env:CLIO_PORT="8106"` avant `docker compose up`,
+puis https://127.0.0.1:8106.
+
 **4.** Ouvrir https://127.0.0.1:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
 dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
 pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).

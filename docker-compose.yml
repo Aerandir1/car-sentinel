@@ -8,6 +8,7 @@
 #   CLIO_DATA     où ranger la base : dossier ./data (défaut) ou volume Docker clio-data (conseillé sous Windows)
 #   CLIO_VERSION  version enregistrée avec chaque session (l'image n'a pas le dossier .git)
 #   TZ            fuseau horaire des noms de trajets (défaut Europe/Paris)
+#   CLIO_PORT     port de la page sur l'hôte (défaut 8080), si 8080 est déjà pris
 services:
   clio:
     build: .
@@ -17,7 +18,7 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       # 127.0.0.1 uniquement : la page n'est pas exposée au réseau.
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${CLIO_PORT:-8080}:8080"
     volumes:
       # /dev de l'hôte en lecture seule : le conteneur démarre sans la clé et la voit quand on la branche.
       # Seuls les ports série USB sont autorisés (règles ci-dessous) : disques et autres périphériques restent bloqués.
