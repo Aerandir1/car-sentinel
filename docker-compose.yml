@@ -9,6 +9,7 @@
 #   CLIO_VERSION  version enregistrée avec chaque session (l'image n'a pas le dossier .git)
 #   TZ            fuseau horaire des noms de trajets (défaut Europe/Paris)
 #   CLIO_PORT     port de la page sur l'hôte (défaut 8080), si 8080 est déjà pris
+#   CLIO_HOST     0.0.0.0 : page accessible depuis les autres PC du réseau (défaut 127.0.0.1 : ce PC seulement)
 services:
   clio:
     build: .
@@ -17,8 +18,8 @@ services:
     # Tourne sous ton utilisateur (Linux) : certs/, logs/ et data/ restent à toi, pas à root
     user: "${UID:-1000}:${GID:-1000}"
     ports:
-      # 127.0.0.1 uniquement : la page n'est pas exposée au réseau.
-      - "127.0.0.1:${CLIO_PORT:-8080}:8080"
+      # 127.0.0.1 par défaut : la page n'est pas exposée au réseau (pas de mot de passe sur le dashboard).
+      - "${CLIO_HOST:-127.0.0.1}:${CLIO_PORT:-8080}:8080"
     volumes:
       # /dev de l'hôte en lecture seule : le conteneur démarre sans la clé et la voit quand on la branche.
       # Seuls les ports série USB sont autorisés (règles ci-dessous) : disques et autres périphériques restent bloqués.

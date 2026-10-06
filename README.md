@@ -111,6 +111,15 @@ Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la sec
 Port 8080 déjà pris (« port is already allocated ») : `$env:CLIO_PORT="8106"` avant `docker compose up`,
 puis https://127.0.0.1:8106.
 
+**Accès depuis les autres PC du réseau** : `$env:CLIO_HOST="0.0.0.0"` avant `docker compose up`, puis ouvrir le
+port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
+```powershell
+New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8106 -Action Allow -Profile Private
+```
+Les autres PC ouvrent alors `https://<IP du serveur>:8106` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
+de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets. Le certificat n'est
+fait que pour 127.0.0.1 : les navigateurs affichent un avertissement à accepter.
+
 **4.** Ouvrir https://127.0.0.1:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
 dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
 pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
