@@ -8,17 +8,46 @@ sur https://127.0.0.1:8080. Aucune dépendance web : tout marche hors ligne.
 """
 
 import argparse
+import os
 import ssl
+import subprocess
 import threading
+import time
+import traceback
 from pathlib import Path
 
 import donnees
+import trajets
 from acquisition import obd_loop
 from certs import ensure_cert
 from etat import CsvLogger, State
 from serveur import QuietServer, make_handler
 
-DATA = Path(__file__).resolve().parent.parent / "data"   # bases SQLite des mesures horodatées (voir donnees.py)
+HERE = Path(__file__).resolve().parent.parent
+DATA = HERE / "data"   # bases SQLite des mesures horodatées (voir donnees.py)
+TRIPS_EVERY_S = 10     # mise à jour des trajets
+
+
+def version():
+    """Commit git du script, enregistré avec chaque session (CLIO_VERSION dans un conteneur sans .git)."""
+    try:
+        out = subprocess.run(["git", "-C", str(HERE), "describe", "--always", "--dirty"],
+                             capture_output=True, text=True, timeout=5)
+        if out.returncode == 0:
+            return out.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return os.environ.get("CLIO_VERSION")
+
+
+def trips_loop(state, db_path):
+    """Découpe les mesures en trajets au fil de l'eau (voir trajets.py)."""
+    while True:
+        try:
+            state.trip = trajets.update(db_path)
+        except Exception:
+            traceback.print_exc()
+        time.sleep(TRIPS_EVERY_S)
 
 
 def main():
@@ -47,7 +76,8 @@ def main():
     if not args.no_db:
         db_path = Path(args.db) if args.db else DATA / "clio.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
-        state.recorder = donnees.Recorder(db_path)
+        state.recorder = donnees.Recorder(db_path, version())
+        threading.Thread(target=trips_loop, args=(state, db_path), daemon=True).start()
         print(f"Mesures enregistrées dans {db_path}")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})

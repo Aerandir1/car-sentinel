@@ -60,11 +60,11 @@ def make_handler(state, scheme, db_path):
                     return
                 q = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
                 try:
+                    num = lambda k: int(q[k]) if q.get(k) else None
                     if path == "/api/trips":
-                        body = donnees.trips(db_path)
+                        body = donnees.trips(db_path, num("limit") or 200)
                     else:
-                        num = lambda k: int(q[k]) if q.get(k) else None
-                        body = donnees.history(db_path, num("trip"), q.get("key", ""), num("from"), num("to"))
+                        body = donnees.history(db_path, q.get("trip") or None, q.get("key", ""), num("from"), num("to"))
                 except ValueError:
                     self._send(400, b"parametre invalide", "text/plain")
                     return
@@ -90,6 +90,14 @@ def make_handler(state, scheme, db_path):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps(saved).encode(), "application/json")
+            elif self.path == "/api/trips/note" and db_path:
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    found = donnees.set_note(db_path, str(body["id"]), str(body.get("note") or "")[:500])
+                except (ValueError, TypeError, KeyError):
+                    self._send(400, b"JSON invalide", "text/plain")
+                    return
+                self._send(204 if found else 404, b"" if found else b"trajet inconnu", "text/plain")
             else:
                 self._send(404, b"not found", "text/plain")
 

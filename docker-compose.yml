@@ -22,4 +22,7 @@ services:
       - ./certs:/app/certs   # certificat gardé entre deux lancements (à approuver une fois dans Windows)
       - ./logs:/app/logs     # CSV : CLIO_ARGS="--port /dev/ttyUSB0 --log logs/trajet.csv"
       - ./data:/app/data     # base SQLite des mesures horodatées
+      - /etc/localtime:/etc/localtime:ro   # heure locale de l'hôte : noms des trajets (« 08:01 »)
+    environment:
+      CLIO_VERSION: ${CLIO_VERSION:-}      # version enregistrée avec chaque session (pas de .git dans l'image)
     restart: unless-stopped

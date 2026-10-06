@@ -18,10 +18,12 @@ src/
   acquisition.py      lecture de l'ECU par l'ELM327
   serveur.py          serveur HTTP : page, logos, API JSON
   certs.py            certificat HTTPS (mkcert ou auto-signé)
-  donnees.py          enregistrement des mesures horodatées (SQLite)
+  donnees.py          base SQLite : sessions, mesures horodatées, trajets, événements
+  trajets.py          découpage des mesures en trajets, fiche de chaque trajet
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
 lancer.sh             lancement en local (venv + navigateur)
+service.sh            enregistrement permanent : service systemd lancé avec la session
 Dockerfile, docker-compose.yml
 ```
 
@@ -77,10 +79,22 @@ certification racines de confiance*).
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
   exemples de pyserial), puis `--port rfc2217://host.docker.internal:2217`.
 
+## Enregistrement permanent
+
+```bash
+./service.sh install     # le script tourne en fond et démarre avec la session (status / remove)
+./lancer.sh              # ouvre la page (lance le script s'il ne tourne pas déjà)
+```
+
+Le service attend l'ELM327 et enregistre dès que le calculateur répond (contact mis). Contact coupé, plus de
+réponse pendant 10 s : la session se ferme et le script attend la suivante. Ordi éteint en route : rien n'est
+perdu, le trajet est clos au lancement suivant. Pour qu'il démarre avec l'ordi sans ouvrir de session :
+`sudo loginctl enable-linger $USER`.
+
 ## Utilisation
 
 ```bash
-python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture, contact mis
+python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main, contact mis
 ```
 
 | Option | Rôle |
@@ -114,27 +128,55 @@ trajets passés enregistrés dans la base. Le curseur donne la valeur et l'heure
 métrique sont tracés quand ils tombent dans l'échelle. La courbe est coupée là où le calculateur n'a pas répondu.
 Échap ou un clic à côté pour fermer.
 
+## Trajets
+
+Le principe : **les mesures brutes ne sont jamais modifiées, les trajets sont calculés par-dessus.**
+
+| Niveau | C'est quoi | Détecté par |
+|---|---|---|
+| session | une connexion au calculateur (contact mis) | le calculateur répond |
+| marche moteur | le moteur tourne | régime > 400 tr/min (un régime bas de moins de 3 s ne coupe pas) |
+| trajet | marches moteur séparées de moins de 5 min | la voiture a roulé (> 5 km/h) ; sinon « moteur allumé sans rouler » |
+
+Un trajet est clos quand le moteur est arrêté depuis 5 min. Il porte un identifiant unique (UUID), un nom lisible
+(`2026-10-06 · trajet 1 · 08:01`, compteur remis à 1 chaque jour), une fiche (durée, distance calculée depuis la
+vitesse, démarrage à froid ou à chaud, maximums, arrêts moteur, part sans réponse, VIN) et une note libre saisie
+dans l'onglet **Trajets**. Les événements (démarrage, arrêt moteur, passage d'un seuil d'alerte) sont gardés à part.
+
+Les seuils sont en haut de `src/trajets.py`. Après un changement, tout se recalcule depuis le brut, identifiants
+et notes gardés :
+
+```bash
+python src/trajets.py --rebuild      # liste aussi les trajets
+```
+
 ## Données
 
-Chaque valeur lue est enregistrée avec son horodatage dans une base SQLite (`data/clio.db`).
-L'ELM327 interroge les PID l'un après l'autre : chaque valeur porte
-l'instant exact où le calculateur a répondu, pas l'heure de la boucle. Une non-réponse est gardée (valeur vide) :
-on sait quand un capteur a décroché. La suralimentation calculée prend l'horodatage de la pression d'admission.
-Écriture groupée une fois par seconde, environ 3 Mo par heure de route.
+Tout est dans une base SQLite, `data/clio.db`. L'ELM327 interroge les PID l'un après l'autre : chaque valeur
+porte l'instant exact où le calculateur a répondu, pas l'heure de la boucle. Une non-réponse est gardée (valeur
+vide) : on sait quand un capteur a décroché. La suralimentation calculée prend l'horodatage de la pression
+d'admission. Écriture groupée une fois par seconde, environ 3 Mo par heure de route.
 
-| Table | Colonnes |
+| Table | Contenu |
 |---|---|
-| `trips` | `id`, `start_ms`, `end_ms`, `source` : un lancement du script = un trajet |
-| `samples` | `trip_id`, `t_ms` (ms depuis 1970, UTC), `key` (`rpm`, `coolant`… comme `METRICS`, plus `boost`), `value` |
+| `sessions` | brut : `id` (UUID), `start_ms`, `end_ms`, `source` (adaptateur), `vin`, `version` (commit git), `metrics` |
+| `samples` | brut : `session_id`, `t_ms` (ms depuis 1970, UTC), `key` (`rpm`, `coolant`… comme `METRICS`, plus `boost`), `value` |
+| `trips` | calculé : un trajet, sa fiche et sa note (voir plus haut) |
+| `events` | calculé : `t_ms`, `kind` (`demarrage`, `arret_moteur`, `alerte`), `key`, `value`, `detail` |
+
+Une base à l'ancien format (un trajet par lancement) est convertie toute seule au premier lancement.
+L'heure est celle de l'ordi : il doit être à l'heure. Dans Docker, `CLIO_VERSION=$(git describe --always)`
+devant `docker compose up` enregistre la version (l'image n'a pas le dossier `.git`).
 
 ```bash
 sqlite3 data/clio.db "SELECT datetime(t_ms/1000, 'unixepoch', 'localtime'), key, value
                       FROM samples WHERE key = 'coolant' ORDER BY t_ms DESC LIMIT 10"
 ```
 
-API : `/api/trips` (liste des trajets), `/api/history?key=rpm[&trip=ID][&from=MS&to=MS]` (points `[t_ms, valeur]`
-du dernier trajet par défaut, moyennés par tranches au-delà de 2000 points). `/api/state` donne aussi `ts`,
-l'horodatage de la dernière valeur de chaque métrique.
+API : `/api/trips` (trajets avec leur fiche et leurs alertes), `POST /api/trips/note` (`{"id": …, "note": …}`),
+`/api/history?key=rpm[&trip=ID][&from=MS&to=MS]` (points `[t_ms, valeur]` du dernier trajet par défaut, moyennés
+par tranches au-delà de 2000 points). `/api/state` donne aussi `ts`, l'horodatage de la dernière valeur de chaque
+métrique, et `trip`, l'identifiant du trajet en cours.
 
 ## Limites
 

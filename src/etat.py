@@ -61,6 +61,8 @@ class State:
         self.unsupported = []
         self.status = "démarrage"
         self.source = ""
+        self.vin = None
+        self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
         self.hz = 0.0
         self.settings = {}
 
@@ -99,10 +101,11 @@ class State:
         if m is not None:
             self.update("boost", round((m - baro) / 100, 3), t_map)   # même instant que la pression d'admission
 
-    def set_source(self, source):
-        self.source = source
+    def start_session(self, source, vin, metrics):
+        """Connexion au calculateur établie : nouvelle session dans la base."""
+        self.source, self.vin = source, vin
         if self.recorder:
-            self.recorder.set_source(source)
+            self.recorder.start_session(source, vin, metrics)
 
     def reset_minmax(self):
         with self.lock:
@@ -117,7 +120,7 @@ class State:
                 "hz": round(self.hz, 1),
                 "values": dict(self.values),
                 "ts": dict(self.times),
-                "trip": self.recorder.trip_id if self.recorder else None,
+                "trip": self.trip,
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }
@@ -133,6 +136,7 @@ class State:
                 metrics.append({**DERIVED, "warn": None, "cold": None})
             return {
                 "source": self.source,
+                "vin": self.vin,
                 "metrics": metrics,
                 "unsupported": [lbl for k, lbl, *_ in METRICS if k in self.unsupported],
             }
@@ -142,9 +146,11 @@ class CsvLogger:
     def __init__(self, path, keys):
         self.keys = keys
         self.next_t = 0.0
-        self.f = open(path, "w", newline="")
+        # Ajout à la fin : chaque reconnexion au calculateur reprend le même fichier
+        self.f = open(path, "a", newline="")
         self.w = csv.writer(self.f)
-        self.w.writerow(["timestamp"] + keys)
+        if self.f.tell() == 0:
+            self.w.writerow(["timestamp"] + keys)
 
     def maybe_write(self, state):
         now = time.time()

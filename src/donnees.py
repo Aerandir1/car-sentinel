@@ -1,32 +1,70 @@
 """Enregistrement des mesures dans une base SQLite, chaque valeur avec son horodatage.
 
-Une ligne par valeur lue : la clé de la métrique, l'instant de la réponse du calculateur (ms depuis
-le 1er janvier 1970, UTC) et la valeur (NULL si le calculateur n'a pas répondu). Les mesures sont
-regroupées par trajet (un lancement du script = un trajet).
+Brut, jamais modifié :
+  sessions  une connexion au calculateur (contact mis), avec l'adaptateur, le VIN, la version du script
+  samples   une ligne par valeur lue : métrique, instant de la réponse (ms UTC), valeur (NULL : pas de réponse)
+Calculé à partir du brut, recalculable (voir trajets.py) :
+  trips     les trajets (et les périodes moteur allumé sans rouler), avec leur fiche et une note libre
+  events    démarrages, arrêts moteur, alertes
 
     sqlite3 data/clio.db "SELECT datetime(t_ms / 1000, 'unixepoch', 'localtime'), key, value
-                          FROM samples WHERE trip_id = 1 ORDER BY t_ms LIMIT 20"
+                          FROM samples ORDER BY t_ms DESC LIMIT 20"
 """
 
+import json
 import queue
 import sqlite3
 import threading
 import time
+import uuid
 
+SCHEMA_VERSION = 1
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS trips (
-    id        INTEGER PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS sessions (
+    id        TEXT PRIMARY KEY,          -- identifiant unique (UUID)
     start_ms  INTEGER NOT NULL,          -- première mesure
     end_ms    INTEGER,                   -- dernière mesure enregistrée
-    source    TEXT                       -- adaptateur et protocole
+    source    TEXT,                      -- adaptateur et protocole
+    vin       TEXT,                      -- numéro de série de la voiture, lu sur le calculateur
+    version   TEXT,                      -- version du script (commit git)
+    metrics   TEXT                       -- liste JSON des métriques lues
 );
 CREATE TABLE IF NOT EXISTS samples (
-    trip_id   INTEGER NOT NULL REFERENCES trips(id),
-    t_ms      INTEGER NOT NULL,          -- horodatage de la réponse, ms UTC
-    key       TEXT    NOT NULL,          -- clé de METRICS (rpm, coolant…) ou valeur calculée (boost)
-    value     REAL                       -- NULL : pas de réponse du calculateur
+    session_id TEXT    NOT NULL REFERENCES sessions(id),
+    t_ms       INTEGER NOT NULL,         -- horodatage de la réponse, ms UTC
+    key        TEXT    NOT NULL,         -- clé de METRICS (rpm, coolant…) ou valeur calculée (boost)
+    value      REAL                      -- NULL : pas de réponse du calculateur
 );
-CREATE INDEX IF NOT EXISTS samples_trip_key_t ON samples(trip_id, key, t_ms);
+CREATE INDEX IF NOT EXISTS samples_key_t ON samples(key, t_ms);
+CREATE INDEX IF NOT EXISTS samples_t ON samples(t_ms);
+CREATE TABLE IF NOT EXISTS trips (
+    id            TEXT PRIMARY KEY,      -- identifiant unique (UUID), gardé quand le trajet est recalculé
+    kind          TEXT NOT NULL,         -- 'trajet' (la voiture a roulé) ou 'arret' (moteur allumé sans rouler)
+    name          TEXT NOT NULL,         -- « 2026-10-06 · trajet 1 · 08:01 »
+    start_ms      INTEGER NOT NULL,      -- démarrage du moteur
+    end_ms        INTEGER NOT NULL,      -- dernier instant moteur allumé
+    closed        INTEGER NOT NULL,      -- 1 : moteur arrêté depuis plus de 5 min, le trajet ne bougera plus
+    vin           TEXT,
+    distance_km   REAL,
+    coolant_start REAL,                  -- température d'eau au démarrage
+    cold_start    INTEGER,               -- 1 : démarrage à froid
+    max_rpm       REAL,
+    max_speed     REAL,
+    max_coolant   REAL,
+    max_boost     REAL,
+    engine_stops  INTEGER,               -- arrêts moteur de moins de 5 min dans le trajet
+    missing_ratio REAL,                  -- part des requêtes sans réponse du calculateur
+    note          TEXT                   -- note libre, saisie dans le dashboard
+);
+CREATE INDEX IF NOT EXISTS trips_start ON trips(start_ms);
+CREATE TABLE IF NOT EXISTS events (
+    t_ms    INTEGER NOT NULL,
+    kind    TEXT NOT NULL,               -- 'demarrage', 'arret_moteur', 'alerte'
+    key     TEXT,                        -- métrique concernée (alerte)
+    value   REAL,
+    detail  TEXT
+);
+CREATE INDEX IF NOT EXISTS events_t ON events(t_ms);
 """
 
 FLUSH_S = 1.0          # écriture groupée : une transaction par seconde
@@ -37,6 +75,10 @@ def now_ms():
     return int(time.time() * 1000)
 
 
+def new_id():
+    return str(uuid.uuid4())
+
+
 def connect(path):
     db = sqlite3.connect(path, timeout=10)
     db.execute("PRAGMA journal_mode=WAL")    # lectures (page web) pendant l'écriture
@@ -44,85 +86,145 @@ def connect(path):
     return db
 
 
+def init(path):
+    """Crée la base, ou la met au format actuel (reprend les mesures de l'ancien format : un trajet par lancement)."""
+    db = connect(path)
+    try:
+        with db:
+            if db.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+                old = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                if "trips" in old and "samples" in old and "sessions" not in old:
+                    db.execute("ALTER TABLE trips RENAME TO old_trips")
+                    db.execute("ALTER TABLE samples RENAME TO old_samples")
+                    db.execute("DROP INDEX IF EXISTS samples_trip_key_t")
+                db.executescript(SCHEMA)
+                if "old_trips" in {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}:
+                    for tid, start, end, source in db.execute("SELECT id, start_ms, end_ms, source FROM old_trips").fetchall():
+                        sid = new_id()
+                        db.execute("INSERT INTO sessions (id, start_ms, end_ms, source) VALUES (?, ?, ?, ?)",
+                                   (sid, start, end, source))
+                        db.execute("INSERT INTO samples SELECT ?, t_ms, key, value FROM old_samples WHERE trip_id = ?",
+                                   (sid, tid))
+                    db.execute("DROP TABLE old_samples")
+                    db.execute("DROP TABLE old_trips")
+                db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    finally:
+        db.close()
+
+
 class Recorder:
     """File d'attente des mesures, vidée dans la base par un thread toutes les FLUSH_S secondes."""
 
-    def __init__(self, path):
+    def __init__(self, path, version=None):
         self.path = path
+        self.version = version
         self.queue = queue.Queue()
-        self.trip_id = None
-        self.source = None
-        db = connect(path)
-        db.executescript(SCHEMA)
-        db.close()
+        self.session_id = None
+        init(path)
         threading.Thread(target=self._run, daemon=True).start()
 
-    def add(self, key, t_ms, value):
-        self.queue.put((t_ms, key, value))
+    def start_session(self, source, vin, metrics):
+        """Nouvelle connexion au calculateur : les mesures suivantes lui sont rattachées."""
+        self.session_id = new_id()
+        self.queue.put(("session", self.session_id, source, vin, self.version, json.dumps(metrics)))
 
-    def set_source(self, source):
-        self.source = source
+    def add(self, key, t_ms, value):
+        if self.session_id:
+            self.queue.put(("sample", self.session_id, t_ms, key, value))
 
     def _run(self):
         db = connect(self.path)
         while True:
             time.sleep(FLUSH_S)
-            rows = []
+            items = []
             while True:
                 try:
-                    rows.append(self.queue.get_nowait())
+                    items.append(self.queue.get_nowait())
                 except queue.Empty:
                     break
-            if not rows:
+            if not items:
                 continue
+            new_sessions = {i[1]: i[2:] for i in items if i[0] == "session"}
+            samples = [i[1:] for i in items if i[0] == "sample"]
+            ends = {}
+            for sid, t, _k, _v in samples:
+                ends[sid] = max(ends.get(sid, t), t)
             with db:
-                if self.trip_id is None:
-                    cur = db.execute("INSERT INTO trips (start_ms, end_ms, source) VALUES (?, ?, ?)",
-                                     (rows[0][0], rows[-1][0], self.source))
-                    self.trip_id = cur.lastrowid
-                db.executemany("INSERT INTO samples (trip_id, t_ms, key, value) VALUES (?, ?, ?, ?)",
-                               [(self.trip_id, t, k, v) for t, k, v in rows])
-                db.execute("UPDATE trips SET end_ms = ?, source = coalesce(?, source) WHERE id = ?",
-                           (max(r[0] for r in rows), self.source, self.trip_id))
+                for sid, (source, vin, version, metrics) in new_sessions.items():
+                    t0 = min((s[1] for s in samples if s[0] == sid), default=now_ms())
+                    db.execute("INSERT INTO sessions (id, start_ms, end_ms, source, vin, version, metrics)"
+                               " VALUES (?, ?, ?, ?, ?, ?, ?)", (sid, t0, t0, source, vin, version, metrics))
+                db.executemany("INSERT INTO samples (session_id, t_ms, key, value) VALUES (?, ?, ?, ?)", samples)
+                for sid, end in ends.items():
+                    db.execute("UPDATE sessions SET end_ms = max(end_ms, ?) WHERE id = ?", (end, sid))
 
 
-def trips(path):
+TRIP_FIELDS = ("id", "kind", "name", "start_ms", "end_ms", "closed", "vin", "distance_km", "coolant_start",
+               "cold_start", "max_rpm", "max_speed", "max_coolant", "max_boost", "engine_stops",
+               "missing_ratio", "note")
+
+
+def trips(path, limit=200):
+    """Trajets du plus récent au plus ancien, avec leurs alertes."""
     db = connect(path)
     try:
-        rows = db.execute("""SELECT t.id, t.start_ms, t.end_ms, t.source,
-                                    (SELECT count(*) FROM samples s WHERE s.trip_id = t.id)
-                             FROM trips t ORDER BY t.id DESC""").fetchall()
+        rows = db.execute(f"SELECT {', '.join(TRIP_FIELDS)} FROM trips ORDER BY start_ms DESC LIMIT ?",
+                          (limit,)).fetchall()
+        out = []
+        for r in rows:
+            t = dict(zip(TRIP_FIELDS, r))
+            t["closed"] = bool(t["closed"])
+            t["cold_start"] = None if t["cold_start"] is None else bool(t["cold_start"])
+            t["alerts"] = [{"t_ms": a, "key": k, "value": v, "detail": d} for a, k, v, d in db.execute(
+                "SELECT t_ms, key, value, detail FROM events WHERE kind = 'alerte' AND t_ms BETWEEN ? AND ?"
+                " ORDER BY t_ms", (t["start_ms"], t["end_ms"]))]
+            out.append(t)
     finally:
         db.close()
-    return [{"id": i, "start_ms": a, "end_ms": b, "source": src, "samples": n} for i, a, b, src, n in rows]
+    return out
+
+
+def set_note(path, trip_id, note):
+    db = connect(path)
+    try:
+        with db:
+            n = db.execute("UPDATE trips SET note = ? WHERE id = ?", ((note or "").strip() or None, trip_id)).rowcount
+    finally:
+        db.close()
+    return n > 0
 
 
 def history(path, trip_id, key, from_ms=None, to_ms=None):
-    """Points [t_ms, valeur] d'une métrique sur un trajet, moyennés si plus de MAX_POINTS."""
+    """Points [t_ms, valeur] d'une métrique, sur un trajet et/ou une période, moyennés si plus de MAX_POINTS.
+
+    Sans trajet ni période : le dernier trajet.
+    """
     db = connect(path)
     try:
-        if trip_id is None:
-            row = db.execute("SELECT max(id) FROM trips").fetchone()
-            trip_id = row[0]
-        if trip_id is None:
-            return {"trip_id": None, "key": key, "step_ms": None, "points": []}
-        lo, hi = db.execute("SELECT min(t_ms), max(t_ms) FROM samples WHERE trip_id = ? AND key = ?"
-                            " AND t_ms >= ? AND t_ms <= ?",
-                            (trip_id, key, from_ms or 0, to_ms or 2**62)).fetchone()
-        if lo is None:
-            return {"trip_id": trip_id, "key": key, "step_ms": None, "points": []}
-        args = (trip_id, key, from_ms or 0, to_ms or 2**62)
-        n = db.execute("SELECT count(*) FROM samples WHERE trip_id = ? AND key = ? AND t_ms >= ? AND t_ms <= ?",
-                       args).fetchone()[0]
+        if trip_id is None and from_ms is None and to_ms is None:
+            row = db.execute("SELECT id FROM trips ORDER BY start_ms DESC LIMIT 1").fetchone()
+            trip_id = row[0] if row else None
+            if trip_id is None:
+                return {"trip_id": None, "key": key, "step_ms": None, "points": []}
+        lo_t, hi_t = 0, 2**62
+        if trip_id is not None:
+            row = db.execute("SELECT start_ms, end_ms FROM trips WHERE id = ?", (trip_id,)).fetchone()
+            if row is None:
+                raise ValueError("trajet inconnu")
+            lo_t, hi_t = row
+        args = (key, max(lo_t, from_ms or 0), min(hi_t, to_ms or 2**62))
+        lo, hi, n = db.execute("SELECT min(t_ms), max(t_ms), count(*) FROM samples"
+                               " WHERE key = ? AND t_ms >= ? AND t_ms <= ?", args).fetchone()
         step = None
-        if n <= MAX_POINTS:
-            pts = db.execute("SELECT t_ms, value FROM samples WHERE trip_id = ? AND key = ?"
-                             " AND t_ms >= ? AND t_ms <= ? ORDER BY t_ms", args).fetchall()
+        if not n:
+            pts = []
+        elif n <= MAX_POINTS:
+            pts = db.execute("SELECT t_ms, value FROM samples WHERE key = ? AND t_ms >= ? AND t_ms <= ?"
+                             " ORDER BY t_ms", args).fetchall()
         else:
             step = max(1, (hi - lo) // MAX_POINTS + 1)
-            pts = db.execute("SELECT min(t_ms), avg(value) FROM samples WHERE trip_id = ? AND key = ?"
-                             " AND t_ms >= ? AND t_ms <= ? GROUP BY (t_ms - ?) / ? ORDER BY 1",
-                             args + (lo, step)).fetchall()
+            pts = db.execute("SELECT min(t_ms), avg(value) FROM samples WHERE key = ? AND t_ms >= ? AND t_ms <= ?"
+                             " GROUP BY (t_ms - ?) / ? ORDER BY 1", args + (lo, step)).fetchall()
     finally:
         db.close()
     return {"trip_id": trip_id, "key": key, "step_ms": step,

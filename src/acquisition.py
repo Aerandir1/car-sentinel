@@ -4,6 +4,23 @@ import time
 
 from etat import METRICS
 
+MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
+
+
+def read_vin(obd, conn):
+    """Numéro de série de la voiture (mode 09), ou None si le calculateur ne le donne pas."""
+    try:
+        r = conn.query(obd.commands.VIN, force=True)
+    except Exception:
+        return None
+    if r.is_null():
+        return None
+    v = r.value
+    if isinstance(v, (bytes, bytearray)):
+        v = v.decode("ascii", "ignore")
+    v = "".join(c for c in str(v) if c.isalnum())
+    return v or None
+
 
 def obd_loop(state, args, logger_factory):
     import obd
@@ -28,9 +45,11 @@ def obd_loop(state, args, logger_factory):
                 state.supported.append(key)
             else:
                 state.unsupported.append(key)
-        state.set_source(f"{conn.port_name()} · {conn.protocol_name()}")
+        keys = state.supported + (["boost"] if "map" in state.supported else [])
+        state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
         state.status = "connecté (rapide)" if fast else "connecté"
-        logger = logger_factory(state.supported + (["boost"] if "map" in state.supported else []))
+        logger = logger_factory(keys)
+        last_ok = time.time()
 
         try:
             while conn.is_connected():
@@ -43,12 +62,16 @@ def obd_loop(state, args, logger_factory):
                     if r.is_null():
                         state.update(key, None)
                         continue
+                    last_ok = time.time()
                     v = r.value.magnitude if hasattr(r.value, "magnitude") else r.value
                     v = float(conv(v) if conv else v)
                     state.update(key, round(v, 2))
                     if delay:
                         time.sleep(delay)
                 state.derive()
+                if time.time() - last_ok > MUTE_S:
+                    state.status = "calculateur muet (contact coupé ?), attente…"
+                    break
                 # Bride la boucle à max_hz (l'ELM327 est souvent plus lent de toute façon)
                 time.sleep(max(0.0, 1.0 / state.get_settings()["max_hz"] - (time.time() - t0)))
                 state.hz = 1.0 / max(time.time() - t0, 1e-3)
@@ -60,5 +83,6 @@ def obd_loop(state, args, logger_factory):
             conn.close()
         if state.get_settings()["fast"] != fast:
             continue
-        state.status = "connexion perdue, reconnexion…"
+        if not state.status.startswith("calculateur muet"):
+            state.status = "connexion perdue, reconnexion…"
         time.sleep(2)

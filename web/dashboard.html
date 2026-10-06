@@ -85,6 +85,27 @@
   .row output { text-align: right; font-variant-numeric: tabular-nums; }
   #saved { color: var(--ok); font-size: 12px; margin-left: 8px; opacity: 0; transition: opacity .3s; }
   footer { padding: 0 16px 16px; color: var(--dim); font-size: 12px; }
+
+  /* Onglet Trajets */
+  #trips { display: grid; gap: 12px; max-width: 900px; }
+  #trips .empty { color: var(--dim); }
+  .trip { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+          display: grid; gap: 6px; }
+  .trip.live { border-color: var(--ok); }
+  .trip.idle { opacity: .75; }
+  .t-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+  .t-head b { font-size: 15px; }
+  .badge { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; color: var(--dim); }
+  .badge.live { border-color: var(--ok); color: var(--ok); }
+  .t-facts, .t-max { color: var(--dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .t-facts b { color: var(--text); font-weight: 600; }
+  .t-alerts { color: var(--hot); font-size: 13px; margin: 0; padding-left: 18px; }
+  .t-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .t-note { flex: 1 1 240px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+            border-radius: 6px; padding: 6px 8px; font: inherit; }
+  .t-actions button { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                      padding: 6px 12px; cursor: pointer; font: inherit; }
+  .t-saved { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }
   @media (max-width: 700px) {
     .gauges { grid-template-columns: 1fr; }
     header { flex-wrap: wrap; }
@@ -101,6 +122,7 @@
   <span id="status">chargement…</span>
   <nav>
     <button id="tab-dash" class="on">Tableau de bord</button>
+    <button id="tab-trips">Trajets</button>
     <button id="tab-set">Paramètres</button>
     <button id="reset">Réinit. min/max</button>
   </nav>
@@ -135,6 +157,9 @@
   </div>
   <p class="d-info" id="d-info"></p>
 </dialog>
+<main id="view-trips" hidden>
+  <section id="trips"><p class="empty">Chargement…</p></section>
+</main>
 <main id="view-set" hidden>
   <section class="panel" id="settings">
     <h2>Affichage</h2>
@@ -398,15 +423,14 @@ async function loadTrips() {
     const trips = await (await fetch("/api/trips")).json();
     sel.replaceChildren(...trips.map((t) => {
       const o = document.createElement("option");
-      const day = new Date(t.start_ms).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
       o.value = t.id;
-      o.textContent = (t.id === last?.trip ? "En cours · " : "") +
-        `${day} ${hhmm(t.start_ms)} · ${duree(t.end_ms - t.start_ms)} · ${t.source || "?"}`;
+      o.textContent = (t.id === last?.trip ? "En cours · " : "") + `${t.name} · ${duree(t.end_ms - t.start_ms)}`
+        + (t.kind === "trajet" ? ` · ${fmtKm(t.distance_km)}` : "") + (t.note ? ` · ${t.note}` : "");
       return o;
     }));
     sel.hidden = !trips.length;
   } catch (e) { sel.hidden = true; }   // pas de base
-  if (D.trip == null) D.trip = last?.trip ?? (sel.options[0] ? +sel.options[0].value : null);
+  if (D.trip == null) D.trip = last?.trip ?? (sel.options[0] ? sel.options[0].value : null);
   sel.value = D.trip;
 }
 
@@ -415,7 +439,7 @@ const isLive = () => D.trip == null || D.trip === last?.trip;
 async function loadDetail() {
   const live = isLive();
   let q = `/api/history?key=${D.key}`;
-  if (D.trip != null) q += `&trip=${D.trip}`;
+  if (D.trip != null) q += `&trip=${encodeURIComponent(D.trip)}`;
   if (D.range_s && live) q += `&from=${Date.now() - D.range_s * 1000}`;
   $("d-chart").classList.add("loading");
   try {
@@ -560,8 +584,8 @@ function showDetailValue() {
   }
 }
 
-async function openDetail(key) {
-  D.key = key; D.m = meta.metrics.find((m) => m.key === key); D.hover = null; D.trip = null;
+async function openDetail(key, trip = null) {
+  D.key = key; D.m = meta.metrics.find((m) => m.key === key); D.hover = null; D.trip = trip;
   $("d-title").textContent = D.m.label;
   for (const b of $("d-range").children) b.classList.toggle("on", +b.dataset.s === D.range_s);
   dlg.showModal();
@@ -579,7 +603,7 @@ for (const b of $("d-range").children) {
     loadDetail();
   };
 }
-$("d-trip").onchange = (e) => { D.trip = +e.target.value; hoverOff(); showDetailValue(); loadDetail(); };
+$("d-trip").onchange = (e) => { D.trip = e.target.value; hoverOff(); showDetailValue(); loadDetail(); };
 $("d-close").onclick = () => dlg.close();
 dlg.addEventListener("click", (e) => {   // clic à côté de la fenêtre (sur le fond assombri)
   const r = dlg.getBoundingClientRect();
@@ -589,13 +613,94 @@ dlg.addEventListener("close", () => { clearInterval(D.timer); hoverOff(); });
 addEventListener("resize", drawDetail);
 
 // ---------- Onglets ----------
-function showTab(set) {
-  $("view-dash").hidden = set; $("view-set").hidden = !set;
-  $("tab-dash").classList.toggle("on", !set); $("tab-set").classList.toggle("on", set);
-  if (set) loadServerSettings();
+let tripsTimer = null;
+function showTab(name) {
+  for (const t of ["dash", "trips", "set"]) {
+    $("view-" + t).hidden = t !== name;
+    $("tab-" + t).classList.toggle("on", t === name);
+  }
+  clearInterval(tripsTimer);
+  if (name === "set") loadServerSettings();
+  if (name === "trips") { renderTrips(); tripsTimer = setInterval(renderTrips, 10000); }
 }
-$("tab-dash").onclick = () => showTab(false);
-$("tab-set").onclick = () => showTab(true);
+$("tab-dash").onclick = () => showTab("dash");
+$("tab-trips").onclick = () => showTab("trips");
+$("tab-set").onclick = () => showTab("set");
+
+// ---------- Trajets ----------
+const fmtKm = (km) => `${(km ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`;
+const num = (v, d = 0) => v == null ? "—" : v.toLocaleString("fr-FR", { maximumFractionDigits: d });
+
+function tripCard(t) {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const live = t.id === last?.trip;
+  const card = el("article", "trip" + (live ? " live" : "") + (t.kind === "arret" ? " idle" : ""));
+
+  const head = el("div", "t-head");
+  head.append(el("b", null, t.name));
+  if (live) head.append(el("span", "badge live", "en cours"));
+  if (t.kind === "arret") head.append(el("span", "badge", "moteur allumé sans rouler"));
+  card.append(head);
+
+  const facts = el("div", "t-facts");
+  const parts = [`${hhmm(t.start_ms)} → ${live ? "…" : hhmm(t.end_ms)}`, duree(t.end_ms - t.start_ms)];
+  if (t.kind === "trajet") parts.push(fmtKm(t.distance_km));
+  if (t.coolant_start != null)
+    parts.push(`démarrage ${t.cold_start ? "à froid" : "à chaud"} (eau ${num(t.coolant_start)} °C)`);
+  if (t.engine_stops) parts.push(`${t.engine_stops} arrêt${t.engine_stops > 1 ? "s" : ""} moteur`);
+  facts.textContent = parts.join(" · ");
+  card.append(facts);
+
+  card.append(el("div", "t-max", "max : " + [
+    `${num(t.max_rpm)} tr/min`, `${num(t.max_speed)} km/h`, `eau ${num(t.max_coolant)} °C`,
+    `turbo ${num(t.max_boost, 2)} bar`,
+  ].join(" · ") + (t.missing_ratio ? ` · ${num(t.missing_ratio * 100, 1)} % sans réponse` : "")));
+
+  if (t.alerts.length) {
+    const ul = el("ul", "t-alerts");
+    for (const a of t.alerts) ul.append(el("li", null, `${hhmm(a.t_ms, true)} · ${a.detail} (${num(a.value, 1)})`));
+    card.append(ul);
+  }
+
+  const act = el("div", "t-actions");
+  const note = el("input", "t-note");
+  note.value = t.note || ""; note.placeholder = "Note (ex. Rennes → Nantes, chargé)"; note.maxLength = 500;
+  note.setAttribute("aria-label", `Note du ${t.name}`);
+  const saved = el("span", "t-saved", "enregistré");
+  note.onchange = async () => {
+    try {
+      await fetch("/api/trips/note", { method: "POST", body: JSON.stringify({ id: t.id, note: note.value }) });
+      saved.style.opacity = 1; setTimeout(() => (saved.style.opacity = 0), 1200);
+    } catch (e) {}
+  };
+  note.onkeydown = (e) => { if (e.key === "Enter") note.blur(); };
+  act.append(note, saved);
+  const key = ["speed", "rpm"].find((k) => meta?.metrics.some((m) => m.key === k));
+  if (key) {
+    const b = el("button", null, "Voir les courbes");
+    b.onclick = () => { D.range_s = 0; openDetail(key, t.id); };
+    act.append(b);
+  }
+  card.append(act);
+  return card;
+}
+
+async function renderTrips() {
+  const box = $("trips");
+  if (box.contains(document.activeElement)) return;   // note en cours de saisie : on ne redessine pas
+  let trips;
+  try {
+    const r = await fetch("/api/trips");
+    if (!r.ok) throw new Error();
+    trips = await r.json();
+  } catch (e) {
+    box.replaceChildren(Object.assign(document.createElement("p"), { className: "empty", textContent: "Enregistrement désactivé (--no-db)." }));
+    return;
+  }
+  box.replaceChildren(...(trips.length ? trips.map(tripCard)
+    : [Object.assign(document.createElement("p"), { className: "empty",
+        textContent: "Pas encore de trajet. Un trajet commence au démarrage du moteur." })]));
+}
 
 // ---------- Paramètres ----------
 let pollTimer = null;

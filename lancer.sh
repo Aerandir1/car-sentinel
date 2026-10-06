@@ -35,6 +35,21 @@ for a in "${args[@]}"; do
 done
 url="$scheme://127.0.0.1:$http_port"
 
+open_browser() {
+    if command -v chromium >/dev/null; then
+        chromium "$url" >/dev/null 2>&1 &
+    else
+        xdg-open "$url" >/dev/null 2>&1 &
+    fi
+}
+
+# Déjà lancé (service, voir service.sh) : on ouvre juste la page.
+if curl -sk -o /dev/null "$url"; then
+    echo "→ Dashboard déjà en route sur $url"
+    [[ -z "${NO_BROWSER:-}" ]] && open_browser
+    exit 0
+fi
+
 # Ouvre le navigateur une fois le serveur prêt.
 if [[ -z "${NO_BROWSER:-}" ]]; then
     (
@@ -42,11 +57,7 @@ if [[ -z "${NO_BROWSER:-}" ]]; then
             curl -sk -o /dev/null "$url" && break
             sleep 0.5
         done
-        if command -v chromium >/dev/null; then
-            chromium "$url" >/dev/null 2>&1 &
-        else
-            xdg-open "$url" >/dev/null 2>&1 &
-        fi
+        open_browser
     ) &
 fi
 
