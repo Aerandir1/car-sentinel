@@ -57,42 +57,18 @@
   .actions svg { width: 18px; height: 18px; }
   #go { border: 0; background: var(--accent); color: #17130a; box-shadow: 0 10px 40px rgba(240, 180, 41, .28); }
   #go:hover { box-shadow: 0 14px 50px rgba(240, 180, 41, .4); }
-  #drive { border: 1px solid rgba(255, 255, 255, .18); background: var(--card); color: var(--text); backdrop-filter: blur(12px); }
-  #drive:hover, #radio-go:hover { background: rgba(40, 46, 56, .7); }
-  #radio-go { border: 1px solid rgba(255, 255, 255, .18); background: var(--card); color: var(--text); backdrop-filter: blur(12px); }
-
-  /* Mode balade : on garde le titre et les boutons, on affiche le compteur façon jeu de course */
-  #specs, #live, .fact, .hint { transition: opacity .4s; }
-  body.driving #specs, body.driving #live, body.driving .fact, body.driving .hint { opacity: 0; pointer-events: none; }
-  #hud { position: absolute; right: 44px; bottom: 34px; width: 260px; opacity: 0; transform: translateX(30px) skewX(-10deg);
-         transition: opacity .4s, transform .4s; pointer-events: none; font-style: italic; }
-  body.driving #hud { opacity: 1; transform: translateX(0) skewX(-10deg); }
-  .hud-speed { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; }
-  .hud-speed b { font: 800 84px/1 system-ui, sans-serif; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
-                 text-shadow: 0 0 24px rgba(88, 166, 255, .35); }
-  .hud-speed span { color: var(--dim); font-weight: 700; letter-spacing: .1em; }
-  .hud-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-  .hud-gear { width: 44px; height: 44px; display: grid; place-items: center; border: 2px solid var(--accent); border-radius: 8px;
-              color: var(--accent); font: 800 26px system-ui, sans-serif; }
-  .hud-bar { flex: 1; height: 10px; background: rgba(255, 255, 255, .08); border-radius: 3px; overflow: hidden; }
-  .hud-bar i { display: block; height: 100%; width: 0; }
-  #h-rpm { background: linear-gradient(90deg, var(--ok), var(--accent) 70%, var(--hot)); }
-  .hud-nos { display: flex; align-items: center; gap: 12px; margin-top: 10px; font: 800 13px system-ui, sans-serif; color: #58c8ff; letter-spacing: .12em; }
-  #h-nos { background: linear-gradient(90deg, #2f7dff, #58e1ff); box-shadow: 0 0 12px #58c8ff; }
   .hint { position: absolute; right: 32px; bottom: 36px; color: var(--dim); font-size: 12px; }
   .credit { position: absolute; right: 32px; bottom: 14px; color: var(--dim); font-size: 11px; opacity: .7; }
 
-  #dash, #radio { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #0d1014;
+  #dash { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #0d1014;
           opacity: 0; visibility: hidden; transform: scale(1.06); transition: opacity .45s ease-out, transform .55s cubic-bezier(.2,.8,.2,1), visibility 0s .55s; }
-  #radio { background: #07090c; }
-  #dash.on, #radio.on { opacity: 1; visibility: visible; transform: scale(1); transition: opacity .45s ease-out, transform .55s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+  #dash.on { opacity: 1; visibility: visible; transform: scale(1); transition: opacity .45s ease-out, transform .55s cubic-bezier(.2,.8,.2,1), visibility 0s; }
   #back { position: fixed; right: 20px; bottom: 20px; z-index: 5; padding: 10px 18px; border-radius: 999px; border: 1px solid #262d36;
           background: #161b22; color: var(--text); font: 500 14px system-ui, sans-serif; cursor: pointer; display: none; }
   #back.on { display: block; }
 
   @media (max-width: 900px) {
     .card, .fact, .hint { display: none; }
-    #hud { right: 16px; bottom: 100px; width: 200px; } .hud-speed b { font-size: 56px; }
     .brand h1 { font-size: 28px; }
     .brand .r-mark { height: 56px; }
     .brand { left: 16px; top: 16px; } .pill { right: 16px; top: 16px; }
@@ -142,30 +118,16 @@
   </div>
 
   <div class="actions">
-    <button id="drive">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l5-4"/></svg>
-      <span id="drive-label">Rouler</span>
-    </button>
-    <button id="radio-go">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M7 6l9-3"/><circle cx="15.5" cy="12.5" r="2.5"/><path d="M6.5 11h4M6.5 14h4"/></svg>
-      Autoradio
-    </button>
     <button id="go">
       Mode dashboard
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
     </button>
   </div>
-  <div class="hint">Glisse pour tourner autour · Espace pour rouler · R pour l'autoradio · Entrée pour le dashboard</div>
-  <div id="hud">
-    <div class="hud-speed"><b id="h-speed">0</b><span>KM/H</span></div>
-    <div class="hud-row"><div class="hud-gear" id="h-gear">1</div><div class="hud-bar"><i id="h-rpm"></i></div></div>
-    <div class="hud-nos">NOS<div class="hud-bar"><i id="h-nos"></i></div></div>
-  </div>
+  <div class="hint">Glisse pour tourner autour · Entrée pour le dashboard</div>
   <div class="credit" id="credit"></div>
 </div>
 
 <iframe id="dash" title="Dashboard"></iframe>
-<iframe id="radio" title="Autoradio" allow="usb; autoplay; fullscreen"></iframe>
 <button id="back">↩ Accueil</button>
 
 <script type="importmap">{ "imports": { "three": "/vendor/three.module.min.js" } }</script>
@@ -437,13 +399,8 @@ function wheel(x, side) {
   g.position.set(x, WHEEL_R, side * 0.72);
   return g;
 }
-const wheels = [];   // pivots des roues, qu'on fait tourner en mode balade
 for (const x of [FX, RX]) {
-  for (const side of [-1, 1]) {
-    const w = wheel(x, side);
-    wheels.push(w);
-    car.add(w);
-  }
+  for (const side of [-1, 1]) car.add(wheel(x, side));
   car.add(box(0.9, 0.42, W - 0.5, M.black, x, 0.48, 0));
 }
 
@@ -486,69 +443,20 @@ const cluster = mesh(new THREE.PlaneGeometry(0.3, 0.11), new THREE.MeshBasicMate
 cluster.lookAt(EYE);
 car.add(cluster);
 
-// Écran central (autoradio) : carte GPS au repos, logo puis accueil de l'autoradio quand on s'en approche
+// Écran central : carte GPS stylisée (décor)
 const navCanvas = document.createElement("canvas");
 navCanvas.width = 480; navCanvas.height = 270;
 const navTex = new THREE.CanvasTexture(navCanvas);
 navTex.colorSpace = THREE.SRGBColorSpace;
-
-// Logo Renault (logo/Renault_2021_Logo.svg) recoloré pour le canvas : on peint la couleur dans sa silhouette
-const markImg = new Image();
-markImg.src = "/logo/Renault_2021_Logo.svg";
-const markCache = new Map();
-function tintedMark(color, h) {
-  if (!markImg.complete || !markImg.naturalWidth) return null;
-  const key = color + h;
-  if (!markCache.has(key)) {
-    const c = document.createElement("canvas");
-    c.height = h; c.width = Math.round(h * 1000 / 1307);
-    const g = c.getContext("2d");
-    g.drawImage(markImg, 0, 0, c.width, c.height);
-    g.globalCompositeOperation = "source-in";
-    g.fillStyle = color;
-    g.fillRect(0, 0, c.width, c.height);
-    markCache.set(key, c);
-  }
-  return markCache.get(key);
-}
-
-function drawNav(boot) {
+{
   const c = navCanvas.getContext("2d"), W = 480, H = 270;
-  if (boot <= 0) {
-    const g = c.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, "#0e2a44"); g.addColorStop(1, "#061019");
-    c.fillStyle = g; c.fillRect(0, 0, W, H);
-    c.strokeStyle = "#2f6f9f"; c.lineWidth = 4;
-    c.beginPath(); c.moveTo(30, 225); c.bezierCurveTo(165, 180, 210, 90, 450, 60); c.stroke();
-    c.fillStyle = "#f0b429"; c.beginPath(); c.arc(225, 138, 10, 0, Math.PI * 2); c.fill();
-  } else {
-    c.fillStyle = "#05070a"; c.fillRect(0, 0, W, H);
-    // Logo qui apparaît, puis l'interface (menu à gauche, horloge, tuiles) qui se dessine
-    const logo = clamp01(boot / 0.45) * (1 - clamp01((boot - 0.55) / 0.2));
-    const mark = tintedMark("#f0b429", 110);
-    if (logo > 0 && mark) {
-      c.globalAlpha = logo;
-      c.drawImage(mark, 240 - mark.width / 2, 80);
-    }
-    const ui = clamp01((boot - 0.6) / 0.35);
-    if (ui > 0) {
-      c.globalAlpha = ui;
-      c.fillStyle = "#0a0e13"; c.fillRect(0, 0, 52, H);
-      const small = tintedMark("#f0b429", 26);
-      if (small) c.drawImage(small, 26 - small.width / 2, 8);
-      for (let i = 0; i < 4; i++) { c.fillStyle = i === 0 ? "#3a2f17" : "#141a22"; c.fillRect(12, 46 + i * 48, 28, 28); }
-      c.fillStyle = "#161d26";
-      c.fillRect(66, 36, 196, 216); c.fillRect(274, 36, 192, 104); c.fillRect(274, 148, 192, 104);
-      c.fillStyle = "#e9eef4"; c.font = "200 64px system-ui"; c.textBaseline = "alphabetic";
-      c.fillText(new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), 80, 130);
-      c.fillStyle = "#f0b429"; c.fillRect(288, 56, 64, 64);
-      c.fillStyle = "#2f8cff"; c.fillRect(288, 168, 64, 64);
-    }
-    c.globalAlpha = 1;
-  }
-  navTex.needsUpdate = true;
+  const g = c.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, "#0e2a44"); g.addColorStop(1, "#061019");
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.strokeStyle = "#2f6f9f"; c.lineWidth = 4;
+  c.beginPath(); c.moveTo(30, 225); c.bezierCurveTo(165, 180, 210, 90, 450, 60); c.stroke();
+  c.fillStyle = "#f0b429"; c.beginPath(); c.arc(225, 138, 10, 0, Math.PI * 2); c.fill();
 }
-drawNav(0);
 // Posé juste devant la face arrière de la planche de bord (biseau compris), tourné vers les sièges avant
 const nav = mesh(new THREE.PlaneGeometry(0.19, 0.107), new THREE.MeshBasicMaterial({ map: navTex }), 0.452, 0.88, 0);
 nav.lookAt(-0.3, 1.0, EYE.z / 2);
@@ -665,25 +573,6 @@ async function loadModel() {
   car.add(model);
   if (MODEL.ownInterior) placeNav(model);
 
-  // Roues du modèle : chaque nœud « wheel » le plus haut placé est accroché à un pivot centré sur son axe
-  wheels.length = 0;
-  car.updateMatrixWorld(true);
-  const wheelNodes = [];
-  model.traverse((o) => {
-    if (/wheel/i.test(o.name) && !/wheel/i.test(o.parent?.name ?? "")) {
-      let hasMesh = false;
-      o.traverse((c) => (hasMesh ||= c.isMesh));
-      if (hasMesh) wheelNodes.push(o);
-    }
-  });
-  for (const o of wheelNodes) {
-    const pivot = new THREE.Group();
-    pivot.position.copy(car.worldToLocal(new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3())));
-    car.add(pivot);
-    pivot.updateMatrixWorld(true);
-    pivot.attach(o);
-    wheels.push(pivot);
-  }
   $("credit").textContent = MODEL.credit;
 }
 // Écran central sur la planche de bord du modèle : un rayon tiré vers l'avant depuis l'habitacle
@@ -701,13 +590,10 @@ function placeNav(model) {
 loadModel().catch((e) => console.warn("[Clio] modèle 3D non chargé, Clio dessinée en code utilisée :", e));
 
 // ---------- Trajectoire de la caméra : on fait le tour, on passe par la vitre conducteur, on s'assoit ----------
-// Calculée au départ de l'animation : le combiné et l'écran peuvent avoir bougé si un modèle 3D a été chargé.
-// Pour l'autoradio, on s'arrête face à l'écran central, à la distance qui le fait remplir le champ.
+// Calculée au départ de l'animation : le combiné peut avoir bougé si un modèle 3D a été chargé.
 function pathPoints(screen) {
   const target = screen.position.clone();
-  const zoom = screen === nav
-    ? target.clone().add(new THREE.Vector3(0, 0, 1).applyQuaternion(screen.quaternion).multiplyScalar(0.14))
-    : target.clone().addScaledVector(target.clone().sub(EYE).normalize(), -0.12);
+  const zoom = target.clone().addScaledVector(target.clone().sub(EYE).normalize(), -0.12);
   return {
     pos: [new THREE.Vector3(1.8, 2.3, -4.6), new THREE.Vector3(-0.25, 1.24, -2.1), EYE.clone(), zoom],
     look: [new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(-0.2, 1.1, 0), target.clone(), target],
@@ -727,262 +613,19 @@ function applyPath(u) {
   const glassK = 1 - 0.86 * span(u, 0.3, 0.55);
   M.glass.opacity = 0.86 * glassK;
   for (const m of modelGlass) m.opacity = m.userData.baseOpacity * glassK;
-  if (dest === "radio") drawNav(span(u, 0.62, 1));
-  else drawCluster(Math.sin(Math.PI * span(u, 0.74, 1)));
+  drawCluster(Math.sin(Math.PI * span(u, 0.74, 1)));
 }
-
-// ---------- Mode balade « à la Need for Speed » ----------
-// La voiture reste à l'origine : c'est le décor qui défile. Les caméras s'enchaînent comme un replay.
-const world = new THREE.Group();
-world.visible = false;
-scene.add(world);
-const lerp = (a, b, k) => a + (b - a) * k;
-
-// Route mouillée : bitume, lignes de rive, ligne centrale pointillée (texture qui défile)
-const ROAD_TILE = 18;   // mètres de route couverts par une répétition de la texture
-const roadTex = (() => {
-  const c = document.createElement("canvas");
-  c.width = 1024; c.height = 512;
-  const g = c.getContext("2d");
-  g.fillStyle = "#17191d";
-  g.fillRect(0, 0, 1024, 512);
-  for (let i = 0; i < 12000; i++) {
-    const v = 18 + Math.random() * 26 | 0;
-    g.fillStyle = `rgb(${v},${v},${v + 3})`;
-    g.fillRect(Math.random() * 1024, Math.random() * 512, 2, 2);
-  }
-  const zpx = (z) => ((z + 7) / 14) * 512;
-  g.fillStyle = "#d9d9d2";
-  g.fillRect(0, zpx(-6.4), 1024, 7);
-  g.fillRect(0, zpx(6.4) - 7, 1024, 7);
-  for (const u of [0, 512]) g.fillRect(u, zpx(0) - 4, 171, 8);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = THREE.RepeatWrapping;
-  t.repeat.set(400 / ROAD_TILE, 1);
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return t;
-})();
-const road = mesh(new THREE.PlaneGeometry(400, 14), new THREE.MeshStandardMaterial({ map: roadTex, color: 0x9a9a9a, roughness: 0.55, metalness: 0.2 }));
-road.rotation.x = -Math.PI / 2;
-world.add(road);
-const verge = mesh(new THREE.PlaneGeometry(400, 300), new THREE.MeshStandardMaterial({ color: 0x07090d, roughness: 1 }), 0, -0.01, 0);
-verge.rotation.x = -Math.PI / 2;
-world.add(verge);
-
-// Lampadaires (alternés des deux côtés) avec leur flaque de lumière orangée sur la route
-const poles = [];
-const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
-const lampMat = new THREE.MeshBasicMaterial({ color: 0xffdcaa });
-const poolMat = new THREE.MeshBasicMaterial({
-  map: radialTexture([[0, "rgba(255,168,88,0.5)"], [0.6, "rgba(255,150,70,0.12)"], [1, "rgba(255,150,70,0)"]]),
-  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-});
-for (let i = 0; i < 12; i++) {
-  const side = i % 2 ? 1 : -1;
-  const p = new THREE.Group();
-  p.add(mesh(new THREE.CylinderGeometry(0.08, 0.13, 8, 10), poleMat, 0, 4, 0));
-  p.add(box(0.12, 0.12, 2.6, poleMat, 0, 7.95, -side * 1.3));
-  p.add(box(0.55, 0.08, 0.28, lampMat, 0, 7.86, -side * 2.4));
-  const pool = mesh(new THREE.PlaneGeometry(10, 10), poolMat, 0, 0.02, -side * 2.6);
-  pool.rotation.x = -Math.PI / 2;
-  p.add(pool);
-  p.position.set(-150 + i * 25, 0, side * 7.6);
-  p.userData.side = side;
-  world.add(p);
-  poles.push(p);
-}
-// Deux vraies lumières suivent les lampadaires les plus proches : reflets qui balaient la carrosserie
-const lampLights = [0, 1].map(() => {
-  const l = new THREE.PointLight(0xffb070, 0, 0, 2);
-  world.add(l);
-  return l;
-});
-
-// Immeubles éclairés au loin
-const windowsTex = (() => {
-  const c = document.createElement("canvas");
-  c.width = 64; c.height = 128;
-  const g = c.getContext("2d");
-  g.fillStyle = "#06080c";
-  g.fillRect(0, 0, 64, 128);
-  for (let y = 4; y < 128; y += 8) {
-    for (let x = 4; x < 64; x += 8) {
-      if (Math.random() < 0.3) {
-        g.fillStyle = Math.random() < 0.8 ? "#ffcf8a" : "#9fd0ff";
-        g.fillRect(x, y, 4, 4);
-      }
-    }
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(2, 3);
-  return t;
-})();
-const buildingMat = new THREE.MeshBasicMaterial({ map: windowsTex, color: 0x9aa0aa });
-const buildings = [];
-for (let i = 0; i < 40; i++) {
-  const h = 10 + Math.random() * 40, side = i % 2 ? 1 : -1;
-  const b = box(8 + Math.random() * 14, h, 8 + Math.random() * 8, buildingMat, -160 + i * 8, h / 2, side * (32 + Math.random() * 40));
-  world.add(b);
-  buildings.push(b);
-}
-
-// Traînées de vitesse
-const streakMat = new THREE.MeshBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-const streaks = [];
-function resetStreak(s, anywhere) {
-  const side = Math.random() < 0.5 ? -1 : 1;
-  s.scale.x = 2 + Math.random() * 6;
-  s.position.set(anywhere ? -60 + Math.random() * 120 : 60 + Math.random() * 30, 0.2 + Math.random() * 3.2, side * (2.9 + Math.random() * 5));
-}
-for (let i = 0; i < 70; i++) {
-  const s = box(1, 0.012, 0.012, streakMat, 0, 0, 0);
-  resetStreak(s, true);
-  world.add(s);
-  streaks.push(s);
-}
-
-// Plans de caméra : départ → arrivée (relatifs à la voiture), point visé, focale
-const SHOT_S = 4.2;
-const SHOTS = [
-  { from: [-7.5, 1.7, 0], to: [-6.2, 1.4, 0.7], look: [2, 0.7, 0], fov: 42 },           // poursuite
-  { from: [6.8, 0.45, 3.4], to: [5.4, 0.5, 2.6], look: [0, 0.55, 0], fov: 38 },          // avant 3/4 au ras du sol
-  { from: [2.8, 0.9, 5.2], to: [-2.8, 0.9, 5.2], look: [0, 0.6, 0], fov: 45 },           // travelling latéral
-  { from: [2.7, 0.34, 2.0], to: [2.0, 0.34, 1.75], look: [1.2, 0.3, 0.75], fov: 50 },    // gros plan roue avant
-  { from: [-5.5, 3.2, -4.5], to: [-4.2, 2.6, -3.6], look: [1, 0.5, 0], fov: 40 },        // 3/4 arrière plongeant
-];
-const GEARS = [0, 118, 63, 40, 28, 21];   // tr/min par km/h, BVM5 du dCi 90 (approx.)
-const drive = { on: false, t: 0, v: 0, gear: 1, lane: 1.75, laneT: 6, shot: 0, shotT: 0, camZ: 1.75, fov: 42 };
-const tmp = new THREE.Vector3();
-
-function updateDrive(dt) {
-  drive.t += dt;
-
-  // Vitesse : montée en régime, croisière qui ondule, nitro toutes les 14 s
-  const phase = drive.t % 14, nos = drive.t > 6 && phase > 10.5;
-  const target = nos ? 215 : 135 + 25 * Math.sin(drive.t * 0.35);
-  const accel = Math.max(-25, Math.min(nos ? 32 : 14, (target - drive.v) * 0.9));   // km/h par seconde
-  drive.v = Math.max(0, drive.v + accel * dt);
-  const ms = drive.v / 3.6, dx = ms * dt;
-
-  // Dépassements : changement de file, avec lacet et roulis de la caisse
-  drive.laneT -= dt;
-  if (drive.laneT <= 0) {
-    drive.lane = -drive.lane;
-    drive.laneT = 5 + Math.random() * 4;
-  }
-  const z0 = car.position.z;
-  car.position.z += (drive.lane - car.position.z) * Math.min(1, dt * 1.3);
-  const vz = (car.position.z - z0) / Math.max(dt, 1e-3);
-  car.rotation.y = -Math.atan2(vz, Math.max(ms, 1)) * 1.6;
-  car.rotation.x = -vz * 0.02;
-  car.rotation.z = lerp(car.rotation.z, accel * 0.0011, Math.min(1, dt * 4));
-  car.position.y = Math.sin(drive.t * 37) * 0.003 * Math.min(1, ms / 30);
-  shadow.position.z = car.position.z;
-  // Roues : vitesse de rotation plafonnée à l'écran pour éviter l'effet stroboscopique
-  for (const w of wheels) w.rotation.z -= Math.min(ms / WHEEL_R, 20) * dt;
-
-  // Décor qui défile
-  roadTex.offset.x += dx / ROAD_TILE;
-  for (const p of poles) if ((p.position.x -= dx) < -150) p.position.x += 300;
-  for (const b of buildings) if ((b.position.x -= dx * 0.9) < -160) b.position.x += 320;
-  for (const s of streaks) if ((s.position.x -= dx * 1.6) < -40) resetStreak(s, false);
-  streakMat.opacity = Math.max(0, Math.min(1, (drive.v - 100) / 110)) * 0.5 + (nos ? 0.3 : 0);
-  const near = [...poles].sort((a, b) => Math.abs(a.position.x) - Math.abs(b.position.x)).slice(0, 2);
-  near.forEach((p, i) => {
-    lampLights[i].position.set(p.position.x, 7.6, p.position.z - p.userData.side * 2.4);
-    lampLights[i].intensity = 140 * Math.max(0, 1 - Math.abs(p.position.x) / 22);
-  });
-
-  // Caméra : plans enchaînés en cut, léger travelling, tremblement et focale qui s'ouvre avec la vitesse
-  drive.shotT += dt;
-  if (drive.shotT > SHOT_S) {
-    drive.shotT = 0;
-    drive.shot = (drive.shot + 1) % SHOTS.length;
-  }
-  const s = SHOTS[drive.shot], k = drive.shotT / SHOT_S;
-  drive.camZ += (car.position.z - drive.camZ) * Math.min(1, dt * 2.2);
-  const shake = 0.004 + (nos ? 0.018 : 0) + Math.max(0, drive.v - 120) * 0.00008;
-  camera.position.set(
-    lerp(s.from[0], s.to[0], k) + (Math.random() - 0.5) * shake,
-    lerp(s.from[1], s.to[1], k) + (Math.random() - 0.5) * shake,
-    lerp(s.from[2], s.to[2], k) + drive.camZ,
-  );
-  camera.lookAt(tmp.set(s.look[0], s.look[1], s.look[2] + car.position.z));
-  drive.fov = lerp(drive.fov, s.fov + Math.max(0, drive.v - 120) * 0.06 + (nos ? 8 : 0), Math.min(1, dt * 3));
-  camera.fov = drive.fov;
-  camera.updateProjectionMatrix();
-
-  // Compteur
-  while (drive.gear < 5 && drive.v * GEARS[drive.gear] > 3900) drive.gear++;
-  while (drive.gear > 1 && drive.v * GEARS[drive.gear] < 1600) drive.gear--;
-  const rpm = Math.max(850, drive.v * GEARS[drive.gear]);
-  $("h-speed").textContent = Math.round(drive.v);
-  $("h-gear").textContent = drive.gear;
-  $("h-rpm").style.width = `${Math.min(100, (rpm / 5000) * 100)}%`;
-  $("h-nos").style.width = `${(nos ? 1 - (phase - 10.5) / 3.5 : Math.min(1, phase / 10.5)) * 100}%`;
-}
-
-// De nuit, l'éclairage « studio » s'efface : ce sont les lampadaires qui éclairent la voiture
-function setNight(on) {
-  scene.environmentIntensity = on ? 0.22 : 0.85;
-  key.intensity = on ? 0.25 : 2.2;
-  rim.intensity = on ? 0.9 : 1.6;
-  hemi.intensity = on ? 0.15 : 0.45;
-}
-
-function startDrive() {
-  if (mode !== "home" || drive.on) return;
-  Object.assign(drive, { on: true, t: 0, v: 0, gear: 1, lane: 1.75, laneT: 6, shot: 0, shotT: 0, camZ: 1.75, fov: 42 });
-  car.position.z = 1.75;
-  world.visible = true;
-  floor.visible = ring.visible = false;
-  scene.fog.near = 25;
-  scene.fog.far = 170;
-  setNight(true);
-  controls.enabled = false;
-  document.body.classList.add("driving");
-  $("drive-label").textContent = "Garage";
-}
-
-function stopDrive() {
-  if (!drive.on) return;
-  drive.on = false;
-  car.position.set(0, 0, 0);
-  car.rotation.set(0, 0, 0);
-  shadow.position.z = 0;
-  world.visible = false;
-  floor.visible = ring.visible = true;
-  scene.fog.near = 14;
-  scene.fog.far = 32;
-  setNight(false);
-  camera.position.copy(HOME_POS);
-  controls.target.copy(HOME_TARGET);
-  camera.fov = 32;
-  camera.updateProjectionMatrix();
-  controls.enabled = true;
-  document.body.classList.remove("driving");
-  $("drive-label").textContent = "Rouler";
-}
-$("drive").onclick = () => (drive.on ? stopDrive() : startDrive());
 
 // ---------- États : accueil → entrée → dashboard → sortie ----------
 const ui = $("ui"), back = $("back");
-const FRAMES = { dash: $("dash"), radio: $("radio") };
-const URLS = { dash: "/dashboard", radio: "/autoradio" };
+const frame = $("dash");
 const DURATION = 4200;
-let mode = "home", t0 = 0, dest = "dash";
+let mode = "home", t0 = 0;
 
-// dest : "dash" (combiné → dashboard) ou "radio" (écran central → autoradio)
-function enter(to = "dash") {
+function enter() {
   if (mode !== "home") return;
-  stopDrive();
-  dest = to;
-  const frame = FRAMES[dest];
-  if (!frame.src) frame.src = URLS[dest];
-  const { pos, look } = pathPoints(dest === "radio" ? nav : cluster);
+  if (!frame.src) frame.src = "/dashboard";
+  const { pos, look } = pathPoints(cluster);
   posCurve = new THREE.CatmullRomCurve3([camera.position.clone(), ...pos]);
   lookCurve = new THREE.CatmullRomCurve3([controls.target.clone(), ...look]);
   controls.enabled = false;
@@ -993,24 +636,16 @@ function enter(to = "dash") {
 
 function leave() {
   if (mode !== "dash") return;
-  FRAMES[dest].classList.remove("on");
+  frame.classList.remove("on");
   back.classList.remove("on");
   mode = "leaving";
   t0 = performance.now();
 }
 
-$("go").onclick = () => enter("dash");
-$("radio-go").onclick = () => enter("radio");
+$("go").onclick = enter;
 back.onclick = leave;
-// Échap tapé dans l'autoradio (le focus est dans l'iframe)
-addEventListener("message", (e) => { if (e.origin === location.origin && e.data === "clio:leave") leave(); });
 addEventListener("keydown", (e) => {
-  if (e.key === "Enter") enter("dash");
-  if ((e.key === "r" || e.key === "R") && mode === "home") enter("radio");
-  if (e.key === " " && mode === "home") {
-    e.preventDefault();
-    drive.on ? stopDrive() : startDrive();
-  }
+  if (e.key === "Enter") enter();
   if (e.key === "Escape") leave();
 });
 
@@ -1022,20 +657,16 @@ function resize() {
 addEventListener("resize", resize);
 resize();
 
-let lastFrame = performance.now();
 renderer.setAnimationLoop((now) => {
-  const dt = Math.min(0.05, (now - lastFrame) / 1000);
-  lastFrame = now;
   if (mode === "home") {
-    if (drive.on) updateDrive(dt);
-    else controls.update();
+    controls.update();
   } else if (mode === "entering" || mode === "leaving") {
     const k = clamp01((now - t0) / DURATION);
     applyPath(ease(mode === "entering" ? k : 1 - k));
     if (k >= 1 && mode === "entering") {
       mode = "dash";
-      FRAMES[dest].classList.add("on");
-      FRAMES[dest].focus();
+      frame.classList.add("on");
+      frame.focus();
       back.classList.add("on");
     } else if (k >= 1) {
       mode = "home";
@@ -1043,7 +674,6 @@ renderer.setAnimationLoop((now) => {
       camera.updateProjectionMatrix();
       controls.enabled = true;
       ui.classList.remove("hidden");
-      drawNav(0);
     }
   } else if (mode === "dash") {
     return; // le dashboard couvre tout l'écran : inutile de dessiner la 3D

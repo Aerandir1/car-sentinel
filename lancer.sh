@@ -3,8 +3,7 @@
 #
 #   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
 #   ./lancer.sh demo            # simulation, sans voiture
-#   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv --gps /dev/ttyACM0
-#   ./lancer.sh inventaire          # inventaire des capteurs (inventaire.py)
+#   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv
 #
 # Les options sont transmises telles quelles à dashboard_clio.py (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.
@@ -25,12 +24,6 @@ if ! "$PY" -c "import obd" 2>/dev/null; then
     "$PY" -m pip install -q -r requirements.txt
 fi
 
-# Inventaire des capteurs : même environnement Python, sans serveur ni navigateur
-if [[ "${1:-}" == "inventaire" ]]; then
-    shift
-    exec "$PY" inventaire.py "$@"
-fi
-
 # Raccourci « demo » → --demo
 args=()
 for a in "$@"; do
@@ -47,7 +40,7 @@ for a in "${args[@]}"; do
 done
 url="$scheme://127.0.0.1:$http_port"
 
-# Ouvre Chromium (WebUSB pour CarPlay) une fois le serveur prêt.
+# Ouvre le navigateur une fois le serveur prêt.
 if [[ -z "${NO_BROWSER:-}" ]]; then
     (
         for _ in $(seq 1 30); do

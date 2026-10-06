@@ -12,10 +12,8 @@ import argparse
 import csv
 import json
 import math
-import os
 import random
 import shutil
-import socket
 import ssl
 import subprocess
 import threading
@@ -25,9 +23,10 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 HERE = Path(__file__).resolve().parent
+WEB = HERE / "web"            # pages, scripts et fichiers servis au navigateur
 BARO_DEFAULT_KPA = 101.3
-MODELS = HERE / "models"
-LOGOS = HERE / "logo"
+MODELS = WEB / "models"
+LOGOS = WEB / "logo"
 CERTS = HERE / "certs"
 MODEL_FILES = ("clio.glb", "clio/scene.gltf")   # le premier trouvé remplace la Clio dessinée en code
 STATIC_TYPES = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css"}
@@ -144,124 +143,6 @@ class State:
                 "metrics": metrics,
                 "unsupported": [lbl for k, lbl, *_ in METRICS if k in self.unsupported],
             }
-
-
-class Gps:
-    """Dernière position GPS, remplie par gps_loop, lue par /api/gps."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.data = {"status": "pas de GPS", "source": None, "fix": False}
-        self.t = 0.0
-
-    def set(self, **kw):
-        with self.lock:
-            self.data.update(kw)
-            if kw.get("fix"):
-                self.t = time.time()
-
-    def snapshot(self):
-        with self.lock:
-            d = dict(self.data)
-            age = time.time() - self.t if self.t else None
-        d["age"] = round(age, 1) if age is not None else None
-        if age is None or age > 5:      # position trop vieille : on ne s'en sert plus pour guider
-            d["fix"] = False
-        return d
-
-
-def nmea_coord(value, hemi):
-    """ddmm.mmmm (ou dddmm.mmmm) + N/S/E/W → degrés décimaux."""
-    if not value:
-        return None
-    dot = value.index(".")
-    deg = float(value[:dot - 2]) + float(value[dot - 2:]) / 60
-    return -deg if hemi in ("S", "W") else deg
-
-
-def nmea_line(gps, line):
-    """Lit une phrase NMEA ($GPRMC, $GNGGA…) et met à jour la position."""
-    line = line.strip()
-    if not line.startswith("$") or "*" not in line:
-        return
-    body, _, check = line[1:].partition("*")
-    calc = 0
-    for ch in body:
-        calc ^= ord(ch)
-    if f"{calc:02X}" != check[:2].upper():
-        return
-    f = body.split(",")
-    kind = f[0][2:]
-    try:
-        if kind == "RMC" and len(f) > 8:
-            if f[2] != "A":
-                gps.set(fix=False, status="recherche des satellites…")
-                return
-            gps.set(fix=True, status="ok", lat=nmea_coord(f[3], f[4]), lon=nmea_coord(f[5], f[6]),
-                    speed=round(float(f[7] or 0) * 1.852, 1), heading=float(f[8]) if f[8] else None)
-        elif kind == "GGA" and len(f) > 9:
-            gps.set(sats=int(f[7] or 0), alt=float(f[9]) if f[9] else None)
-    except ValueError:
-        pass
-
-
-def open_serial(path):
-    """Port série du récepteur en mode brut, 9600 bauds (sans effet sur les clés USB ttyACM)."""
-    import termios
-    fd = os.open(path, os.O_RDONLY | os.O_NOCTTY)
-    attrs = termios.tcgetattr(fd)
-    attrs[0] = attrs[1] = attrs[3] = 0                      # iflag, oflag, lflag : brut
-    attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL  # cflag
-    attrs[4] = attrs[5] = termios.B9600
-    termios.tcsetattr(fd, termios.TCSANOW, attrs)
-    return os.fdopen(fd, "rb", buffering=0)
-
-
-def gps_loop(gps, spec):
-    """Lit le GPS en continu et se reconnecte en cas de coupure.
-
-    spec : /dev/ttyACM0 (clé USB), tcp:172.20.10.1:11123 (iPhone avec GPS2IP), gpsd ou gpsd:hôte:port.
-    """
-    if spec.startswith("gpsd"):
-        _, host, port = (spec.split(":") + ["127.0.0.1", "2947"])[:3]
-        source, label = "gpsd", f"gpsd {host}:{port}"
-    elif spec.startswith("tcp:"):
-        _, host, port = spec.split(":")
-        source, label = "iphone", f"{host}:{port}"
-    else:
-        source, label = "usb", spec
-    gps.set(source=source)
-    while True:
-        gps.set(fix=False, status=f"connexion à {label}…")
-        try:
-            if source == "usb":
-                stream = open_serial(spec)
-            else:
-                sock = socket.create_connection((host or "127.0.0.1", int(port)), timeout=10)
-                sock.settimeout(10)
-                if source == "gpsd":
-                    sock.sendall(b'?WATCH={"enable":true,"json":true}\n')
-                stream = sock.makefile("rb")
-            gps.set(status="recherche des satellites…")
-            for raw in stream:
-                line = raw.decode("ascii", "replace")
-                if source != "gpsd":
-                    nmea_line(gps, line)
-                    continue
-                msg = json.loads(line)
-                if msg.get("class") == "TPV":
-                    if msg.get("mode", 0) >= 2 and "lat" in msg:
-                        gps.set(fix=True, status="ok", lat=msg["lat"], lon=msg["lon"],
-                                speed=round(msg.get("speed", 0) * 3.6, 1), heading=msg.get("track"), alt=msg.get("altHAE", msg.get("alt")))
-                    else:
-                        gps.set(fix=False, status="recherche des satellites…")
-                elif msg.get("class") == "SKY":
-                    used = msg.get("uSat") or sum(1 for sat in msg.get("satellites", []) if sat.get("used"))
-                    gps.set(sats=used)
-            gps.set(fix=False, status=f"{label} : flux coupé, reconnexion…")
-        except (OSError, ValueError) as e:
-            gps.set(fix=False, status=f"{label} indisponible ({e.strerror or e}), nouvel essai…")
-        time.sleep(3)
 
 
 class CsvLogger:
@@ -425,11 +306,9 @@ class QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_handler(state, gps, scheme):
-    pages = {"/": "accueil.html", "/index.html": "accueil.html", "/dashboard": "dashboard.html",
-             "/autoradio": "autoradio.html", "/spotify-callback": "spotify-callback.html"}
-    vendor = HERE / "vendor"
-    scripts = {"/navigation.js": HERE / "navigation.js"}
+def make_handler(state, scheme):
+    pages = {"/": "accueil.html", "/index.html": "accueil.html", "/dashboard": "dashboard.html"}
+    vendor = WEB / "vendor"
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, body, ctype):
@@ -440,8 +319,7 @@ def make_handler(state, gps, scheme):
             self.wfile.write(body)
 
         def do_GET(self):
-            # Une seule origine (127.0.0.1) : Spotify n'accepte que cette adresse en retour de connexion,
-            # et les réglages du navigateur (localStorage, accès USB) sont rangés par origine.
+            # Une seule origine (127.0.0.1) : les réglages du navigateur (localStorage) sont rangés par origine.
             host = self.headers.get("Host", "")
             if host.startswith("localhost"):
                 self.send_response(302)
@@ -450,17 +328,13 @@ def make_handler(state, gps, scheme):
                 return
             path = urlsplit(self.path).path
             if path in pages:
-                self._send(200, (HERE / pages[path]).read_bytes(), "text/html; charset=utf-8")
-            elif path in scripts:
-                self._send(200, scripts[path].read_bytes(), "text/javascript")
+                self._send(200, (WEB / pages[path]).read_bytes(), "text/html; charset=utf-8")
             elif path.startswith("/vendor/"):
                 f = (vendor / unquote(path[8:])).resolve()
                 if f.is_file() and f.is_relative_to(vendor) and f.suffix in STATIC_TYPES:
                     self._send(200, f.read_bytes(), STATIC_TYPES[f.suffix])
                 else:
                     self._send(404, b"not found", "text/plain")
-            elif path == "/api/gps":
-                self._send(200, json.dumps(gps.snapshot()).encode(), "application/json")
             elif path.startswith("/models/"):
                 f = (MODELS / unquote(path[8:])).resolve()
                 if f.is_file() and f.is_relative_to(MODELS) and f.suffix.lower() in MODEL_TYPES:
@@ -518,8 +392,6 @@ def main():
                    help="fréquence max d'acquisition (défaut : 10 en démo, 20 sinon)")
     p.add_argument("--fast", action="store_true", help="mode rapide python-obd (requêtes plus courtes)")
     p.add_argument("--http", type=int, default=8080, help="port local de la page web (défaut 8080)")
-    p.add_argument("--gps", metavar="SOURCE",
-                   help="GPS : /dev/ttyACM0 (clé USB), tcp:172.20.10.1:11123 (iPhone + GPS2IP) ou gpsd")
     p.add_argument("--no-https", action="store_true", help="sert la page en HTTP simple (sans certificat)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
@@ -533,12 +405,9 @@ def main():
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})
     loop = demo_loop if args.demo else obd_loop
     threading.Thread(target=loop, args=(state, args, logger_factory), daemon=True).start()
-    gps = Gps()
-    if args.gps:
-        threading.Thread(target=gps_loop, args=(gps, args.gps), daemon=True).start()
 
     scheme = "http" if args.no_https else "https"
-    server = QuietServer((args.bind, args.http), make_handler(state, gps, scheme))
+    server = QuietServer((args.bind, args.http), make_handler(state, scheme))
     if not args.no_https:
         crt, key, trusted = ensure_cert()
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

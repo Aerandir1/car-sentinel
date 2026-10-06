@@ -1,4 +1,0 @@
-# Dongle CarPlay Carlinkit (CPC200-CCPA / Autokit) : accès USB pour le navigateur (WebUSB) sans être root.
-# sudo cp udev/70-carlinkit.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger
-# Numéro < 73 : le tag uaccess doit être posé avant 73-seat-late.rules, sinon logind ne donne pas l'accès.
-SUBSYSTEM=="usb", ATTR{idVendor}=="1314", ATTR{idProduct}=="152[01]", MODE="0660", TAG+="uaccess"
