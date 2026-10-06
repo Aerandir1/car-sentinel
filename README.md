@@ -14,7 +14,7 @@ Autour :
 ```
 dashboard_clio.py     point d'entrée : options, lancement de l'acquisition et du serveur
 etat.py               liste des métriques (METRICS), état partagé, CSV
-acquisition.py        lecture de l'ECU par l'ELM327, ou simulation (--demo)
+acquisition.py        lecture de l'ECU par l'ELM327
 serveur.py            serveur HTTP : page, logos, API JSON
 certs.py              certificat HTTPS (mkcert ou auto-signé)
 donnees.py            enregistrement des mesures horodatées (SQLite)
@@ -45,10 +45,17 @@ La page est servie en **https://127.0.0.1:8080**. Au premier lancement, le scrip
 
 ## Docker (Docker Desktop Windows, macOS, Linux)
 
+ELM327 USB branché, contact mis :
+
 ```bash
-docker compose up --build                  # mode démo → https://127.0.0.1:8080
-CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400" docker compose up   # autres options du script (PowerShell : $env:CLIO_ARGS="…")
+docker compose down                                                   # si un ancien conteneur tourne encore
+OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build          # puis https://127.0.0.1:8080
 ```
+
+`OBD_GID` donne au conteneur le droit d'ouvrir le port série (sous Arch, il appartient au groupe `uucp` ;
+par défaut 20 = dialout, celui de WSL / Debian / Ubuntu). `OBD_DEVICE=/dev/ttyACM0` si la clé n'apparaît pas
+en `ttyUSB0`. Autres options du script : `CLIO_ARGS="--port /dev/ttyUSB0 --log logs/trajet.csv"`
+(PowerShell : `$env:CLIO_ARGS="…"`).
 
 Le certificat est rangé dans `certs/` et les CSV dans `logs/` (`--log logs/trajet.csv`). Le navigateur
 tourne sous Windows, hors du conteneur : rien de spécial côté Docker. Le conteneur n'a pas
@@ -56,8 +63,8 @@ mkcert : soit on accepte l'avertissement, soit on importe `certs/selfsigned.pem`
 certification racines de confiance*).
 
 **ELM327 depuis le conteneur.** Docker Desktop ne voit pas les ports COM de Windows. Selon l'adaptateur :
-- **Wi-Fi** : rien à transmettre, `CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400" docker compose up`
-  (PC connecté au Wi-Fi de l'adaptateur).
+- **Wi-Fi** : PC connecté au Wi-Fi de l'adaptateur, aucune clé à transmettre (`OBD_DEVICE=/dev/null`) :
+  `OBD_DEVICE=/dev/null CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400" docker compose up`
 - **USB** : passer la clé à WSL2 avec [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
   ```powershell
   winget install usbipd
@@ -65,24 +72,20 @@ certification racines de confiance*).
   usbipd bind --busid 2-3              # une seule fois
   usbipd attach --wsl --busid 2-3      # à refaire à chaque branchement
   ```
-  puis `docker compose -f docker-compose.yml -f docker-compose.obd.yml up --build`
-  (`OBD_DEVICE=/dev/ttyACM0` si la clé n'apparaît pas en `ttyUSB0`).
-  Sous Linux, le conteneur tourne sous ton utilisateur : donner le groupe du port série avec
-  `OBD_GID=$(stat -c %g /dev/ttyUSB0)` (par défaut 20 = dialout, celui de WSL / Debian / Ubuntu).
+  puis `docker compose up --build`.
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
   exemples de pyserial), puis `--port rfc2217://host.docker.internal:2217`.
 
 ## Utilisation
 
 ```bash
-python dashboard_clio.py --demo                              # simulation d'un trajet dCi, sans voiture
 python dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture, contact mis
 ```
 
 | Option | Rôle |
 |---|---|
 | `--port` | port série de l'ELM327 (auto-détection si absent) |
-| `--db FICHIER.db` | base des mesures (défaut `data/clio.db`, `data/demo.db` en démo) |
+| `--db FICHIER.db` | base des mesures (défaut `data/clio.db`) |
 | `--no-db` | n'enregistre rien |
 | `--log FICHIER.csv` | enregistre les mesures en CSV |
 | `--log-hz` | fréquence du CSV (défaut 5 Hz) |
@@ -91,7 +94,7 @@ python dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture
 | `--no-https` | sert la page en HTTP simple, sans certificat |
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
-| `--max-hz` | fréquence max d'acquisition (défaut 10 en démo, 20 sinon) |
+| `--max-hz` | fréquence max d'acquisition (défaut 20) |
 
 L'onglet **Paramètres** du dashboard règle tout ça à chaud :
 - affichage (gardé dans le navigateur) : rafraîchissement de la page, durée du graphique ;
@@ -112,8 +115,8 @@ métrique sont tracés quand ils tombent dans l'échelle. La courbe est coupée 
 
 ## Données
 
-Chaque valeur lue est enregistrée avec son horodatage dans une base SQLite (`data/clio.db`, ou `data/demo.db`
-pour la simulation, pour ne pas mélanger). L'ELM327 interroge les PID l'un après l'autre : chaque valeur porte
+Chaque valeur lue est enregistrée avec son horodatage dans une base SQLite (`data/clio.db`).
+L'ELM327 interroge les PID l'un après l'autre : chaque valeur porte
 l'instant exact où le calculateur a répondu, pas l'heure de la boucle. Une non-réponse est gardée (valeur vide) :
 on sait quand un capteur a décroché. La suralimentation calculée prend l'horodatage de la pression d'admission.
 Écriture groupée une fois par seconde, environ 3 Mo par heure de route.

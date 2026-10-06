@@ -152,7 +152,7 @@
     <h2 style="margin-top:20px">Acquisition <span id="saved">enregistré</span></h2>
     <p class="note">Appliqué tout de suite par le script Python, jusqu'à son arrêt.</p>
     <div class="row">
-      <label for="s-max_hz">Fréquence max d'acquisition<small>Boucle de lecture de l'ECU (ou de la simulation)</small></label>
+      <label for="s-max_hz">Fréquence max d'acquisition<small>Boucle de lecture de l'ECU</small></label>
       <input type="range" id="s-max_hz" min="0.5" max="50" step="0.5">
       <output id="o-max_hz"></output>
     </div>
@@ -162,7 +162,7 @@
       <output id="o-delay"></output>
     </div>
     <div class="row">
-      <label for="s-fast">Mode rapide (fast)<small>Requêtes OBD plus courtes. Reconnecte l'ELM327 ; sans effet en démo</small></label>
+      <label for="s-fast">Mode rapide (fast)<small>Requêtes OBD plus courtes. Reconnecte l'ELM327</small></label>
       <input type="checkbox" id="s-fast" style="width:auto;justify-self:start">
       <output id="o-fast"></output>
     </div>
@@ -360,7 +360,7 @@ async function poll() {
     }
     last = s;
     for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
-    const live = s.status.startsWith("connecté") || s.status === "démo";
+    const live = s.status.startsWith("connecté");
     $("dot").style.background = live ? css("--ok") : css("--hot");
     $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
     updateTiles(s);

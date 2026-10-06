@@ -2,7 +2,6 @@
 # Lance le serveur du dashboard Clio.
 #
 #   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
-#   ./lancer.sh demo            # simulation, sans voiture
 #   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv
 #
 # Les options sont transmises telles quelles à dashboard_clio.py (voir README).
@@ -24,11 +23,7 @@ if ! "$PY" -c "import obd" 2>/dev/null; then
     "$PY" -m pip install -q -r requirements.txt
 fi
 
-# Raccourci « demo » → --demo
-args=()
-for a in "$@"; do
-    [[ "$a" == "demo" ]] && args+=("--demo") || args+=("$a")
-done
+args=("$@")
 
 # URL de la page (suit --http et --no-https s'ils sont passés)
 scheme=https; http_port=8080; prev=""

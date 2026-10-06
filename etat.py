@@ -38,7 +38,7 @@ DERIVED = {"key": "boost", "label": "Suralimentation", "unit": "bar", "range": (
 
 # Réglages modifiables à chaud depuis l'onglet Paramètres : clé -> (min, max)
 SETTINGS_LIMITS = {
-    "max_hz": (0.5, 50.0),   # fréquence max de la boucle d'acquisition (tick de la démo)
+    "max_hz": (0.5, 50.0),   # fréquence max de la boucle d'acquisition
     "delay": (0.0, 1.0),     # pause en s entre deux requêtes OBD
     "log_hz": (0.2, 50.0),   # fréquence du CSV
 }

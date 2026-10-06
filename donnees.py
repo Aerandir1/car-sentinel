@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS trips (
     id        INTEGER PRIMARY KEY,
     start_ms  INTEGER NOT NULL,          -- première mesure
     end_ms    INTEGER,                   -- dernière mesure enregistrée
-    source    TEXT                       -- adaptateur et protocole, ou « simulation »
+    source    TEXT                       -- adaptateur et protocole
 );
 CREATE TABLE IF NOT EXISTS samples (
     trip_id   INTEGER NOT NULL REFERENCES trips(id),

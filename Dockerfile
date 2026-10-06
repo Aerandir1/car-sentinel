@@ -17,4 +17,3 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
 # Écoute sur toutes les interfaces du conteneur ; le port n'est publié que sur 127.0.0.1 côté hôte (compose).
 ENTRYPOINT ["python", "dashboard_clio.py", "--bind", "0.0.0.0"]
-CMD ["--demo"]
