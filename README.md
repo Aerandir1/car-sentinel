@@ -12,7 +12,11 @@ Autour :
 - le scan approfondi du calculateur (inventaire des capteurs, UDS, diagnostic) : repo à part.
 
 ```
-dashboard_clio.py     serveur : lecture OBD, API JSON
+dashboard_clio.py     point d'entrée : options, lancement de l'acquisition et du serveur
+etat.py               liste des métriques (METRICS), état partagé, CSV
+acquisition.py        lecture de l'ECU par l'ELM327, ou simulation (--demo)
+serveur.py            serveur HTTP : page, logos, API JSON
+certs.py              certificat HTTPS (mkcert ou auto-signé)
 donnees.py            enregistrement des mesures horodatées (SQLite)
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
@@ -95,7 +99,7 @@ L'onglet **Paramètres** du dashboard règle tout ça à chaud :
   mode rapide (le basculer relance la connexion à l'ELM327).
 
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
-Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `dashboard_clio.py`.
+Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `etat.py`.
 
 ## Courbes
 
