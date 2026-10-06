@@ -20,18 +20,12 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 WEB = HERE / "web"            # pages, scripts et fichiers servis au navigateur
 BARO_DEFAULT_KPA = 101.3
-MODELS = WEB / "models"
-LOGOS = WEB / "logo"
 CERTS = HERE / "certs"
-MODEL_FILES = ("clio.glb", "clio/scene.gltf")   # le premier trouvé remplace la Clio dessinée en code
-STATIC_TYPES = {".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css"}
-MODEL_TYPES = {".glb": "model/gltf-binary", ".gltf": "model/gltf+json", ".bin": "application/octet-stream",
-               ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
 
 # key, libellé, unité, commande python-obd, conversion, min/max d'affichage,
 # seuil d'alerte (rouge au-delà), seuil "froid" (bleu en dessous)
@@ -307,13 +301,16 @@ class QuietServer(ThreadingHTTPServer):
 
 
 def make_handler(state, scheme):
-    pages = {"/": "accueil.html", "/index.html": "accueil.html", "/dashboard": "dashboard.html"}
-    vendor = WEB / "vendor"
+    pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, body, ctype):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
+            # Le hub (page 3D, autre port) lit /api/state : autorisé pour les pages locales seulement
+            origin = self.headers.get("Origin", "")
+            if urlsplit(origin).hostname in ("127.0.0.1", "localhost"):
+                self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
@@ -329,27 +326,6 @@ def make_handler(state, scheme):
             path = urlsplit(self.path).path
             if path in pages:
                 self._send(200, (WEB / pages[path]).read_bytes(), "text/html; charset=utf-8")
-            elif path.startswith("/vendor/"):
-                f = (vendor / unquote(path[8:])).resolve()
-                if f.is_file() and f.is_relative_to(vendor) and f.suffix in STATIC_TYPES:
-                    self._send(200, f.read_bytes(), STATIC_TYPES[f.suffix])
-                else:
-                    self._send(404, b"not found", "text/plain")
-            elif path.startswith("/models/"):
-                f = (MODELS / unquote(path[8:])).resolve()
-                if f.is_file() and f.is_relative_to(MODELS) and f.suffix.lower() in MODEL_TYPES:
-                    self._send(200, f.read_bytes(), MODEL_TYPES[f.suffix.lower()])
-                else:
-                    self._send(404, b"not found", "text/plain")
-            elif path.startswith("/logo/"):
-                f = (LOGOS / unquote(path[6:])).resolve()
-                if f.is_file() and f.is_relative_to(LOGOS) and f.suffix.lower() == ".svg":
-                    self._send(200, f.read_bytes(), "image/svg+xml")
-                else:
-                    self._send(404, b"not found", "text/plain")
-            elif path == "/api/model":
-                found = next((m for m in MODEL_FILES if (MODELS / m).is_file()), None)
-                self._send(200, json.dumps({"url": found and f"/models/{found}"}).encode(), "application/json")
             elif path == "/api/state":
                 self._send(200, json.dumps(state.snapshot()).encode(), "application/json")
             elif path == "/api/meta":
