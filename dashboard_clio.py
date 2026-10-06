@@ -20,10 +20,14 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
+
+import donnees
 
 HERE = Path(__file__).resolve().parent
 WEB = HERE / "web"            # pages, scripts et fichiers servis au navigateur
+LOGOS = WEB / "logo"
+DATA = HERE / "data"          # bases SQLite des mesures horodatées (voir donnees.py)
 BARO_DEFAULT_KPA = 101.3
 CERTS = HERE / "certs"
 
@@ -69,6 +73,8 @@ class State:
     def __init__(self):
         self.lock = threading.Lock()
         self.values = {}
+        self.times = {}       # horodatage (ms UTC) de la dernière valeur de chaque métrique
+        self.recorder = None  # donnees.Recorder : chaque valeur part aussi dans la base
         self.mins = {}
         self.maxs = {}
         self.supported = []
@@ -92,9 +98,14 @@ class State:
                     self.settings[key] = bool(new[key])
             return dict(self.settings)
 
-    def update(self, key, value):
+    def update(self, key, value, t_ms=None):
+        """Nouvelle valeur, horodatée à l'appel (juste après la réponse du calculateur) sauf t_ms donné."""
+        t_ms = t_ms or donnees.now_ms()
+        if self.recorder:
+            self.recorder.add(key, t_ms, value)
         with self.lock:
             self.values[key] = value
+            self.times[key] = t_ms
             if value is None:
                 return
             self.mins[key] = min(self.mins.get(key, value), value)
@@ -103,9 +114,15 @@ class State:
     def derive(self):
         with self.lock:
             m = self.values.get("map")
+            t_map = self.times.get("map")
             baro = self.values.get("baro") or BARO_DEFAULT_KPA
         if m is not None:
-            self.update("boost", round((m - baro) / 100, 3))
+            self.update("boost", round((m - baro) / 100, 3), t_map)   # même instant que la pression d'admission
+
+    def set_source(self, source):
+        self.source = source
+        if self.recorder:
+            self.recorder.set_source(source)
 
     def reset_minmax(self):
         with self.lock:
@@ -119,6 +136,7 @@ class State:
                 "status": self.status,
                 "hz": round(self.hz, 1),
                 "values": dict(self.values),
+                "ts": dict(self.times),
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }
@@ -183,7 +201,7 @@ def obd_loop(state, args, logger_factory):
                 state.supported.append(key)
             else:
                 state.unsupported.append(key)
-        state.source = f"{conn.port_name()} · {conn.protocol_name()}"
+        state.set_source(f"{conn.port_name()} · {conn.protocol_name()}")
         state.status = "connecté (rapide)" if fast else "connecté"
         logger = logger_factory(state.supported + (["boost"] if "map" in state.supported else []))
 
@@ -224,7 +242,7 @@ def demo_loop(state, args, logger_factory):
     keys = [m[0] for m in METRICS if m[0] != "egr_err"]
     state.supported = keys
     state.unsupported = [m[0] for m in METRICS if m[0] not in keys]
-    state.source = "simulation dCi 90"
+    state.set_source("simulation dCi 90")
     state.status = "démo"
     logger = logger_factory(keys + ["boost"])
 
@@ -300,7 +318,7 @@ class QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_handler(state, scheme):
+def make_handler(state, scheme, db_path):
     pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
 
     class Handler(BaseHTTPRequestHandler):
@@ -326,6 +344,27 @@ def make_handler(state, scheme):
             path = urlsplit(self.path).path
             if path in pages:
                 self._send(200, (WEB / pages[path]).read_bytes(), "text/html; charset=utf-8")
+            elif path.startswith("/logo/"):
+                f = (LOGOS / path[6:]).resolve()
+                if f.is_file() and f.is_relative_to(LOGOS) and f.suffix == ".svg":
+                    self._send(200, f.read_bytes(), "image/svg+xml")
+                else:
+                    self._send(404, b"not found", "text/plain")
+            elif path in ("/api/trips", "/api/history"):
+                if not db_path:
+                    self._send(404, b"enregistrement desactive (--no-db)", "text/plain")
+                    return
+                q = {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+                try:
+                    if path == "/api/trips":
+                        body = donnees.trips(db_path)
+                    else:
+                        num = lambda k: int(q[k]) if q.get(k) else None
+                        body = donnees.history(db_path, num("trip"), q.get("key", ""), num("from"), num("to"))
+                except ValueError:
+                    self._send(400, b"parametre invalide", "text/plain")
+                    return
+                self._send(200, json.dumps(body).encode(), "application/json")
             elif path == "/api/state":
                 self._send(200, json.dumps(state.snapshot()).encode(), "application/json")
             elif path == "/api/meta":
@@ -361,6 +400,9 @@ def main():
     p.add_argument("--port", help="port série de l'ELM327 (auto-détection si absent)")
     p.add_argument("--baud", type=int, default=None, help="débit série (auto si absent)")
     p.add_argument("--demo", action="store_true", help="simule un trajet, sans voiture")
+    p.add_argument("--db", metavar="FICHIER.db",
+                   help="base SQLite des mesures horodatées (défaut data/clio.db, data/demo.db en démo)")
+    p.add_argument("--no-db", action="store_true", help="n'enregistre pas les mesures")
     p.add_argument("--log", metavar="FICHIER.csv", help="enregistre les mesures en CSV")
     p.add_argument("--log-hz", type=float, default=5.0, help="fréquence du CSV (défaut 5 Hz)")
     p.add_argument("--delay", type=float, default=0.0, help="pause en s entre deux requêtes OBD")
@@ -377,13 +419,19 @@ def main():
         return CsvLogger(args.log, keys) if args.log else None
 
     state = State()
+    db_path = None
+    if not args.no_db:
+        db_path = Path(args.db) if args.db else DATA / ("demo.db" if args.demo else "clio.db")
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        state.recorder = donnees.Recorder(db_path)
+        print(f"Mesures enregistrées dans {db_path}")
     state.set_settings({"max_hz": args.max_hz or (10.0 if args.demo else 20.0),
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})
     loop = demo_loop if args.demo else obd_loop
     threading.Thread(target=loop, args=(state, args, logger_factory), daemon=True).start()
 
     scheme = "http" if args.no_https else "https"
-    server = QuietServer((args.bind, args.http), make_handler(state, scheme))
+    server = QuietServer((args.bind, args.http), make_handler(state, scheme, db_path))
     if not args.no_https:
         crt, key, trusted = ensure_cert()
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

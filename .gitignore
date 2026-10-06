@@ -7,3 +7,6 @@ logs/*
 __pycache__/
 *.pyc
 .venv/
+# Bases des mesures horodatées (données personnelles : horaires de conduite)
+data/*
+!data/.gitkeep

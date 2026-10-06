@@ -13,7 +13,9 @@ Autour :
 
 ```
 dashboard_clio.py     serveur : lecture OBD, API JSON
+donnees.py            enregistrement des mesures horodatées (SQLite)
 web/dashboard.html    le dashboard
+data/                 les bases SQLite (pas dans git)
 lancer.sh             lancement en local (venv + navigateur)
 Dockerfile, docker-compose*.yml
 ```
@@ -76,6 +78,8 @@ python dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture
 | Option | Rôle |
 |---|---|
 | `--port` | port série de l'ELM327 (auto-détection si absent) |
+| `--db FICHIER.db` | base des mesures (défaut `data/clio.db`, `data/demo.db` en démo) |
+| `--no-db` | n'enregistre rien |
 | `--log FICHIER.csv` | enregistre les mesures en CSV |
 | `--log-hz` | fréquence du CSV (défaut 5 Hz) |
 | `--delay` | pause entre deux requêtes OBD (si l'ELM327 décroche) |
@@ -92,6 +96,28 @@ L'onglet **Paramètres** du dashboard règle tout ça à chaud :
 
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `dashboard_clio.py`.
+
+## Données
+
+Chaque valeur lue est enregistrée avec son horodatage dans une base SQLite (`data/clio.db`, ou `data/demo.db`
+pour la simulation, pour ne pas mélanger). L'ELM327 interroge les PID l'un après l'autre : chaque valeur porte
+l'instant exact où le calculateur a répondu, pas l'heure de la boucle. Une non-réponse est gardée (valeur vide) :
+on sait quand un capteur a décroché. La suralimentation calculée prend l'horodatage de la pression d'admission.
+Écriture groupée une fois par seconde, environ 3 Mo par heure de route.
+
+| Table | Colonnes |
+|---|---|
+| `trips` | `id`, `start_ms`, `end_ms`, `source` : un lancement du script = un trajet |
+| `samples` | `trip_id`, `t_ms` (ms depuis 1970, UTC), `key` (`rpm`, `coolant`… comme `METRICS`, plus `boost`), `value` |
+
+```bash
+sqlite3 data/clio.db "SELECT datetime(t_ms/1000, 'unixepoch', 'localtime'), key, value
+                      FROM samples WHERE key = 'coolant' ORDER BY t_ms DESC LIMIT 10"
+```
+
+API : `/api/trips` (liste des trajets), `/api/history?key=rpm[&trip=ID][&from=MS&to=MS]` (points `[t_ms, valeur]`
+du dernier trajet par défaut, moyennés par tranches au-delà de 2000 points). `/api/state` donne aussi `ts`,
+l'horodatage de la dernière valeur de chaque métrique.
 
 ## Limites
 

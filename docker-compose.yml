@@ -5,7 +5,7 @@ services:
     build: .
     image: dashboard-clio
     command: ${CLIO_ARGS:---demo}
-    # Tourne sous ton utilisateur (Linux) : certs/ et logs/ restent à toi, pas à root
+    # Tourne sous ton utilisateur (Linux) : certs/, logs/ et data/ restent à toi, pas à root
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       # 127.0.0.1 uniquement : la page n'est pas exposée au réseau.
@@ -13,4 +13,5 @@ services:
     volumes:
       - ./certs:/app/certs   # certificat gardé entre deux lancements (à approuver une fois dans Windows)
       - ./logs:/app/logs     # CSV : CLIO_ARGS="--log logs/trajet.csv"
+      - ./data:/app/data     # base SQLite des mesures horodatées
     restart: unless-stopped
