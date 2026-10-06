@@ -114,16 +114,19 @@ certification racines de confiance*).
   ```
   puis `docker compose -f docker-compose.yml -f docker-compose.obd.yml up --build`
   (`OBD_DEVICE=/dev/ttyACM0` si la clé n'apparaît pas en `ttyUSB0`). Même méthode pour une clé GPS USB.
+  Sous Linux, le conteneur tourne sous ton utilisateur : donner le groupe du port série avec
+  `OBD_GID=$(stat -c %g /dev/ttyUSB0)` (par défaut 20 = dialout, celui de WSL / Debian / Ubuntu).
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
   exemples de pyserial), puis `--port rfc2217://host.docker.internal:2217`.
 
 ## Inventaire des capteurs
 
-Premier relevé à faire dans la voiture (contact mis, puis une seconde fois moteur tournant) :
+Premier relevé à faire dans la voiture, contact mis, puis une seconde fois moteur tournant.
+L'état (contact, ralenti froid / chaud, en roulant) est détecté tout seul et ajouté au nom du rapport.
 
 ```bash
-./lancer.sh inventaire --note "contact mis"            # ou python inventaire.py dans le venv
-./lancer.sh inventaire --port /dev/ttyUSB0 --note "moteur chaud, ralenti"
+./lancer.sh inventaire                                  # ou python inventaire.py dans le venv
+./lancer.sh inventaire --port /dev/ttyUSB0
 ./lancer.sh inventaire --port socket://192.168.0.10:35000 --baud 38400   # ELM327 Wi-Fi
 docker compose -f docker-compose.yml -f docker-compose.obd.yml run --rm --entrypoint python clio inventaire.py
 ```
@@ -132,7 +135,7 @@ Il liste tous les PID que le calculateur supporte en mode 01, y compris ceux que
 (diesel : FAP, EGR, turbo, couple…, donnés en brut), les lit et chronomètre leur réponse. Il mesure ensuite la
 cadence réelle de l'ELM327 (un PID seul, puis plusieurs en alternance), en mode normal et en mode rapide.
 Si un PID fait décrocher l'adaptateur, il est noté et le script se reconnecte. Rapport dans
-`logs/inventaire-AAAAMMJJ-HHMM.json`, enregistré même si le relevé est interrompu.
+`logs/inventaire-AAAAMMJJ-HHMM-<état>.json`, enregistré même si le relevé est interrompu.
 
 ## Utilisation
 

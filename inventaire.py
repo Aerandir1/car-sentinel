@@ -1,16 +1,16 @@
 """Inventaire des capteurs de la voiture (Clio Sentinel).
 
-À lancer une fois dans la voiture, contact mis (puis moteur tournant pour un second relevé) :
+À lancer dans la voiture contact mis, puis moteur tournant (l'état est détecté tout seul) :
   1. demande au calculateur tous les PID qu'il supporte en mode 01, y compris ceux que python-obd
      ne connaît pas (au-delà de 0x5F : FAP, EGR, turbo, couple…), lit chacun et chronomètre la réponse ;
   2. mesure la cadence réelle de l'ELM327 (un PID seul, puis plusieurs en alternance), en mode normal
      puis en mode rapide.
 
-Résultat affiché et enregistré dans logs/inventaire-AAAAMMJJ-HHMM.json.
+Résultat affiché et enregistré dans logs/inventaire-AAAAMMJJ-HHMM-<état>.json.
 
     python inventaire.py                         # ELM327 auto-détecté
-    python inventaire.py --port /dev/ttyUSB0 --note "moteur chaud, ralenti"
-    python inventaire.py --port socket://192.168.0.10:35000   # ELM327 Wi-Fi
+    python inventaire.py --port /dev/ttyUSB0
+    python inventaire.py --port socket://192.168.0.10:35000 --baud 38400   # ELM327 Wi-Fi
 """
 
 import argparse
@@ -157,6 +157,25 @@ def cadence(conn, names, seconds):
             "hz_total": round(ok / seconds, 1), "hz_par_pid": round(ok / seconds / len(cmds), 2)}
 
 
+def engine_state(conn):
+    """État de la voiture au moment du relevé, déduit du régime, de la vitesse et de la température d'eau."""
+    def val(name):
+        v = conn.query(obd.commands[name], force=True).value
+        return v.magnitude if v is not None else None
+    rpm, speed, coolant = val("RPM"), val("SPEED"), val("COOLANT_TEMP")
+    if rpm is None:
+        slug, text = "inconnu", "état inconnu (régime illisible)"
+    elif rpm < 100:
+        slug, text = "contact", "contact mis, moteur arrêté"
+    elif speed is not None and speed > 3:
+        slug, text = "roulant", "en roulant"
+    elif coolant is not None and coolant < 70:
+        slug, text = "ralenti-froid", "ralenti, moteur froid"
+    else:
+        slug, text = "ralenti-chaud", "ralenti, moteur chaud"
+    return slug, {"etat": text, "regime": rpm, "vitesse": speed, "temp_eau": coolant}
+
+
 def alive(conn):
     return conn.status() == obd.OBDStatus.CAR_CONNECTED
 
@@ -174,13 +193,12 @@ def main():
     p.add_argument("--baud", type=int, default=None, help="débit série (auto si absent)")
     p.add_argument("--timeout", type=float, default=1.0, help="attente max d'une réponse, en s (défaut 1)")
     p.add_argument("--duree", type=float, default=8.0, help="durée de chaque test de cadence, en s (défaut 8)")
-    p.add_argument("--note", default="", help="contexte du relevé (ex. « moteur chaud, ralenti »)")
-    p.add_argument("--sortie", help="fichier JSON (défaut logs/inventaire-AAAAMMJJ-HHMM.json)")
+    p.add_argument("--sortie", help="fichier JSON (défaut logs/inventaire-AAAAMMJJ-HHMM-<état>.json)")
     args = p.parse_args()
     logging.getLogger("obd").setLevel(logging.CRITICAL)   # les erreurs sont gérées et affichées ici
 
-    out = Path(args.sortie) if args.sortie else HERE / "logs" / f"inventaire-{datetime.now():%Y%m%d-%H%M}.json"
-    report = {"date": datetime.now().isoformat(timespec="seconds"), "note": args.note}
+    report = {"date": datetime.now().isoformat(timespec="seconds")}
+    out = Path(args.sortie) if args.sortie else None
     limit = args.timeout * 4 + 3   # au-delà, l'adaptateur est considéré comme bloqué
 
     print("→ Connexion à l'ELM327…")
@@ -191,6 +209,12 @@ def main():
         report.update({"port": conn.port_name(), "protocole": conn.protocol_name(), "elm": elm,
                        "tension_v": round(volt.magnitude, 2) if volt is not None else None})
         print(f"  {report['port']} · {report['protocole']} · {elm} · {report['tension_v']} V")
+        slug, state = engine_state(conn)
+        report["contexte"] = state
+        out = out or HERE / "logs" / f"inventaire-{datetime.now():%Y%m%d-%H%M}-{slug}.json"
+        print(f"  État détecté : {state['etat']}")
+        if slug == "contact":
+            print("  (moteur arrêté : certaines valeurs seront à 0, refaire un relevé moteur tournant)")
 
         print("→ Recherche des PID supportés (mode 01)…")
         pids, ecus = guarded(limit * 8, supported_pids, conn)
@@ -215,10 +239,6 @@ def main():
             val = c["valeur"] or ", ".join(f"{k}: {v}" for k, v in (c["brut"] or {}).items()) or "—"
             ms = f"{c['ms_median']} ms" if c["ms_median"] is not None else "pas de réponse"
             print(f"  [{i:2}/{len(pids)}] {c['pid']} {c['description'][:42]:42} {val[:34]:34} {ms}")
-
-        rpm = conn.query(obd.commands.RPM, force=True).value
-        if rpm is not None and rpm.magnitude < 100:
-            print("  (moteur arrêté : certaines valeurs sont à 0, refaire un relevé moteur tournant)")
 
         usable = [n for n in CADENCE_PIDS if obd.commands[n].pid in pids] or ["RPM"]
         for label, fast in (("normal", False), ("rapide", True)):
@@ -250,6 +270,7 @@ def main():
         print(f"  Relevé interrompu ({report['interrompu']}) : sauvegarde de ce qui a été lu.")
     finally:
         conn.close()
+        out = out or HERE / "logs" / f"inventaire-{datetime.now():%Y%m%d-%H%M}.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"→ Rapport enregistré : {out}")

@@ -4,7 +4,7 @@
 #   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
 #   ./lancer.sh demo            # simulation, sans voiture
 #   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv --gps /dev/ttyACM0
-#   ./lancer.sh inventaire --note "contact mis"   # inventaire des capteurs (inventaire.py)
+#   ./lancer.sh inventaire          # inventaire des capteurs (inventaire.py)
 #
 # Les options sont transmises telles quelles à dashboard_clio.py (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.

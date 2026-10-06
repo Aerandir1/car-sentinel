@@ -5,6 +5,8 @@ services:
     build: .
     image: dashboard-clio
     command: ${CLIO_ARGS:---demo}
+    # Tourne sous ton utilisateur (Linux) : certs/ et logs/ restent à toi, pas à root
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       # 127.0.0.1 uniquement : Spotify n'accepte que cette adresse, et la page n'est pas exposée au réseau.
       - "127.0.0.1:8080:8080"
