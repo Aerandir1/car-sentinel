@@ -137,6 +137,7 @@ class State:
                 "hz": round(self.hz, 1),
                 "values": dict(self.values),
                 "ts": dict(self.times),
+                "trip": self.recorder.trip_id if self.recorder else None,
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }

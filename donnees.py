@@ -105,15 +105,16 @@ def history(path, trip_id, key, from_ms=None, to_ms=None):
             row = db.execute("SELECT max(id) FROM trips").fetchone()
             trip_id = row[0]
         if trip_id is None:
-            return {"trip_id": None, "key": key, "points": []}
+            return {"trip_id": None, "key": key, "step_ms": None, "points": []}
         lo, hi = db.execute("SELECT min(t_ms), max(t_ms) FROM samples WHERE trip_id = ? AND key = ?"
                             " AND t_ms >= ? AND t_ms <= ?",
                             (trip_id, key, from_ms or 0, to_ms or 2**62)).fetchone()
         if lo is None:
-            return {"trip_id": trip_id, "key": key, "points": []}
+            return {"trip_id": trip_id, "key": key, "step_ms": None, "points": []}
         args = (trip_id, key, from_ms or 0, to_ms or 2**62)
         n = db.execute("SELECT count(*) FROM samples WHERE trip_id = ? AND key = ? AND t_ms >= ? AND t_ms <= ?",
                        args).fetchone()[0]
+        step = None
         if n <= MAX_POINTS:
             pts = db.execute("SELECT t_ms, value FROM samples WHERE trip_id = ? AND key = ?"
                              " AND t_ms >= ? AND t_ms <= ? ORDER BY t_ms", args).fetchall()
@@ -124,4 +125,5 @@ def history(path, trip_id, key, from_ms=None, to_ms=None):
                              args + (lo, step)).fetchall()
     finally:
         db.close()
-    return {"trip_id": trip_id, "key": key, "points": [[t, None if v is None else round(v, 3)] for t, v in pts]}
+    return {"trip_id": trip_id, "key": key, "step_ms": step,
+            "points": [[t, None if v is None else round(v, 3)] for t, v in pts]}

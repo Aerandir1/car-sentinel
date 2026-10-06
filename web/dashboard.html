@@ -35,7 +35,11 @@
   #boostg { aspect-ratio: 1 / 1.15; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
   .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-          transition: border-color .2s, background .2s; }
+          transition: border-color .2s, background .2s; display: block; width: 100%; text-align: left;
+          color: inherit; font: inherit; cursor: pointer; }
+  .tile:hover { border-color: #3a434f; }
+  .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .spark { height: 34px; margin: 4px 0 2px; }
   .tile .lbl { color: var(--dim); font-size: 12px; }
   .tile .val { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .tile .val small { font-size: 13px; color: var(--dim); font-weight: 400; margin-left: 4px; }
@@ -43,9 +47,32 @@
   .tile.hot { border-color: var(--hot); background: #2a1215; }
   .tile.hot .val { color: var(--hot); }
   .tile.cold .val { color: var(--cold); }
-  #chart { height: 220px; }
-  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
-  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 6px; vertical-align: middle; }
+
+  /* Courbe détaillée d'une métrique (clic sur une tuile) */
+  dialog#detail { width: min(1100px, calc(100vw - 32px)); max-height: calc(100vh - 32px); padding: 16px 20px;
+                  background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; }
+  dialog#detail::backdrop { background: rgba(5, 7, 10, .7); }
+  .d-head { display: flex; align-items: flex-start; gap: 16px; }
+  .d-head h2 { font-size: 15px; font-weight: 600; margin: 0; color: var(--dim); }
+  .d-now { font-size: 30px; font-weight: 600; }
+  .d-now small { font-size: 14px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+  .d-close { margin-left: auto; background: none; border: 1px solid var(--line); color: var(--text); border-radius: 6px;
+             width: 32px; height: 32px; cursor: pointer; font-size: 16px; }
+  .d-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { background: none; border: 0; color: var(--dim); padding: 6px 12px; cursor: pointer; font: inherit; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: #222a33; color: var(--text); }
+  .d-filters select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                      padding: 6px 8px; font: inherit; }
+  .d-plot { position: relative; }
+  #d-chart { height: min(420px, 55vh); touch-action: none; }
+  #d-chart.loading { opacity: .5; }
+  .tip { position: absolute; pointer-events: none; background: var(--bg); border: 1px solid var(--line);
+         border-radius: 6px; padding: 6px 10px; white-space: nowrap; display: none; }
+  .tip b { display: block; font-size: 15px; }
+  .tip span { color: var(--dim); font-size: 12px; }
+  .d-info { color: var(--dim); font-size: 12px; margin: 6px 0 0; min-height: 1.4em; }
   [hidden] { display: none !important; }
   #settings { max-width: 720px; }
   #settings h2 { font-size: 14px; margin: 0 0 4px; }
@@ -84,11 +111,30 @@
     <div class="panel"><canvas id="boostg"></canvas></div>
   </section>
   <section class="tiles" id="tiles"></section>
-  <section class="panel">
-    <div class="legend" id="legend"></div>
-    <canvas id="chart"></canvas>
-  </section>
 </main>
+<dialog id="detail" aria-labelledby="d-title">
+  <div class="d-head">
+    <div>
+      <h2 id="d-title"></h2>
+      <div class="d-now" id="d-now"></div>
+    </div>
+    <button class="d-close" id="d-close" aria-label="Fermer">✕</button>
+  </div>
+  <div class="d-filters">
+    <div class="seg" id="d-range">
+      <button data-s="60">1 min</button>
+      <button data-s="300">5 min</button>
+      <button data-s="900">15 min</button>
+      <button data-s="0">Trajet entier</button>
+    </div>
+    <select id="d-trip" aria-label="Trajet"></select>
+  </div>
+  <div class="d-plot">
+    <canvas id="d-chart"></canvas>
+    <div class="tip" id="d-tip"><b></b><span></span></div>
+  </div>
+  <p class="d-info" id="d-info"></p>
+</dialog>
 <main id="view-set" hidden>
   <section class="panel" id="settings">
     <h2>Affichage</h2>
@@ -99,7 +145,7 @@
       <output id="o-poll"></output>
     </div>
     <div class="row">
-      <label for="s-hist">Durée du graphique<small>Historique affiché sous les jauges</small></label>
+      <label for="s-hist">Durée des mini-courbes<small>Période affichée dans chaque tuile</small></label>
       <input type="range" id="s-hist" min="10" max="300" step="10">
       <output id="o-hist"></output>
     </div>
@@ -126,7 +172,7 @@
       <output id="o-log_hz"></output>
     </div>
     <div class="row" style="grid-template-columns:1fr auto">
-      <span class="note" style="margin:0">Valeurs de départ : 200 ms et 60 s pour l'affichage.</span>
+      <span class="note" style="margin:0">Valeurs de départ : 200 ms et 120 s pour l'affichage.</span>
       <button id="s-default">Affichage par défaut</button>
     </div>
   </section>
@@ -135,17 +181,14 @@
 
 <script>
 // Réglages d'affichage, gardés dans le navigateur
-const DEFAULTS = { poll_ms: 200, history_s: 60 };
+const DEFAULTS = { poll_ms: 200, history_s: 120 };
 const ui = { ...DEFAULTS };
 try { Object.assign(ui, JSON.parse(localStorage.getItem("clio-ui") || "{}")); } catch (e) {}
 const saveUi = () => { try { localStorage.setItem("clio-ui", JSON.stringify(ui)); } catch (e) {} };
-const CHART = [
-  { key: "rpm",   color: "#f0b429", range: [0, 5000] },
-  { key: "speed", color: "#58a6ff", range: [0, 200] },
-  { key: "boost", color: "#3fb950", range: [-0.1, 1.5] },
-];
+// Presque constantes sur un trajet : pas de mini-courbe (la courbe détaillée reste dispo au clic)
+const NO_SPARK = new Set(["baro", "ambient"]);
 let meta = null, last = null;
-const history = [];
+const series = {};   // clé → [[t_ms, valeur], …] des history_s dernières secondes (mini-courbes)
 
 const $ = (id) => document.getElementById(id);
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -160,15 +203,14 @@ function fmt(v, unit) {
 
 function buildTiles() {
   $("tiles").innerHTML = meta.metrics.map((m) => `
-    <div class="tile" id="t-${m.key}">
+    <button class="tile" id="t-${m.key}" data-key="${m.key}" title="Voir la courbe">
       <div class="lbl">${m.label}</div>
       <div class="val"><span>—</span><small>${m.unit}</small></div>
+      ${NO_SPARK.has(m.key) ? "" : '<canvas class="spark"></canvas>'}
       <div class="mm">min — · max —</div>
-    </div>`).join("");
-  $("legend").innerHTML = CHART
-    .filter((c) => meta.metrics.some((m) => m.key === c.key))
-    .map((c) => `<span><i style="background:${c.color}"></i>${meta.metrics.find((m) => m.key === c.key).label}</span>`)
-    .join("");
+    </button>`).join("");
+  for (const el of document.querySelectorAll(".tile")) el.onclick = () => openDetail(el.dataset.key);
+  seedSeries();
   $("foot").textContent = meta.unsupported.length
     ? "Non supporté par le calculateur : " + meta.unsupported.join(", ")
     : "";
@@ -182,7 +224,64 @@ function updateTiles(s) {
     el.querySelector(".mm").textContent = `min ${fmt(s.min[m.key], m.unit)} · max ${fmt(s.max[m.key], m.unit)}`;
     el.classList.toggle("hot", m.warn !== null && v != null && v > m.warn);
     el.classList.toggle("cold", m.cold !== null && v != null && v < m.cold);
+    const c = el.querySelector(".spark");
+    if (c) drawSpark(c, m);
   }
+}
+
+// Mini-courbes : historique récent pris dans la base au chargement, puis complété à chaque lecture
+function pushPoint(key, t, v) {
+  const arr = (series[key] ||= []);
+  if (arr.length && arr[arr.length - 1][0] >= t) return;   // valeur déjà vue (même horodatage)
+  arr.push([t, v]);
+  const oldest = t - ui.history_s * 1000;
+  while (arr.length && arr[0][0] < oldest) arr.shift();
+}
+async function seedSeries() {
+  const from = Date.now() - ui.history_s * 1000;
+  await Promise.all(meta.metrics.filter((m) => !NO_SPARK.has(m.key)).map(async (m) => {
+    try {
+      const h = await (await fetch(`/api/history?key=${m.key}&from=${from}`)).json();
+      const live = series[m.key] || [];
+      series[m.key] = h.points.filter((p) => !live.length || p[0] < live[0][0]).concat(live);
+    } catch (e) {}   // pas de base (--no-db) : les mini-courbes partent de l'ouverture de la page
+  }));
+}
+
+// Coupe la courbe sur une valeur manquante ou un trou de plus de gap_ms (calculateur muet, déconnexion)
+function tracePath(ctx, pts, x, y, gap_ms) {
+  ctx.beginPath();
+  let prevT = null;
+  for (const [t, v] of pts) {
+    if (v == null) { prevT = null; continue; }
+    if (prevT == null || t - prevT > gap_ms) ctx.moveTo(x(t), y(v)); else ctx.lineTo(x(t), y(v));
+    prevT = t;
+  }
+}
+
+// Échelle verticale : min/max des données, au moins 5 % de la plage normale de la métrique
+// (sinon le bruit d'une tension stable à 14,2 V remplirait toute la hauteur)
+function yDomain(pts, m) {
+  let lo = Infinity, hi = -Infinity;
+  for (const [, v] of pts) if (v != null) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
+  if (lo === Infinity) return null;
+  const minSpan = (m.range[1] - m.range[0]) * 0.05;
+  if (hi - lo < minSpan) { const mid = (hi + lo) / 2; lo = mid - minSpan / 2; hi = mid + minSpan / 2; }
+  return [lo, hi];
+}
+
+function drawSpark(canvas, m) {
+  const [ctx, w, h] = setupCanvas(canvas);
+  const pts = series[m.key] || [];
+  const dom = yDomain(pts, m);
+  if (!dom) return;
+  const now = Date.now(), span = ui.history_s * 1000;
+  const x = (t) => w - ((now - t) / span) * w;
+  const y = (v) => 3 + (h - 6) * (1 - (v - dom[0]) / (dom[1] - dom[0]));
+  ctx.lineWidth = 1.5; ctx.lineJoin = ctx.lineCap = "round";
+  ctx.strokeStyle = css("--accent");
+  tracePath(ctx, pts, x, y, 5000);
+  ctx.stroke();
 }
 
 function setupCanvas(c) {
@@ -252,32 +351,6 @@ function drawGauges(s) {
   });
 }
 
-function drawChart() {
-  const [ctx, w, h] = setupCanvas($("chart"));
-  const now = Date.now() / 1000;
-  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
-  ctx.fillStyle = css("--dim"); ctx.font = "11px system-ui"; ctx.textAlign = "center";
-  const step = ui.history_s > 120 ? 30 : ui.history_s > 60 ? 20 : 10;
-  for (let s = 0; s <= ui.history_s; s += step) {
-    const x = w - (s / ui.history_s) * w;
-    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 14); ctx.stroke();
-    ctx.fillText(s ? `-${s}s` : "0", Math.min(w - 8, Math.max(10, x)), h - 3);
-  }
-  for (const c of CHART) {
-    ctx.strokeStyle = c.color; ctx.lineWidth = 2; ctx.beginPath();
-    let started = false;
-    for (const p of history) {
-      const v = p.values[c.key];
-      if (v === null || v === undefined) { started = false; continue; }
-      const x = w - ((now - p.t) / ui.history_s) * w;
-      const y = (h - 18) * (1 - (v - c.range[0]) / (c.range[1] - c.range[0])) + 2;
-      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
-      started = true;
-    }
-    ctx.stroke();
-  }
-}
-
 async function poll() {
   try {
     const s = await (await fetch("/api/state")).json();
@@ -286,8 +359,7 @@ async function poll() {
       buildTiles();
     }
     last = s;
-    history.push({ t: s.t, values: s.values });
-    while (history.length && s.t - history[0].t > ui.history_s) history.shift();
+    for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
     const live = s.status.startsWith("connecté") || s.status === "démo";
     $("dot").style.background = live ? css("--ok") : css("--hot");
     $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
@@ -298,9 +370,223 @@ async function poll() {
   }
 }
 
-function frame() { drawGauges(last); drawChart(); requestAnimationFrame(frame); }
+function frame() { drawGauges(last); requestAnimationFrame(frame); }
 
 $("reset").onclick = () => fetch("/api/reset", { method: "POST" });
+
+// ---------- Courbe détaillée (clic sur une tuile) ----------
+const D = { key: null, m: null, range_s: 300, trip: null, pts: [], step: null, x0: 0, x1: 0, hover: null, timer: null };
+const dlg = $("detail");
+
+// Graduations « rondes » : pas de 1, 2 ou 5 × 10^n, environ n graduations
+function niceTicks(lo, hi, n = 5) {
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((k) => k * mag).find((k) => k >= raw);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;   // l'axe s'arrête sur des graduations
+  const ticks = [];
+  for (let v = lo; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
+  return { ticks, lo, hi };
+}
+const TIME_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200].map((s) => s * 1000);
+const hhmm = (t, sec) => new Date(t).toLocaleTimeString("fr-FR", sec ? {} : { hour: "2-digit", minute: "2-digit" });
+const duree = (ms) => ms < 60000 ? `${Math.round(ms / 1000)} s`
+  : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${Math.floor(ms / 3600000)} h ${String(Math.round(ms % 3600000 / 60000)).padStart(2, "0")}`;
+
+async function loadTrips() {
+  const sel = $("d-trip");
+  try {
+    const trips = await (await fetch("/api/trips")).json();
+    sel.replaceChildren(...trips.map((t) => {
+      const o = document.createElement("option");
+      const day = new Date(t.start_ms).toLocaleDateString("fr-FR", { weekday: "short", day: "numeric", month: "short" });
+      o.value = t.id;
+      o.textContent = (t.id === last?.trip ? "En cours · " : "") +
+        `${day} ${hhmm(t.start_ms)} · ${duree(t.end_ms - t.start_ms)} · ${t.source || "?"}`;
+      return o;
+    }));
+    sel.hidden = !trips.length;
+  } catch (e) { sel.hidden = true; }   // pas de base
+  if (D.trip == null) D.trip = last?.trip ?? (sel.options[0] ? +sel.options[0].value : null);
+  sel.value = D.trip;
+}
+
+const isLive = () => D.trip == null || D.trip === last?.trip;
+
+async function loadDetail() {
+  const live = isLive();
+  let q = `/api/history?key=${D.key}`;
+  if (D.trip != null) q += `&trip=${D.trip}`;
+  if (D.range_s && live) q += `&from=${Date.now() - D.range_s * 1000}`;
+  $("d-chart").classList.add("loading");
+  try {
+    const h = await (await fetch(q)).json();
+    D.pts = h.points; D.step = h.step_ms;
+    if (D.range_s && !live && D.pts.length) {   // trajet passé : les dernières minutes du trajet
+      const end = D.pts[D.pts.length - 1][0];
+      D.pts = D.pts.filter((p) => p[0] >= end - D.range_s * 1000);
+    }
+  } catch (e) {   // pas de base : ce que la page a vu depuis son ouverture
+    D.pts = (series[D.key] || []).slice(); D.step = null;
+  }
+  $("d-chart").classList.remove("loading");
+  // Fenêtre de temps : jusqu'à maintenant en direct, sinon jusqu'à la fin du trajet
+  const first = D.pts.length ? D.pts[0][0] : Date.now(), lastT = D.pts.length ? D.pts[D.pts.length - 1][0] : Date.now();
+  D.x1 = live ? Date.now() : lastT;
+  D.x0 = D.range_s ? Math.max(D.x1 - D.range_s * 1000, first) : first;   // trajet plus court que la durée : depuis le début
+  if (D.x1 - D.x0 < 10000) D.x0 = D.x1 - 10000;
+  const n = D.pts.filter((p) => p[1] != null).length, miss = D.pts.length - n;
+  $("d-info").textContent = !D.pts.length ? "Pas encore de mesure sur cette période."
+    : `${n} point${n > 1 ? "s" : ""}` + (D.step ? ` · moyenne par tranches de ${duree(D.step)}` : "")
+      + (miss ? ` · ${miss} sans réponse du calculateur` : "")
+      + (live ? " · mise à jour en direct" : "");
+  drawDetail();
+}
+
+function drawDetail() {
+  if (!dlg.open) return;
+  const canvas = $("d-chart"), m = D.m;
+  const [ctx, w, h] = setupCanvas(canvas);
+  const L = 56, R = 14, T = 10, B = 26, pw = w - L - R, ph = h - T - B;
+  const dom = yDomain(D.pts, m) || m.range;
+  const pad = (dom[1] - dom[0]) * 0.08;
+  const { ticks, lo, hi } = niceTicks(dom[0] - pad, dom[1] + pad);
+  const x = (t) => L + ((t - D.x0) / (D.x1 - D.x0)) * pw;
+  const y = (v) => T + ph * (1 - (v - lo) / (hi - lo));
+  D.geom = { L, pw, x, y };
+
+  // Grille horizontale + valeurs
+  ctx.font = "11px system-ui"; ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of ticks) {
+    ctx.strokeStyle = css("--line");
+    ctx.beginPath(); ctx.moveTo(L, Math.round(y(v)) + 0.5); ctx.lineTo(w - R, Math.round(y(v)) + 0.5); ctx.stroke();
+    ctx.fillStyle = css("--dim");
+    ctx.fillText(fmt(v, m.unit), L - 8, y(v));
+  }
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center"; ctx.fillText(m.unit, 0, 0); ctx.restore();
+
+  // Heures en bas
+  const span = D.x1 - D.x0, step = TIME_STEPS.find((s) => span / s <= 7) || 3600000 * 4;
+  const off = new Date().getTimezoneOffset() * 60000;   // graduations calées sur l'heure locale
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  for (let t = Math.ceil((D.x0 - off) / step) * step + off; t <= D.x1; t += step) {
+    ctx.fillStyle = css("--dim");
+    ctx.fillText(hhmm(t, step < 60000), Math.min(w - R - 20, Math.max(L + 20, x(t))), h - 6);
+  }
+
+  // Seuils d'alerte de la métrique, s'ils tombent dans l'échelle
+  for (const [thr, col, txt] of [[m.warn, "--hot", "alerte"], [m.cold, "--cold", "froid"]]) {
+    if (thr == null || thr < lo || thr > hi) continue;
+    ctx.strokeStyle = css(col); ctx.globalAlpha = 0.6;
+    ctx.beginPath(); ctx.moveTo(L, y(thr)); ctx.lineTo(w - R, y(thr)); ctx.stroke();
+    ctx.globalAlpha = 1; ctx.fillStyle = css("--dim"); ctx.textAlign = "left"; ctx.textBaseline = "bottom";
+    ctx.fillText(`${txt} ${fmt(thr, m.unit)} ${m.unit}`, L + 6, y(thr) - 3);
+  }
+
+  // Courbe : voile de 10 % sous la ligne, ligne de 2 px ; coupée sur les trous
+  const gap = Math.max(5000, (D.step || 0) * 3);
+  ctx.save();
+  ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+  const accent = css("--accent");
+  ctx.fillStyle = accent; ctx.globalAlpha = 0.1;
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) {
+      ctx.beginPath(); ctx.moveTo(x(run[0][0]), T + ph);
+      for (const [t, v] of run) ctx.lineTo(x(t), y(v));
+      ctx.lineTo(x(run[run.length - 1][0]), T + ph); ctx.fill();
+    }
+    run = [];
+  };
+  for (const p of D.pts) {
+    if (p[1] == null || (run.length && p[0] - run[run.length - 1][0] > gap)) flush();
+    if (p[1] != null) run.push(p);
+  }
+  flush();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.lineJoin = ctx.lineCap = "round";
+  tracePath(ctx, D.pts, x, y, gap);
+  ctx.stroke();
+  ctx.restore();
+
+  // Point à marquer : celui sous le curseur, sinon la dernière valeur en direct
+  const lastPt = [...D.pts].reverse().find((p) => p[1] != null);
+  const mark = D.hover || (isLive() ? lastPt : null);
+  if (D.hover) {
+    ctx.strokeStyle = css("--dim"); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(Math.round(x(D.hover[0])) + 0.5, T); ctx.lineTo(Math.round(x(D.hover[0])) + 0.5, T + ph); ctx.stroke();
+  }
+  if (mark && mark[1] != null) {
+    ctx.beginPath(); ctx.arc(x(mark[0]), y(mark[1]), 4, 0, Math.PI * 2);
+    ctx.fillStyle = accent; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = css("--panel"); ctx.stroke();
+  }
+}
+
+// Curseur : la ligne verticale suit la souris et s'accroche au point le plus proche dans le temps
+function hoverAt(clientX) {
+  const g = D.geom, r = $("d-chart").getBoundingClientRect();
+  if (!g || !D.pts.length) return;
+  const t = D.x0 + ((clientX - r.left - g.L) / g.pw) * (D.x1 - D.x0);
+  let a = 0, b = D.pts.length - 1;
+  while (b - a > 1) { const mid = (a + b) >> 1; D.pts[mid][0] < t ? (a = mid) : (b = mid); }
+  const p = Math.abs(D.pts[a][0] - t) < Math.abs(D.pts[b][0] - t) ? D.pts[a] : D.pts[b];
+  D.hover = p;
+  const tip = $("d-tip");
+  tip.querySelector("b").textContent = p[1] == null ? "pas de réponse" : `${fmt(p[1], D.m.unit)} ${D.m.unit}`;
+  tip.querySelector("span").textContent = hhmm(p[0], true) + (D.step ? ` (moyenne ${duree(D.step)})` : "");
+  tip.style.display = "block";
+  const px = g.x(p[0]), left = px + 12 + tip.offsetWidth > r.width ? px - 12 - tip.offsetWidth : px + 12;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${p[1] == null ? 10 : Math.max(0, g.y(p[1]) - tip.offsetHeight - 10)}px`;
+  drawDetail();
+}
+function hoverOff() { D.hover = null; $("d-tip").style.display = "none"; drawDetail(); }
+$("d-chart").addEventListener("pointermove", (e) => hoverAt(e.clientX));
+$("d-chart").addEventListener("pointerdown", (e) => hoverAt(e.clientX));
+$("d-chart").addEventListener("pointerleave", hoverOff);
+
+function showDetailValue() {
+  if (!dlg.open || !last) return;
+  const u = document.createElement("small");
+  if (isLive()) {
+    u.textContent = D.m.unit;
+    $("d-now").replaceChildren(document.createTextNode(fmt(last.values[D.key], D.m.unit)), u);
+  } else {
+    u.textContent = "trajet passé : survole la courbe pour lire les valeurs";
+    u.style.marginLeft = 0;
+    $("d-now").replaceChildren(u);
+  }
+}
+
+async function openDetail(key) {
+  D.key = key; D.m = meta.metrics.find((m) => m.key === key); D.hover = null; D.trip = null;
+  $("d-title").textContent = D.m.label;
+  for (const b of $("d-range").children) b.classList.toggle("on", +b.dataset.s === D.range_s);
+  dlg.showModal();
+  showDetailValue();
+  await loadTrips();
+  await loadDetail();
+  clearInterval(D.timer);
+  D.timer = setInterval(() => { showDetailValue(); if (isLive()) loadDetail(); }, 1000);
+}
+for (const b of $("d-range").children) {
+  b.onclick = () => {
+    D.range_s = +b.dataset.s;
+    for (const o of $("d-range").children) o.classList.toggle("on", o === b);
+    hoverOff();
+    loadDetail();
+  };
+}
+$("d-trip").onchange = (e) => { D.trip = +e.target.value; hoverOff(); showDetailValue(); loadDetail(); };
+$("d-close").onclick = () => dlg.close();
+dlg.addEventListener("click", (e) => {   // clic à côté de la fenêtre (sur le fond assombri)
+  const r = dlg.getBoundingClientRect();
+  if (e.target === dlg && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) dlg.close();
+});
+dlg.addEventListener("close", () => { clearInterval(D.timer); hoverOff(); });
+addEventListener("resize", drawDetail);
 
 // ---------- Onglets ----------
 function showTab(set) {

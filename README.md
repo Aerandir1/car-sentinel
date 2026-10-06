@@ -97,6 +97,15 @@ L'onglet **Paramètres** du dashboard règle tout ça à chaud :
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `dashboard_clio.py`.
 
+## Courbes
+
+Chaque tuile porte une mini-courbe des 2 dernières minutes (durée réglable dans Paramètres), sauf la pression
+atmosphérique et la température extérieure, presque constantes. Un clic sur une tuile ouvre sa courbe détaillée :
+1 min, 5 min, 15 min ou trajet entier, mise à jour en direct sur le trajet en cours, et une liste pour revoir les
+trajets passés enregistrés dans la base. Le curseur donne la valeur et l'heure exactes ; les seuils d'alerte de la
+métrique sont tracés quand ils tombent dans l'échelle. La courbe est coupée là où le calculateur n'a pas répondu.
+Échap ou un clic à côté pour fermer.
+
 ## Données
 
 Chaque valeur lue est enregistrée avec son horodatage dans une base SQLite (`data/clio.db`, ou `data/demo.db`
