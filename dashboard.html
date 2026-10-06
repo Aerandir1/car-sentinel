@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clio 4 dCi 90</title>
+<style>
+  :root {
+    --bg: #0d1014; --panel: #161b22; --line: #262d36; --text: #e6edf3; --dim: #8b949e;
+    --accent: #f0b429; --hot: #f85149; --cold: #58a6ff; --ok: #3fb950;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+           border-bottom: 1px solid var(--line); }
+  /* Logos Renault (dossier logo/) : utilisés en masque, ils prennent la couleur du texte (currentColor) */
+  .r-mark, .r-lockup { display: inline-block; flex: none; background: currentColor;
+                       -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
+  .r-mark { --src: url(/logo/Renault_2021_Logo.svg); aspect-ratio: 1000 / 1307; }
+  .r-lockup { --src: url(/logo/Renault_2021_Text.svg); aspect-ratio: 500 / 437.5; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .r-mark { height: 26px; color: var(--text); }
+  #status { color: var(--dim); font-size: 13px; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  nav { display: flex; gap: 4px; margin-left: auto; }
+  nav button.on { border-color: var(--accent); color: var(--accent); }
+  header button { background: var(--panel); color: var(--text);
+                  border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; cursor: pointer; }
+  main { padding: 16px; display: grid; gap: 16px; }
+  .gauges { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+  canvas { display: block; width: 100%; }
+  #tach { aspect-ratio: 2 / 1.15; }
+  #boostg { aspect-ratio: 1 / 1.15; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
+          transition: border-color .2s, background .2s; }
+  .tile .lbl { color: var(--dim); font-size: 12px; }
+  .tile .val { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .val small { font-size: 13px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+  .tile .mm { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .tile.hot { border-color: var(--hot); background: #2a1215; }
+  .tile.hot .val { color: var(--hot); }
+  .tile.cold .val { color: var(--cold); }
+  #chart { height: 220px; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--dim); margin-bottom: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 6px; vertical-align: middle; }
+  [hidden] { display: none !important; }
+  #settings { max-width: 720px; }
+  #settings h2 { font-size: 14px; margin: 0 0 4px; }
+  #settings .note { color: var(--dim); font-size: 12px; margin: 0 0 12px; }
+  .row { display: grid; grid-template-columns: 1fr 180px 70px; gap: 12px; align-items: center;
+         padding: 10px 0; border-top: 1px solid var(--line); }
+  .row label { display: block; }
+  .row label small { display: block; color: var(--dim); font-size: 12px; }
+  .row input { width: 100%; accent-color: var(--accent); }
+  .row output { text-align: right; font-variant-numeric: tabular-nums; }
+  #saved { color: var(--ok); font-size: 12px; margin-left: 8px; opacity: 0; transition: opacity .3s; }
+  footer { padding: 0 16px 16px; color: var(--dim); font-size: 12px; }
+  @media (max-width: 700px) {
+    .gauges { grid-template-columns: 1fr; }
+    header { flex-wrap: wrap; }
+    .row { grid-template-columns: 1fr 70px; }
+    .row input { grid-column: 1 / -1; grid-row: 2; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="r-mark" role="img" aria-label="Renault"></span>
+  <div id="dot"></div>
+  <h1>Clio 4 dCi 90 · OBD</h1>
+  <span id="status">chargement…</span>
+  <nav>
+    <button id="tab-dash" class="on">Tableau de bord</button>
+    <button id="tab-set">Paramètres</button>
+    <button id="reset">Réinit. min/max</button>
+  </nav>
+</header>
+<main id="view-dash">
+  <section class="gauges">
+    <div class="panel"><canvas id="tach"></canvas></div>
+    <div class="panel"><canvas id="boostg"></canvas></div>
+  </section>
+  <section class="tiles" id="tiles"></section>
+  <section class="panel">
+    <div class="legend" id="legend"></div>
+    <canvas id="chart"></canvas>
+  </section>
+</main>
+<main id="view-set" hidden>
+  <section class="panel" id="settings">
+    <h2>Affichage</h2>
+    <p class="note">Propre à ce navigateur.</p>
+    <div class="row">
+      <label for="s-poll">Rafraîchissement de la page<small>Fréquence de lecture des valeurs</small></label>
+      <input type="range" id="s-poll" min="50" max="2000" step="50">
+      <output id="o-poll"></output>
+    </div>
+    <div class="row">
+      <label for="s-hist">Durée du graphique<small>Historique affiché sous les jauges</small></label>
+      <input type="range" id="s-hist" min="10" max="300" step="10">
+      <output id="o-hist"></output>
+    </div>
+    <h2 style="margin-top:20px">Acquisition <span id="saved">enregistré</span></h2>
+    <p class="note">Appliqué tout de suite par le script Python, jusqu'à son arrêt.</p>
+    <div class="row">
+      <label for="s-max_hz">Fréquence max d'acquisition<small>Boucle de lecture de l'ECU (ou de la simulation)</small></label>
+      <input type="range" id="s-max_hz" min="0.5" max="50" step="0.5">
+      <output id="o-max_hz"></output>
+    </div>
+    <div class="row">
+      <label for="s-delay">Pause entre requêtes OBD<small>À augmenter si l'ELM327 décroche</small></label>
+      <input type="range" id="s-delay" min="0" max="1" step="0.01">
+      <output id="o-delay"></output>
+    </div>
+    <div class="row">
+      <label for="s-fast">Mode rapide (fast)<small>Requêtes OBD plus courtes. Reconnecte l'ELM327 ; sans effet en démo</small></label>
+      <input type="checkbox" id="s-fast" style="width:auto;justify-self:start">
+      <output id="o-fast"></output>
+    </div>
+    <div class="row">
+      <label for="s-log_hz">Fréquence du CSV<small>Seulement si le script tourne avec --log</small></label>
+      <input type="range" id="s-log_hz" min="0.2" max="50" step="0.2">
+      <output id="o-log_hz"></output>
+    </div>
+    <div class="row" style="grid-template-columns:1fr auto">
+      <span class="note" style="margin:0">Valeurs de départ : 200 ms et 60 s pour l'affichage.</span>
+      <button id="s-default">Affichage par défaut</button>
+    </div>
+  </section>
+</main>
+<footer id="foot"></footer>
+
+<script>
+// Réglages d'affichage, gardés dans le navigateur
+const DEFAULTS = { poll_ms: 200, history_s: 60 };
+const ui = { ...DEFAULTS };
+try { Object.assign(ui, JSON.parse(localStorage.getItem("clio-ui") || "{}")); } catch (e) {}
+const saveUi = () => { try { localStorage.setItem("clio-ui", JSON.stringify(ui)); } catch (e) {} };
+const CHART = [
+  { key: "rpm",   color: "#f0b429", range: [0, 5000] },
+  { key: "speed", color: "#58a6ff", range: [0, 200] },
+  { key: "boost", color: "#3fb950", range: [-0.1, 1.5] },
+];
+let meta = null, last = null;
+const history = [];
+
+const $ = (id) => document.getElementById(id);
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function fmt(v, unit) {
+  if (v === null || v === undefined) return "—";
+  if (Math.abs(v) < 0.005) v = 0;
+  if (unit === "bar" || unit === "V") return v.toFixed(2);
+  if (unit === "tr/min") return Math.round(v).toString();
+  return Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toString();
+}
+
+function buildTiles() {
+  $("tiles").innerHTML = meta.metrics.map((m) => `
+    <div class="tile" id="t-${m.key}">
+      <div class="lbl">${m.label}</div>
+      <div class="val"><span>—</span><small>${m.unit}</small></div>
+      <div class="mm">min — · max —</div>
+    </div>`).join("");
+  $("legend").innerHTML = CHART
+    .filter((c) => meta.metrics.some((m) => m.key === c.key))
+    .map((c) => `<span><i style="background:${c.color}"></i>${meta.metrics.find((m) => m.key === c.key).label}</span>`)
+    .join("");
+  $("foot").textContent = meta.unsupported.length
+    ? "Non supporté par le calculateur : " + meta.unsupported.join(", ")
+    : "";
+}
+
+function updateTiles(s) {
+  for (const m of meta.metrics) {
+    const el = $("t-" + m.key);
+    const v = s.values[m.key];
+    el.querySelector(".val span").textContent = fmt(v, m.unit);
+    el.querySelector(".mm").textContent = `min ${fmt(s.min[m.key], m.unit)} · max ${fmt(s.max[m.key], m.unit)}`;
+    el.classList.toggle("hot", m.warn !== null && v != null && v > m.warn);
+    el.classList.toggle("cold", m.cold !== null && v != null && v < m.cold);
+  }
+}
+
+function setupCanvas(c) {
+  const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  if (c.width !== Math.round(r.width * dpr) || c.height !== Math.round(r.height * dpr)) {
+    c.width = Math.round(r.width * dpr); c.height = Math.round(r.height * dpr);
+  }
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, r.width, r.height);
+  return [ctx, r.width, r.height];
+}
+
+// Jauge en arc de 225° ; redline = début de la zone rouge
+function drawGauge(canvas, { value, min, max, redline, ticks, tickLabel, big, small, unit }) {
+  const [ctx, w, h] = setupCanvas(canvas);
+  const cx = w / 2, cy = h * 0.55, R = Math.min(w / 2, h * 0.55) * 0.9;
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+  const ang = (v) => a0 + (a1 - a0) * (Math.min(max, Math.max(min, v)) - min) / (max - min);
+
+  ctx.lineCap = "round";
+  ctx.lineWidth = R * 0.09;
+  ctx.strokeStyle = css("--line");
+  ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
+  if (redline !== null) {
+    ctx.strokeStyle = "#5c1d1d";
+    ctx.beginPath(); ctx.arc(cx, cy, R, ang(redline), a1); ctx.stroke();
+  }
+  if (value !== null && value !== undefined) {
+    ctx.strokeStyle = redline !== null && value >= redline ? css("--hot") : css("--accent");
+    ctx.beginPath(); ctx.arc(cx, cy, R, a0, Math.max(a0 + 0.001, ang(value))); ctx.stroke();
+  }
+
+  ctx.fillStyle = css("--dim");
+  ctx.font = `${Math.max(10, R * 0.09)}px system-ui`;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const t of ticks) {
+    const a = ang(t);
+    ctx.fillText(tickLabel(t), cx + Math.cos(a) * R * 0.78, cy + Math.sin(a) * R * 0.78);
+  }
+
+  ctx.fillStyle = css("--text");
+  ctx.font = `600 ${R * 0.36}px system-ui`;
+  ctx.fillText(big, cx, cy - R * 0.02);
+  ctx.fillStyle = css("--dim");
+  ctx.font = `${R * 0.11}px system-ui`;
+  ctx.fillText(unit, cx, cy + R * 0.24);
+  if (small) {
+    ctx.font = `${R * 0.13}px system-ui`;
+    ctx.fillText(small, cx, cy + R * 0.62);
+  }
+}
+
+function drawGauges(s) {
+  const v = s ? s.values : {};
+  drawGauge($("tach"), {
+    value: v.rpm, min: 0, max: 5000, redline: 4500,
+    ticks: [0, 1000, 2000, 3000, 4000, 5000], tickLabel: (t) => t / 1000,
+    big: v.speed != null ? Math.round(v.speed) : "—", unit: "km/h",
+    small: v.rpm != null ? `${Math.round(v.rpm)} tr/min` : "",
+  });
+  drawGauge($("boostg"), {
+    value: v.boost, min: -0.2, max: 1.6, redline: 1.35,
+    ticks: [0, 0.4, 0.8, 1.2, 1.6], tickLabel: (t) => t,
+    big: fmt(v.boost, "bar"), unit: "bar (turbo)",
+    small: s && s.max.boost != null ? `max ${s.max.boost.toFixed(2)}` : "",
+  });
+}
+
+function drawChart() {
+  const [ctx, w, h] = setupCanvas($("chart"));
+  const now = Date.now() / 1000;
+  ctx.strokeStyle = css("--line"); ctx.lineWidth = 1;
+  ctx.fillStyle = css("--dim"); ctx.font = "11px system-ui"; ctx.textAlign = "center";
+  const step = ui.history_s > 120 ? 30 : ui.history_s > 60 ? 20 : 10;
+  for (let s = 0; s <= ui.history_s; s += step) {
+    const x = w - (s / ui.history_s) * w;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h - 14); ctx.stroke();
+    ctx.fillText(s ? `-${s}s` : "0", Math.min(w - 8, Math.max(10, x)), h - 3);
+  }
+  for (const c of CHART) {
+    ctx.strokeStyle = c.color; ctx.lineWidth = 2; ctx.beginPath();
+    let started = false;
+    for (const p of history) {
+      const v = p.values[c.key];
+      if (v === null || v === undefined) { started = false; continue; }
+      const x = w - ((now - p.t) / ui.history_s) * w;
+      const y = (h - 18) * (1 - (v - c.range[0]) / (c.range[1] - c.range[0])) + 2;
+      started ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      started = true;
+    }
+    ctx.stroke();
+  }
+}
+
+async function poll() {
+  try {
+    const s = await (await fetch("/api/state")).json();
+    if (!meta || meta.metrics.length === 0 || s.status !== (last && last.status)) {
+      meta = await (await fetch("/api/meta")).json();
+      buildTiles();
+    }
+    last = s;
+    history.push({ t: s.t, values: s.values });
+    while (history.length && s.t - history[0].t > ui.history_s) history.shift();
+    const live = s.status.startsWith("connecté") || s.status === "démo";
+    $("dot").style.background = live ? css("--ok") : css("--hot");
+    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
+    updateTiles(s);
+  } catch (e) {
+    $("dot").style.background = css("--hot");
+    $("status").textContent = "script Python injoignable";
+  }
+}
+
+function frame() { drawGauges(last); drawChart(); requestAnimationFrame(frame); }
+
+$("reset").onclick = () => fetch("/api/reset", { method: "POST" });
+
+// ---------- Onglets ----------
+function showTab(set) {
+  $("view-dash").hidden = set; $("view-set").hidden = !set;
+  $("tab-dash").classList.toggle("on", !set); $("tab-set").classList.toggle("on", set);
+  if (set) loadServerSettings();
+}
+$("tab-dash").onclick = () => showTab(false);
+$("tab-set").onclick = () => showTab(true);
+
+// ---------- Paramètres ----------
+let pollTimer = null;
+function restartPoll() { clearInterval(pollTimer); pollTimer = setInterval(poll, ui.poll_ms); }
+
+const UI_FIELDS = {
+  poll:  { key: "poll_ms",   show: (v) => `${v} ms` },
+  hist:  { key: "history_s", show: (v) => `${v} s` },
+};
+function syncUi() {
+  for (const [id, f] of Object.entries(UI_FIELDS)) {
+    $("s-" + id).value = ui[f.key];
+    $("o-" + id).textContent = f.show(ui[f.key]);
+  }
+}
+for (const [id, f] of Object.entries(UI_FIELDS)) {
+  $("s-" + id).oninput = (e) => {
+    ui[f.key] = Number(e.target.value);
+    $("o-" + id).textContent = f.show(ui[f.key]);
+    saveUi();
+    if (f.key === "poll_ms") restartPoll();
+  };
+}
+$("s-default").onclick = () => { Object.assign(ui, DEFAULTS); saveUi(); syncUi(); restartPoll(); };
+
+const SERVER_FIELDS = {
+  max_hz: (v) => `${v} Hz`,
+  delay:  (v) => `${Math.round(v * 1000)} ms`,
+  log_hz: (v) => `${v} Hz`,
+};
+function showServer(st) {
+  if (st.fast !== undefined) {
+    $("s-fast").checked = st.fast;
+    $("o-fast").textContent = st.fast ? "activé" : "désactivé";
+  }
+  for (const [k, show] of Object.entries(SERVER_FIELDS)) {
+    if (st[k] === undefined) continue;
+    $("s-" + k).value = st[k];
+    $("o-" + k).textContent = show(st[k]);
+  }
+}
+async function sendServer(change) {
+  try {
+    const r = await fetch("/api/settings", { method: "POST", body: JSON.stringify(change) });
+    showServer(await r.json());
+    $("saved").style.opacity = 1;
+    setTimeout(() => ($("saved").style.opacity = 0), 1200);
+  } catch (err) {}
+}
+async function loadServerSettings() {
+  try { showServer(await (await fetch("/api/settings")).json()); } catch (e) {}
+}
+const sendTimers = {};
+for (const [k, show] of Object.entries(SERVER_FIELDS)) {
+  $("s-" + k).oninput = (e) => {
+    $("o-" + k).textContent = show(Number(e.target.value));
+    clearTimeout(sendTimers[k]);
+    sendTimers[k] = setTimeout(() => sendServer({ [k]: Number(e.target.value) }), 250);
+  };
+}
+$("s-fast").onchange = (e) => sendServer({ fast: e.target.checked });
+
+syncUi();
+restartPoll();
+poll();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# Certificat HTTPS local (clé privée) : régénéré au lancement
+certs/
+# Enregistrements de trajets (données personnelles : positions GPS, horaires)
+logs/
+*.csv
+__pycache__/
+*.pyc
+.venv/

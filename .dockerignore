@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+certs/
+logs/
+*.csv
+udev/
+lancer.sh
+.git/
+Dockerfile
+docker-compose*.yml

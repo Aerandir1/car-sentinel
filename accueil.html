@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clio IV Estate</title>
+<style>
+  :root {
+    --bg: #0b0e13; --card: rgba(18, 22, 29, 0.62); --line: rgba(255, 255, 255, 0.08);
+    --text: #e6edf3; --dim: #8b949e; --accent: #f0b429; --ok: #3fb950; --hot: #f85149; --cold: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+               font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  #scene:active { cursor: grabbing; }
+
+  #ui { position: fixed; inset: 0; pointer-events: none; transition: opacity .5s; }
+  #ui.hidden { opacity: 0; }
+  #ui > * { pointer-events: auto; }
+
+  /* Logos Renault (dossier logo/) : utilisés en masque, ils prennent la couleur du texte (currentColor) */
+  .r-mark, .r-lockup { display: inline-block; flex: none; background: currentColor;
+                       -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
+  .r-mark { --src: url(/logo/Renault_2021_Logo.svg); aspect-ratio: 1000 / 1307; }
+  .r-lockup { --src: url(/logo/Renault_2021_Text.svg); aspect-ratio: 500 / 437.5; }
+  .brand { position: absolute; top: 28px; left: 32px; display: flex; align-items: center; gap: 18px; }
+  .brand .r-mark { height: 78px; color: var(--accent); filter: drop-shadow(0 0 18px rgba(240, 180, 41, .25)); }
+  .brand .kicker { color: var(--accent); font-size: 12px; letter-spacing: .28em; text-transform: uppercase; font-weight: 600; }
+  .brand h1 { margin: 4px 0 2px; font-size: 40px; line-height: 1.05; font-weight: 700; letter-spacing: -.01em; }
+  .brand p { margin: 0; color: var(--dim); }
+
+  .pill { position: absolute; top: 32px; right: 32px; display: flex; align-items: center; gap: 10px;
+          padding: 8px 14px; border-radius: 999px; background: var(--card); border: 1px solid var(--line);
+          backdrop-filter: blur(12px); font-size: 13px; }
+  .pill i { width: 9px; height: 9px; border-radius: 50%; background: var(--dim); box-shadow: 0 0 10px currentColor; }
+
+  .card { position: absolute; width: 250px; padding: 16px 18px; border-radius: 14px; background: var(--card);
+          border: 1px solid var(--line); backdrop-filter: blur(12px); }
+  .card h2 { margin: 0 0 10px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; }
+  .row span:first-child { color: var(--dim); }
+  .row b { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  #specs { left: 32px; top: 50%; transform: translateY(-50%); }
+  #live { right: 32px; top: 50%; transform: translateY(-50%); }
+  #live b.hot { color: var(--hot); } #live b.cold { color: var(--cold); }
+
+  .fact { position: absolute; left: 32px; bottom: 32px; max-width: 360px; }
+  .fact h2 { margin: 0 0 6px; font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+  .fact p { margin: 0; color: var(--text); transition: opacity .4s; min-height: 3em; }
+
+  .actions { position: absolute; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; gap: 12px; }
+  .actions button { display: flex; align-items: center; gap: 12px; padding: 15px 28px 15px 30px; border-radius: 999px;
+                    font: 600 16px system-ui, sans-serif; cursor: pointer; transition: transform .2s, box-shadow .2s, background .2s; }
+  .actions button:hover { transform: translateY(-2px); }
+  .actions svg { width: 18px; height: 18px; }
+  #go { border: 0; background: var(--accent); color: #17130a; box-shadow: 0 10px 40px rgba(240, 180, 41, .28); }
+  #go:hover { box-shadow: 0 14px 50px rgba(240, 180, 41, .4); }
+  #drive { border: 1px solid rgba(255, 255, 255, .18); background: var(--card); color: var(--text); backdrop-filter: blur(12px); }
+  #drive:hover, #radio-go:hover { background: rgba(40, 46, 56, .7); }
+  #radio-go { border: 1px solid rgba(255, 255, 255, .18); background: var(--card); color: var(--text); backdrop-filter: blur(12px); }
+
+  /* Mode balade : on garde le titre et les boutons, on affiche le compteur façon jeu de course */
+  #specs, #live, .fact, .hint { transition: opacity .4s; }
+  body.driving #specs, body.driving #live, body.driving .fact, body.driving .hint { opacity: 0; pointer-events: none; }
+  #hud { position: absolute; right: 44px; bottom: 34px; width: 260px; opacity: 0; transform: translateX(30px) skewX(-10deg);
+         transition: opacity .4s, transform .4s; pointer-events: none; font-style: italic; }
+  body.driving #hud { opacity: 1; transform: translateX(0) skewX(-10deg); }
+  .hud-speed { display: flex; align-items: baseline; justify-content: flex-end; gap: 8px; }
+  .hud-speed b { font: 800 84px/1 system-ui, sans-serif; letter-spacing: -.03em; font-variant-numeric: tabular-nums;
+                 text-shadow: 0 0 24px rgba(88, 166, 255, .35); }
+  .hud-speed span { color: var(--dim); font-weight: 700; letter-spacing: .1em; }
+  .hud-row { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+  .hud-gear { width: 44px; height: 44px; display: grid; place-items: center; border: 2px solid var(--accent); border-radius: 8px;
+              color: var(--accent); font: 800 26px system-ui, sans-serif; }
+  .hud-bar { flex: 1; height: 10px; background: rgba(255, 255, 255, .08); border-radius: 3px; overflow: hidden; }
+  .hud-bar i { display: block; height: 100%; width: 0; }
+  #h-rpm { background: linear-gradient(90deg, var(--ok), var(--accent) 70%, var(--hot)); }
+  .hud-nos { display: flex; align-items: center; gap: 12px; margin-top: 10px; font: 800 13px system-ui, sans-serif; color: #58c8ff; letter-spacing: .12em; }
+  #h-nos { background: linear-gradient(90deg, #2f7dff, #58e1ff); box-shadow: 0 0 12px #58c8ff; }
+  .hint { position: absolute; right: 32px; bottom: 36px; color: var(--dim); font-size: 12px; }
+  .credit { position: absolute; right: 32px; bottom: 14px; color: var(--dim); font-size: 11px; opacity: .7; }
+
+  #dash, #radio { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #0d1014;
+          opacity: 0; visibility: hidden; transform: scale(1.06); transition: opacity .45s ease-out, transform .55s cubic-bezier(.2,.8,.2,1), visibility 0s .55s; }
+  #radio { background: #07090c; }
+  #dash.on, #radio.on { opacity: 1; visibility: visible; transform: scale(1); transition: opacity .45s ease-out, transform .55s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+  #back { position: fixed; right: 20px; bottom: 20px; z-index: 5; padding: 10px 18px; border-radius: 999px; border: 1px solid #262d36;
+          background: #161b22; color: var(--text); font: 500 14px system-ui, sans-serif; cursor: pointer; display: none; }
+  #back.on { display: block; }
+
+  @media (max-width: 900px) {
+    .card, .fact, .hint { display: none; }
+    #hud { right: 16px; bottom: 100px; width: 200px; } .hud-speed b { font-size: 56px; }
+    .brand h1 { font-size: 28px; }
+    .brand .r-mark { height: 56px; }
+    .brand { left: 16px; top: 16px; } .pill { right: 16px; top: 16px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+
+<div id="ui">
+  <div class="brand">
+    <span class="r-mark" role="img" aria-label="Renault"></span>
+    <div>
+      <div class="kicker">Renault</div>
+      <h1>Clio IV Estate</h1>
+      <p>1.5 dCi 90 · 2016 · Gris</p>
+    </div>
+  </div>
+
+  <div class="pill"><i id="dot"></i><span id="conn">recherche du calculateur…</span></div>
+
+  <section class="card" id="specs">
+    <h2>Fiche technique</h2>
+    <div class="row"><span>Moteur</span><b>K9K · 4 cyl.</b></div>
+    <div class="row"><span>Cylindrée</span><b>1 461 cm³</b></div>
+    <div class="row"><span>Puissance</span><b>90 ch à 4 000 tr/min</b></div>
+    <div class="row"><span>Couple</span><b>220 Nm à 1 750 tr/min</b></div>
+    <div class="row"><span>Boîte</span><b>Manuelle 5</b></div>
+    <div class="row"><span>Norme</span><b>Euro 6 · FAP</b></div>
+    <div class="row"><span>Longueur</span><b>4,27 m</b></div>
+    <div class="row"><span>Coffre</span><b>443 L</b></div>
+  </section>
+
+  <section class="card" id="live">
+    <h2>En direct</h2>
+    <div class="row"><span>Temp. eau</span><b id="v-coolant">—</b></div>
+    <div class="row"><span>Temp. huile</span><b id="v-oil">—</b></div>
+    <div class="row"><span>Batterie</span><b id="v-voltage">—</b></div>
+    <div class="row"><span>Extérieur</span><b id="v-ambient">—</b></div>
+    <div class="row"><span>Pression atmo</span><b id="v-baro">—</b></div>
+    <div class="row"><span>Mesures dispo</span><b id="v-count">—</b></div>
+  </section>
+
+  <div class="fact">
+    <h2>Le saviez-vous ?</h2>
+    <p id="fact"></p>
+  </div>
+
+  <div class="actions">
+    <button id="drive">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21a9 9 0 1 1 9-9"/><path d="M12 12l5-4"/></svg>
+      <span id="drive-label">Rouler</span>
+    </button>
+    <button id="radio-go">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="13" rx="2"/><path d="M7 6l9-3"/><circle cx="15.5" cy="12.5" r="2.5"/><path d="M6.5 11h4M6.5 14h4"/></svg>
+      Autoradio
+    </button>
+    <button id="go">
+      Mode dashboard
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+  <div class="hint">Glisse pour tourner autour · Espace pour rouler · R pour l'autoradio · Entrée pour le dashboard</div>
+  <div id="hud">
+    <div class="hud-speed"><b id="h-speed">0</b><span>KM/H</span></div>
+    <div class="hud-row"><div class="hud-gear" id="h-gear">1</div><div class="hud-bar"><i id="h-rpm"></i></div></div>
+    <div class="hud-nos">NOS<div class="hud-bar"><i id="h-nos"></i></div></div>
+  </div>
+  <div class="credit" id="credit"></div>
+</div>
+
+<iframe id="dash" title="Dashboard"></iframe>
+<iframe id="radio" title="Autoradio" allow="usb; autoplay; fullscreen"></iframe>
+<button id="back">↩ Accueil</button>
+
+<script type="importmap">{ "imports": { "three": "/vendor/three.module.min.js" } }</script>
+<script type="module">
+import * as THREE from "three";
+import { RoomEnvironment } from "/vendor/RoomEnvironment.js";
+import { OrbitControls } from "/vendor/OrbitControls.js";
+import { toCreasedNormals } from "/vendor/BufferGeometryUtils.js";
+
+const $ = (id) => document.getElementById(id);
+
+// ---------- Rendu ----------
+const canvas = $("scene");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.95;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0b0e13);
+scene.fog = new THREE.Fog(0x0b0e13, 14, 32);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.85;
+
+const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 100);
+const HOME_POS = new THREE.Vector3(5.6, 2.1, 5.4);
+const HOME_TARGET = new THREE.Vector3(0, 0.62, 0);
+camera.position.copy(HOME_POS);
+
+const controls = new OrbitControls(camera, canvas);
+controls.target.copy(HOME_TARGET);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 4.6;
+controls.maxDistance = 11;
+controls.maxPolarAngle = 1.48;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.55;
+
+const key = new THREE.DirectionalLight(0xffffff, 2.2);
+key.position.set(3, 6, 4);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x9db8ff, 1.6);
+rim.position.set(-5, 3, -4);
+scene.add(rim);
+const hemi = new THREE.HemisphereLight(0xbfd4ff, 0x14110c, 0.45);
+scene.add(hemi);
+
+// Sol : halo lumineux + ombre de contact (textures dessinées en canvas, aucun fichier externe)
+function radialTexture(stops, size = 512) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  const g = c.getContext("2d");
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  for (const [o, col] of stops) grad.addColorStop(o, col);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(16, 64),
+  new THREE.MeshBasicMaterial({ map: radialTexture([[0, "#262b33"], [0.35, "#141820"], [1, "#0b0e13"]]) }),
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
+const ring = new THREE.Mesh(
+  new THREE.RingGeometry(3.05, 3.08, 128),
+  new THREE.MeshBasicMaterial({ color: 0xf0b429, transparent: true, opacity: 0.35 }),
+);
+ring.rotation.x = -Math.PI / 2;
+ring.position.y = 0.002;
+scene.add(ring);
+const shadow = new THREE.Mesh(
+  new THREE.PlaneGeometry(5.6, 2.7),
+  new THREE.MeshBasicMaterial({
+    map: radialTexture([[0, "rgba(0,0,0,0.85)"], [0.55, "rgba(0,0,0,0.45)"], [1, "rgba(0,0,0,0)"]]),
+    transparent: true, depthWrite: false,
+  }),
+);
+shadow.rotation.x = -Math.PI / 2;
+shadow.position.y = 0.004;
+scene.add(shadow);
+
+// ---------- Matériaux ----------
+const M = {
+  paint:  new THREE.MeshPhysicalMaterial({ color: 0x5d6168, metalness: 0.7, roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.06 }),
+  inner:  new THREE.MeshStandardMaterial({ color: 0x1a1d22, roughness: 0.85, side: THREE.BackSide }),
+  glass:  new THREE.MeshPhysicalMaterial({ color: 0x0a0e13, metalness: 0.1, roughness: 0.04, transparent: true, opacity: 0.86, depthWrite: false, side: THREE.DoubleSide }),
+  black:  new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.6 }),
+  gloss:  new THREE.MeshStandardMaterial({ color: 0x060708, roughness: 0.12, metalness: 0.4 }),
+  chrome: new THREE.MeshStandardMaterial({ color: 0xf0f0f0, metalness: 1, roughness: 0.1 }),
+  rubber: new THREE.MeshStandardMaterial({ color: 0x17181a, roughness: 0.92 }),
+  rim:    new THREE.MeshStandardMaterial({ color: 0xa3a8ae, metalness: 0.9, roughness: 0.25 }),
+  lens:   new THREE.MeshPhysicalMaterial({ color: 0xd9e2ea, metalness: 0.3, roughness: 0.05, clearcoat: 1, emissive: 0x90a8c0, emissiveIntensity: 0.3 }),
+  drl:    new THREE.MeshBasicMaterial({ color: 0xeef6ff }),
+  tail:   new THREE.MeshStandardMaterial({ color: 0x4a0306, emissive: 0xd0121c, emissiveIntensity: 0.7, roughness: 0.2 }),
+  plate:  new THREE.MeshStandardMaterial({ color: 0xdfe3e8, roughness: 0.5 }),
+  trim:   new THREE.MeshStandardMaterial({ color: 0x1c1f24, roughness: 0.8 }),
+  seat:   new THREE.MeshStandardMaterial({ color: 0x2a2e34, roughness: 0.95 }),
+};
+
+// ---------- Géométrie de la Clio ----------
+// Repère : x vers l'avant, y vers le haut, z vers la droite (conducteur à z < 0).
+const W = 1.73, BELT = 0.95, ROOF = 1.43;
+const FX = 1.29, RX = -1.30, WHEEL_R = 0.31;
+const EYE = new THREE.Vector3(-0.30, 1.17, -0.37);
+
+function poly(points) {
+  const s = new THREE.Shape();
+  s.moveTo(...points[0]);
+  for (const p of points.slice(1)) s.lineTo(...p);
+  return s;
+}
+
+function extrude(shape, depth, bevel = 0.04, z = 0) {
+  const g = new THREE.ExtrudeGeometry(shape, {
+    depth, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 5, curveSegments: 32,
+  });
+  g.translate(0, 0, z - depth / 2);
+  return g;
+}
+
+// Enlève les faces supérieures de la caisse au-dessus de l'habitacle, pour voir l'intérieur.
+function openCabin(geo, x0, x1, yMin) {
+  const p = geo.attributes.position, out = [];
+  const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i); b.fromBufferAttribute(p, i + 1); c.fromBufferAttribute(p, i + 2);
+    const inside = [a, b, c].every((v) => v.x > x0 && v.x < x1 && v.y > yMin);
+    const ny = new THREE.Vector3().crossVectors(b.clone().sub(a), c.clone().sub(a)).normalize().y;
+    if (inside && ny > 0.3) continue;
+    out.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3));
+  return g;
+}
+
+// Galbe : rentre le vitrage vers le haut, arrondit nez et poupe vus de dessus, puis lisse les normales.
+function sculpt(geo) {
+  if (geo.index) geo = geo.toNonIndexed();
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i);
+    let s = 1;
+    if (y > BELT) s -= 0.21 * Math.min(1, (y - BELT) / (ROOF - BELT));
+    else if (y < 0.42) s -= 0.05 * Math.min(1, (0.42 - y) / 0.17);
+    const nose = x - 1.55, tail = -x - 1.85;
+    if (nose > 0) s *= 1 - 0.2 * Math.min(1, nose / 0.6) ** 2;
+    if (tail > 0) s *= 1 - 0.06 * Math.min(1, tail / 0.3) ** 2;
+    p.setZ(i, p.getZ(i) * s);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", p);
+  return toCreasedNormals(g, 0.6);
+}
+
+function mesh(geo, mat, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  return m;
+}
+const box = (sx, sy, sz, mat, x, y, z) => mesh(new THREE.BoxGeometry(sx, sy, sz), mat, x, y, z);
+
+const car = new THREE.Group();
+scene.add(car);
+
+// Caisse : profil latéral avec passages de roue, capot plongeant, ceinture de caisse montante
+const bodyShape = new THREE.Shape();
+bodyShape.moveTo(-2.08, 0.30);
+bodyShape.lineTo(RX - 0.42, 0.27);
+bodyShape.absarc(RX, WHEEL_R, 0.42, Math.PI, 0, true);
+bodyShape.lineTo(FX - 0.42, 0.25);
+bodyShape.absarc(FX, WHEEL_R, 0.42, Math.PI, 0, true);
+bodyShape.lineTo(2.04, 0.29);
+bodyShape.quadraticCurveTo(2.15, 0.31, 2.14, 0.50);
+bodyShape.quadraticCurveTo(2.13, 0.72, 1.96, 0.785);
+bodyShape.quadraticCurveTo(1.45, 0.86, 0.95, 0.93);
+bodyShape.lineTo(0.80, 0.95);
+for (let i = 1; i <= 24; i++) bodyShape.lineTo(0.80 - 2.75 * i / 24, 0.95 + 0.09 * i / 24); // découpée pour pouvoir ouvrir l'habitacle
+bodyShape.quadraticCurveTo(-2.10, 1.03, -2.10, 0.90);
+bodyShape.quadraticCurveTo(-2.13, 0.55, -2.08, 0.30);
+const bodyGeo = sculpt(openCabin(extrude(bodyShape, W - 0.08), -1.93, 0.78, 0.9));
+car.add(mesh(bodyGeo, M.paint));
+car.add(mesh(bodyGeo, M.inner));   // face intérieure des portes, en plastique sombre
+
+// Vitrage (montants B et C noirs, comme sur la vraie Clio IV)
+const greenhouse = new THREE.Shape();
+greenhouse.moveTo(0.93, 0.92);
+greenhouse.lineTo(-0.02, 1.39);
+greenhouse.quadraticCurveTo(-0.15, 1.425, -0.40, 1.425);
+greenhouse.lineTo(-1.75, 1.405);
+greenhouse.quadraticCurveTo(-1.98, 1.385, -2.04, 1.25);
+greenhouse.lineTo(-2.09, 0.99);
+greenhouse.lineTo(0.80, 0.90);
+const glass = mesh(sculpt(extrude(greenhouse, W - 0.2, 0.02)), M.glass);
+glass.renderOrder = 2;
+car.add(glass);
+
+// Pavillon, spoiler, montants A et D en couleur caisse
+const roofShape = poly([[-0.05, 1.395], [-0.18, 1.432], [-0.40, 1.44], [-1.75, 1.42], [-1.95, 1.405], [-2.06, 1.32],
+                        [-2.03, 1.30], [-1.92, 1.375], [-1.75, 1.39], [-0.40, 1.41], [-0.15, 1.405]]);
+car.add(mesh(sculpt(extrude(roofShape, W - 0.21, 0.025)), M.paint));
+const aPillar = poly([[0.95, 0.93], [-0.04, 1.405], [-0.14, 1.405], [0.84, 0.93]]);
+const dPillar = poly([[-1.70, 1.41], [-1.98, 1.37], [-2.10, 1.00], [-1.88, 1.00], [-1.80, 1.30]]);
+for (const side of [-1, 1]) {
+  car.add(mesh(sculpt(extrude(aPillar, 0.07, 0.01, side * (W / 2 - 0.12))), M.paint));
+  car.add(mesh(sculpt(extrude(dPillar, 0.09, 0.01, side * (W / 2 - 0.13))), M.paint));
+  // barres de toit
+  car.add(box(1.55, 0.03, 0.04, M.black, -1.0, 1.465, side * 0.56));
+  // rétroviseurs
+  const mirror = new THREE.Group();
+  mirror.add(box(0.13, 0.10, 0.19, M.paint, 0, 0, side * 0.1));
+  mirror.add(box(0.08, 0.04, 0.08, M.black, 0.02, -0.04, 0));
+  mirror.position.set(0.66, 1.0, side * 0.80);
+  car.add(mirror);
+  // bas de caisse noir
+  car.add(box(1.68, 0.08, 0.04, M.black, -0.01, 0.27, side * 0.835));
+  // poignées de porte avant
+  car.add(box(0.15, 0.025, 0.02, M.black, 0.12, 0.92, side * 0.845));
+}
+
+// Face avant
+car.add(box(0.06, 0.09, 0.80, M.gloss, 2.11, 0.655, 0));     // calandre
+car.add(box(0.06, 0.13, 1.05, M.gloss, 2.135, 0.40, 0));     // entrée d'air basse
+car.add(box(0.03, 0.10, 0.50, M.plate, 2.16, 0.53, 0));      // plaque
+const logo = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.02, 4), M.chrome, 2.15, 0.66, 0);
+logo.rotation.z = Math.PI / 2;
+logo.scale.set(1, 1, 0.75);
+car.add(logo);
+for (const side of [-1, 1]) {
+  const light = mesh(new THREE.SphereGeometry(1, 32, 16), M.lens, 2.02, 0.72, side * 0.52);
+  light.scale.set(0.12, 0.05, 0.23);
+  light.rotation.y = -side * 0.55;
+  car.add(light);
+  car.add(box(0.02, 0.11, 0.03, M.drl, 2.15, 0.42, side * 0.56));   // feux de jour LED
+}
+
+// Face arrière
+car.add(box(0.03, 0.11, 0.52, M.plate, -2.15, 0.66, 0));
+car.add(box(0.08, 0.12, 1.30, M.black, -2.09, 0.33, 0));
+for (const side of [-1, 1]) {
+  const tl = box(0.08, 0.13, 0.28, M.tail, -2.11, 0.94, side * 0.58);
+  tl.rotation.y = side * 0.25;
+  car.add(tl);
+}
+
+// Roues (jantes 16" à 5 branches) + caches noirs dans les passages de roue
+function wheel(x, side) {
+  const g = new THREE.Group();
+  const tire = mesh(new THREE.CylinderGeometry(WHEEL_R, WHEEL_R, 0.2, 48), M.rubber);
+  tire.rotation.x = Math.PI / 2;
+  g.add(tire);
+  const rimDisc = mesh(new THREE.CylinderGeometry(0.205, 0.205, 0.205, 48), M.black);
+  rimDisc.rotation.x = Math.PI / 2;
+  g.add(rimDisc);
+  const face = side * 0.104;
+  const lip = mesh(new THREE.TorusGeometry(0.2, 0.012, 8, 48), M.rim, 0, 0, face);
+  g.add(lip);
+  for (let k = 0; k < 5; k++) {
+    const spoke = box(0.19, 0.04, 0.02, M.rim, 0, 0, face);
+    spoke.geometry.translate(0.095, 0, 0);
+    spoke.rotation.z = (k / 5) * Math.PI * 2;
+    g.add(spoke);
+  }
+  g.add(mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.02, 24), M.rim, 0, 0, face).rotateX(Math.PI / 2));
+  g.position.set(x, WHEEL_R, side * 0.72);
+  return g;
+}
+const wheels = [];   // pivots des roues, qu'on fait tourner en mode balade
+for (const x of [FX, RX]) {
+  for (const side of [-1, 1]) {
+    const w = wheel(x, side);
+    wheels.push(w);
+    car.add(w);
+  }
+  car.add(box(0.9, 0.42, W - 0.5, M.black, x, 0.48, 0));
+}
+
+// ---------- Intérieur ----------
+const interiorStart = car.children.length;   // tout ce qui précède est la carrosserie
+car.add(box(2.5, 0.04, W - 0.25, M.trim, -0.55, 0.33, 0));                            // plancher
+const dashShape = poly([[1.0, 0.92], [0.64, 1.0], [0.50, 0.97], [0.48, 0.80], [0.60, 0.62], [0.95, 0.62]]);
+car.add(mesh(extrude(dashShape, W - 0.36, 0.02), M.trim));                             // planche de bord
+car.add(box(0.17, 0.025, 0.36, M.trim, 0.58, 1.14, EYE.z));                          // casquette du combiné
+car.add(box(0.03, 0.14, 0.34, M.trim, 0.665, 1.07, EYE.z));
+car.add(box(0.5, 0.18, 0.2, M.trim, 0.25, 0.48, 0));                                   // console centrale
+
+// Combiné d'instruments : texture canvas animée pendant l'entrée dans la voiture
+const clusterCanvas = document.createElement("canvas");
+clusterCanvas.width = 640; clusterCanvas.height = 236;
+const clusterTex = new THREE.CanvasTexture(clusterCanvas);
+clusterTex.colorSpace = THREE.SRGBColorSpace;
+function drawCluster(sweep) {
+  const c = clusterCanvas.getContext("2d");
+  c.fillStyle = "#05070a";
+  c.fillRect(0, 0, 640, 236);
+  const dial = (cx, label, max) => {
+    c.lineWidth = 12; c.lineCap = "round";
+    c.strokeStyle = "#1d232b";
+    c.beginPath(); c.arc(cx, 128, 86, 0.75 * Math.PI, 2.25 * Math.PI); c.stroke();
+    c.strokeStyle = "#f0b429";
+    c.beginPath(); c.arc(cx, 128, 86, 0.75 * Math.PI, 0.75 * Math.PI + 1.5 * Math.PI * sweep + 0.001); c.stroke();
+    c.textAlign = "center";
+    c.fillStyle = "#e6edf3"; c.font = "600 50px system-ui";
+    c.fillText(Math.round(sweep * max), cx, 145);
+    c.fillStyle = "#8b949e"; c.font = "20px system-ui";
+    c.fillText(label, cx, 205);
+  };
+  dial(165, "tr/min", 5000);
+  dial(475, "km/h", 200);
+  clusterTex.needsUpdate = true;
+}
+drawCluster(0);
+const cluster = mesh(new THREE.PlaneGeometry(0.3, 0.11), new THREE.MeshBasicMaterial({ map: clusterTex }), 0.645, 1.07, EYE.z);
+cluster.lookAt(EYE);
+car.add(cluster);
+
+// Écran central (autoradio) : carte GPS au repos, logo puis accueil de l'autoradio quand on s'en approche
+const navCanvas = document.createElement("canvas");
+navCanvas.width = 480; navCanvas.height = 270;
+const navTex = new THREE.CanvasTexture(navCanvas);
+navTex.colorSpace = THREE.SRGBColorSpace;
+
+// Logo Renault (logo/Renault_2021_Logo.svg) recoloré pour le canvas : on peint la couleur dans sa silhouette
+const markImg = new Image();
+markImg.src = "/logo/Renault_2021_Logo.svg";
+const markCache = new Map();
+function tintedMark(color, h) {
+  if (!markImg.complete || !markImg.naturalWidth) return null;
+  const key = color + h;
+  if (!markCache.has(key)) {
+    const c = document.createElement("canvas");
+    c.height = h; c.width = Math.round(h * 1000 / 1307);
+    const g = c.getContext("2d");
+    g.drawImage(markImg, 0, 0, c.width, c.height);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = color;
+    g.fillRect(0, 0, c.width, c.height);
+    markCache.set(key, c);
+  }
+  return markCache.get(key);
+}
+
+function drawNav(boot) {
+  const c = navCanvas.getContext("2d"), W = 480, H = 270;
+  if (boot <= 0) {
+    const g = c.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, "#0e2a44"); g.addColorStop(1, "#061019");
+    c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.strokeStyle = "#2f6f9f"; c.lineWidth = 4;
+    c.beginPath(); c.moveTo(30, 225); c.bezierCurveTo(165, 180, 210, 90, 450, 60); c.stroke();
+    c.fillStyle = "#f0b429"; c.beginPath(); c.arc(225, 138, 10, 0, Math.PI * 2); c.fill();
+  } else {
+    c.fillStyle = "#05070a"; c.fillRect(0, 0, W, H);
+    // Logo qui apparaît, puis l'interface (menu à gauche, horloge, tuiles) qui se dessine
+    const logo = clamp01(boot / 0.45) * (1 - clamp01((boot - 0.55) / 0.2));
+    const mark = tintedMark("#f0b429", 110);
+    if (logo > 0 && mark) {
+      c.globalAlpha = logo;
+      c.drawImage(mark, 240 - mark.width / 2, 80);
+    }
+    const ui = clamp01((boot - 0.6) / 0.35);
+    if (ui > 0) {
+      c.globalAlpha = ui;
+      c.fillStyle = "#0a0e13"; c.fillRect(0, 0, 52, H);
+      const small = tintedMark("#f0b429", 26);
+      if (small) c.drawImage(small, 26 - small.width / 2, 8);
+      for (let i = 0; i < 4; i++) { c.fillStyle = i === 0 ? "#3a2f17" : "#141a22"; c.fillRect(12, 46 + i * 48, 28, 28); }
+      c.fillStyle = "#161d26";
+      c.fillRect(66, 36, 196, 216); c.fillRect(274, 36, 192, 104); c.fillRect(274, 148, 192, 104);
+      c.fillStyle = "#e9eef4"; c.font = "200 64px system-ui"; c.textBaseline = "alphabetic";
+      c.fillText(new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }), 80, 130);
+      c.fillStyle = "#f0b429"; c.fillRect(288, 56, 64, 64);
+      c.fillStyle = "#2f8cff"; c.fillRect(288, 168, 64, 64);
+    }
+    c.globalAlpha = 1;
+  }
+  navTex.needsUpdate = true;
+}
+drawNav(0);
+// Posé juste devant la face arrière de la planche de bord (biseau compris), tourné vers les sièges avant
+const nav = mesh(new THREE.PlaneGeometry(0.19, 0.107), new THREE.MeshBasicMaterial({ map: navTex }), 0.452, 0.88, 0);
+nav.lookAt(-0.3, 1.0, EYE.z / 2);
+car.add(nav);
+
+// Volant
+const steering = new THREE.Group();
+steering.add(mesh(new THREE.TorusGeometry(0.185, 0.022, 14, 56), M.black));
+steering.add(mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.05, 24), M.black).rotateX(Math.PI / 2));
+for (const a of [0, Math.PI, -Math.PI / 2]) {
+  const s = box(0.17, 0.035, 0.02, M.black, 0, 0, 0);
+  s.geometry.translate(0.085, 0, 0);
+  s.rotation.z = a;
+  steering.add(s);
+}
+steering.position.set(0.36, 0.95, EYE.z);
+steering.lookAt(EYE);
+car.add(steering);
+const column = mesh(new THREE.CylinderGeometry(0.03, 0.04, 0.22, 16), M.trim, 0.46, 0.91, EYE.z);
+column.rotation.z = Math.PI / 2 - 0.35;
+car.add(column);
+
+// Sièges
+for (const z of [-0.37, 0.37]) {
+  car.add(box(0.5, 0.12, 0.48, M.seat, -0.35, 0.52, z));
+  const back = box(0.12, 0.62, 0.46, M.seat, -0.62, 0.86, z);
+  back.rotation.z = 0.18;
+  car.add(back);
+  car.add(box(0.1, 0.16, 0.26, M.seat, -0.72, 1.27, z));
+}
+car.add(box(0.5, 0.12, 1.25, M.seat, -1.15, 0.52, 0));
+const bench = box(0.12, 0.55, 1.25, M.seat, -1.43, 0.84, 0);
+bench.rotation.z = 0.15;
+car.add(bench);
+
+// ---------- Modèle 3D téléchargé (models/clio.glb ou models/clio/scene.gltf) ----------
+// S'il est présent, il remplace la carrosserie dessinée en code. L'intérieur dessiné en code reste
+// en place, pour que l'animation vers le combiné marche même si le modèle n'a pas d'intérieur.
+const MODEL = {
+  length: 4.09,                                        // longueur réelle du modèle (Clio IV R.S. : 4,09 m ; Estate : 4,27 m)
+  turn: 0,                                             // quarts de tour en plus si l'avant n'est pas du bon côté
+  paint: /paint|body|carros|car_?col/i,                // matériaux teintés en gris (la texture blanche garde les détails)
+  glass: /glass|window|vitre|verre|windshield/i,       // matériaux rendus transparents pendant l'entrée
+  ownInterior: true,                                   // le modèle a son intérieur : on masque le nôtre sauf le combiné
+  clusterAt: [0.42, 1.02],                             // position (x, y) du combiné derrière le volant du modèle
+  navY: 0.9,                                           // hauteur de l'écran central : collé sur la planche de bord du modèle
+  credit: "Modèle 3D « renault clio r.s. 200 edc » par amogusstrikesback2 (Sketchfab) · CC BY 4.0",
+};
+const modelGlass = new Set();
+
+async function loadModel() {
+  const { url } = await (await fetch("/api/model")).json();
+  if (!url) return;
+  const { GLTFLoader } = await import("/vendor/GLTFLoader.js");
+  const model = (await new GLTFLoader().loadAsync(url)).scene;
+
+  // Repère pris sur la plus grosse pièce (la caisse) : certains modèles ont des pièces égarées
+  // loin de la voiture qui fausseraient une boîte englobante globale.
+  const refBox = () => {
+    model.updateMatrixWorld(true);
+    let best = null, bestVol = 0;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const b = new THREE.Box3().setFromObject(o), d = b.getSize(new THREE.Vector3());
+      if (d.x * d.y * d.z > bestVol) { bestVol = d.x * d.y * d.z; best = b; }
+    });
+    return best;
+  };
+
+  // Orientation : la longueur sur l'axe x, puis quarts de tour éventuels
+  const size = refBox().getSize(new THREE.Vector3());
+  model.rotation.y = (size.z > size.x ? Math.PI / 2 : 0) + (MODEL.turn * Math.PI) / 2;
+  refBox().getSize(size);
+
+  // Mise à l'échelle et pose au sol, centrée
+  model.scale.multiplyScalar(MODEL.length / size.x);
+  const box = refBox(), center = box.getCenter(new THREE.Vector3());
+  model.position.x -= center.x;
+  model.position.z -= center.z;
+  model.position.y -= new THREE.Box3().setFromObject(model).min.y;
+
+  // Masque les pièces qui dépassent nettement de la caisse (ex. halos de phares mal placés)
+  const ref = refBox().expandByScalar(0.25);
+  model.traverse((o) => {
+    if (o.isMesh && !ref.containsBox(new THREE.Box3().setFromObject(o))) o.visible = false;
+  });
+
+  const names = new Set();
+  model.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of [].concat(o.material)) {
+      names.add(m.name);
+      const id = `${m.name} ${o.name}`;
+      if (MODEL.glass.test(id) || (m.transparent && m.opacity < 0.95)) {
+        m.transparent = true;
+        m.depthWrite = false;
+        m.userData.baseOpacity = Math.min(m.opacity, 0.85);
+        modelGlass.add(m);
+      } else if (MODEL.paint.test(id) && m.color) {
+        m.color.set(0x8a9097);
+        m.metalness = 0.55;
+        m.roughness = 0.3;
+      }
+    }
+  });
+  console.info("[Clio] modèle chargé :", url, "· matériaux :", [...names]);
+
+  car.children.slice(0, interiorStart).forEach((o) => (o.visible = false));
+  if (MODEL.ownInterior) {
+    car.children.slice(interiorStart).forEach((o) => (o.visible = o === cluster || o === nav));
+    cluster.position.set(MODEL.clusterAt[0], MODEL.clusterAt[1], EYE.z);
+    cluster.lookAt(EYE);
+  }
+  car.add(model);
+  if (MODEL.ownInterior) placeNav(model);
+
+  // Roues du modèle : chaque nœud « wheel » le plus haut placé est accroché à un pivot centré sur son axe
+  wheels.length = 0;
+  car.updateMatrixWorld(true);
+  const wheelNodes = [];
+  model.traverse((o) => {
+    if (/wheel/i.test(o.name) && !/wheel/i.test(o.parent?.name ?? "")) {
+      let hasMesh = false;
+      o.traverse((c) => (hasMesh ||= c.isMesh));
+      if (hasMesh) wheelNodes.push(o);
+    }
+  });
+  for (const o of wheelNodes) {
+    const pivot = new THREE.Group();
+    pivot.position.copy(car.worldToLocal(new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3())));
+    car.add(pivot);
+    pivot.updateMatrixWorld(true);
+    pivot.attach(o);
+    wheels.push(pivot);
+  }
+  $("credit").textContent = MODEL.credit;
+}
+// Écran central sur la planche de bord du modèle : un rayon tiré vers l'avant depuis l'habitacle
+// trouve la surface, l'écran est posé 3 cm devant (la planche est inclinée), tourné vers les sièges avant.
+function placeNav(model) {
+  car.updateMatrixWorld(true);
+  const from = car.localToWorld(new THREE.Vector3(-0.2, MODEL.navY, 0));
+  const dir = new THREE.Vector3(1, 0, 0).transformDirection(car.matrixWorld);
+  const hit = new THREE.Raycaster(from, dir, 0, 1.4).intersectObject(model, true).find((h) => h.object.visible);
+  const x = hit ? car.worldToLocal(hit.point.clone()).x - 0.03 : 0.452;
+  nav.position.set(x, MODEL.navY, 0);
+  nav.lookAt(car.localToWorld(new THREE.Vector3(-0.3, MODEL.navY + 0.1, EYE.z / 2)));
+  console.info("[Clio] écran central posé à x =", x.toFixed(3), hit ? `(sur ${hit.object.name || "?"})` : "(position par défaut)");
+}
+loadModel().catch((e) => console.warn("[Clio] modèle 3D non chargé, Clio dessinée en code utilisée :", e));
+
+// ---------- Trajectoire de la caméra : on fait le tour, on passe par la vitre conducteur, on s'assoit ----------
+// Calculée au départ de l'animation : le combiné et l'écran peuvent avoir bougé si un modèle 3D a été chargé.
+// Pour l'autoradio, on s'arrête face à l'écran central, à la distance qui le fait remplir le champ.
+function pathPoints(screen) {
+  const target = screen.position.clone();
+  const zoom = screen === nav
+    ? target.clone().add(new THREE.Vector3(0, 0, 1).applyQuaternion(screen.quaternion).multiplyScalar(0.14))
+    : target.clone().addScaledVector(target.clone().sub(EYE).normalize(), -0.12);
+  return {
+    pos: [new THREE.Vector3(1.8, 2.3, -4.6), new THREE.Vector3(-0.25, 1.24, -2.1), EYE.clone(), zoom],
+    look: [new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(-0.2, 1.1, 0), target.clone(), target],
+  };
+}
+let posCurve, lookCurve;
+
+const clamp01 = (v) => Math.min(1, Math.max(0, v));
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+const span = (u, a, b) => clamp01((u - a) / (b - a));
+
+function applyPath(u) {
+  camera.position.copy(posCurve.getPoint(u));
+  camera.lookAt(lookCurve.getPoint(u));
+  camera.fov = 32 + 23 * span(u, 0.45, 0.75);
+  camera.updateProjectionMatrix();
+  const glassK = 1 - 0.86 * span(u, 0.3, 0.55);
+  M.glass.opacity = 0.86 * glassK;
+  for (const m of modelGlass) m.opacity = m.userData.baseOpacity * glassK;
+  if (dest === "radio") drawNav(span(u, 0.62, 1));
+  else drawCluster(Math.sin(Math.PI * span(u, 0.74, 1)));
+}
+
+// ---------- Mode balade « à la Need for Speed » ----------
+// La voiture reste à l'origine : c'est le décor qui défile. Les caméras s'enchaînent comme un replay.
+const world = new THREE.Group();
+world.visible = false;
+scene.add(world);
+const lerp = (a, b, k) => a + (b - a) * k;
+
+// Route mouillée : bitume, lignes de rive, ligne centrale pointillée (texture qui défile)
+const ROAD_TILE = 18;   // mètres de route couverts par une répétition de la texture
+const roadTex = (() => {
+  const c = document.createElement("canvas");
+  c.width = 1024; c.height = 512;
+  const g = c.getContext("2d");
+  g.fillStyle = "#17191d";
+  g.fillRect(0, 0, 1024, 512);
+  for (let i = 0; i < 12000; i++) {
+    const v = 18 + Math.random() * 26 | 0;
+    g.fillStyle = `rgb(${v},${v},${v + 3})`;
+    g.fillRect(Math.random() * 1024, Math.random() * 512, 2, 2);
+  }
+  const zpx = (z) => ((z + 7) / 14) * 512;
+  g.fillStyle = "#d9d9d2";
+  g.fillRect(0, zpx(-6.4), 1024, 7);
+  g.fillRect(0, zpx(6.4) - 7, 1024, 7);
+  for (const u of [0, 512]) g.fillRect(u, zpx(0) - 4, 171, 8);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.repeat.set(400 / ROAD_TILE, 1);
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+})();
+const road = mesh(new THREE.PlaneGeometry(400, 14), new THREE.MeshStandardMaterial({ map: roadTex, color: 0x9a9a9a, roughness: 0.55, metalness: 0.2 }));
+road.rotation.x = -Math.PI / 2;
+world.add(road);
+const verge = mesh(new THREE.PlaneGeometry(400, 300), new THREE.MeshStandardMaterial({ color: 0x07090d, roughness: 1 }), 0, -0.01, 0);
+verge.rotation.x = -Math.PI / 2;
+world.add(verge);
+
+// Lampadaires (alternés des deux côtés) avec leur flaque de lumière orangée sur la route
+const poles = [];
+const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a2e35, roughness: 0.5, metalness: 0.6 });
+const lampMat = new THREE.MeshBasicMaterial({ color: 0xffdcaa });
+const poolMat = new THREE.MeshBasicMaterial({
+  map: radialTexture([[0, "rgba(255,168,88,0.5)"], [0.6, "rgba(255,150,70,0.12)"], [1, "rgba(255,150,70,0)"]]),
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+});
+for (let i = 0; i < 12; i++) {
+  const side = i % 2 ? 1 : -1;
+  const p = new THREE.Group();
+  p.add(mesh(new THREE.CylinderGeometry(0.08, 0.13, 8, 10), poleMat, 0, 4, 0));
+  p.add(box(0.12, 0.12, 2.6, poleMat, 0, 7.95, -side * 1.3));
+  p.add(box(0.55, 0.08, 0.28, lampMat, 0, 7.86, -side * 2.4));
+  const pool = mesh(new THREE.PlaneGeometry(10, 10), poolMat, 0, 0.02, -side * 2.6);
+  pool.rotation.x = -Math.PI / 2;
+  p.add(pool);
+  p.position.set(-150 + i * 25, 0, side * 7.6);
+  p.userData.side = side;
+  world.add(p);
+  poles.push(p);
+}
+// Deux vraies lumières suivent les lampadaires les plus proches : reflets qui balaient la carrosserie
+const lampLights = [0, 1].map(() => {
+  const l = new THREE.PointLight(0xffb070, 0, 0, 2);
+  world.add(l);
+  return l;
+});
+
+// Immeubles éclairés au loin
+const windowsTex = (() => {
+  const c = document.createElement("canvas");
+  c.width = 64; c.height = 128;
+  const g = c.getContext("2d");
+  g.fillStyle = "#06080c";
+  g.fillRect(0, 0, 64, 128);
+  for (let y = 4; y < 128; y += 8) {
+    for (let x = 4; x < 64; x += 8) {
+      if (Math.random() < 0.3) {
+        g.fillStyle = Math.random() < 0.8 ? "#ffcf8a" : "#9fd0ff";
+        g.fillRect(x, y, 4, 4);
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 3);
+  return t;
+})();
+const buildingMat = new THREE.MeshBasicMaterial({ map: windowsTex, color: 0x9aa0aa });
+const buildings = [];
+for (let i = 0; i < 40; i++) {
+  const h = 10 + Math.random() * 40, side = i % 2 ? 1 : -1;
+  const b = box(8 + Math.random() * 14, h, 8 + Math.random() * 8, buildingMat, -160 + i * 8, h / 2, side * (32 + Math.random() * 40));
+  world.add(b);
+  buildings.push(b);
+}
+
+// Traînées de vitesse
+const streakMat = new THREE.MeshBasicMaterial({ color: 0xcfe3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+const streaks = [];
+function resetStreak(s, anywhere) {
+  const side = Math.random() < 0.5 ? -1 : 1;
+  s.scale.x = 2 + Math.random() * 6;
+  s.position.set(anywhere ? -60 + Math.random() * 120 : 60 + Math.random() * 30, 0.2 + Math.random() * 3.2, side * (2.9 + Math.random() * 5));
+}
+for (let i = 0; i < 70; i++) {
+  const s = box(1, 0.012, 0.012, streakMat, 0, 0, 0);
+  resetStreak(s, true);
+  world.add(s);
+  streaks.push(s);
+}
+
+// Plans de caméra : départ → arrivée (relatifs à la voiture), point visé, focale
+const SHOT_S = 4.2;
+const SHOTS = [
+  { from: [-7.5, 1.7, 0], to: [-6.2, 1.4, 0.7], look: [2, 0.7, 0], fov: 42 },           // poursuite
+  { from: [6.8, 0.45, 3.4], to: [5.4, 0.5, 2.6], look: [0, 0.55, 0], fov: 38 },          // avant 3/4 au ras du sol
+  { from: [2.8, 0.9, 5.2], to: [-2.8, 0.9, 5.2], look: [0, 0.6, 0], fov: 45 },           // travelling latéral
+  { from: [2.7, 0.34, 2.0], to: [2.0, 0.34, 1.75], look: [1.2, 0.3, 0.75], fov: 50 },    // gros plan roue avant
+  { from: [-5.5, 3.2, -4.5], to: [-4.2, 2.6, -3.6], look: [1, 0.5, 0], fov: 40 },        // 3/4 arrière plongeant
+];
+const GEARS = [0, 118, 63, 40, 28, 21];   // tr/min par km/h, BVM5 du dCi 90 (approx.)
+const drive = { on: false, t: 0, v: 0, gear: 1, lane: 1.75, laneT: 6, shot: 0, shotT: 0, camZ: 1.75, fov: 42 };
+const tmp = new THREE.Vector3();
+
+function updateDrive(dt) {
+  drive.t += dt;
+
+  // Vitesse : montée en régime, croisière qui ondule, nitro toutes les 14 s
+  const phase = drive.t % 14, nos = drive.t > 6 && phase > 10.5;
+  const target = nos ? 215 : 135 + 25 * Math.sin(drive.t * 0.35);
+  const accel = Math.max(-25, Math.min(nos ? 32 : 14, (target - drive.v) * 0.9));   // km/h par seconde
+  drive.v = Math.max(0, drive.v + accel * dt);
+  const ms = drive.v / 3.6, dx = ms * dt;
+
+  // Dépassements : changement de file, avec lacet et roulis de la caisse
+  drive.laneT -= dt;
+  if (drive.laneT <= 0) {
+    drive.lane = -drive.lane;
+    drive.laneT = 5 + Math.random() * 4;
+  }
+  const z0 = car.position.z;
+  car.position.z += (drive.lane - car.position.z) * Math.min(1, dt * 1.3);
+  const vz = (car.position.z - z0) / Math.max(dt, 1e-3);
+  car.rotation.y = -Math.atan2(vz, Math.max(ms, 1)) * 1.6;
+  car.rotation.x = -vz * 0.02;
+  car.rotation.z = lerp(car.rotation.z, accel * 0.0011, Math.min(1, dt * 4));
+  car.position.y = Math.sin(drive.t * 37) * 0.003 * Math.min(1, ms / 30);
+  shadow.position.z = car.position.z;
+  // Roues : vitesse de rotation plafonnée à l'écran pour éviter l'effet stroboscopique
+  for (const w of wheels) w.rotation.z -= Math.min(ms / WHEEL_R, 20) * dt;
+
+  // Décor qui défile
+  roadTex.offset.x += dx / ROAD_TILE;
+  for (const p of poles) if ((p.position.x -= dx) < -150) p.position.x += 300;
+  for (const b of buildings) if ((b.position.x -= dx * 0.9) < -160) b.position.x += 320;
+  for (const s of streaks) if ((s.position.x -= dx * 1.6) < -40) resetStreak(s, false);
+  streakMat.opacity = Math.max(0, Math.min(1, (drive.v - 100) / 110)) * 0.5 + (nos ? 0.3 : 0);
+  const near = [...poles].sort((a, b) => Math.abs(a.position.x) - Math.abs(b.position.x)).slice(0, 2);
+  near.forEach((p, i) => {
+    lampLights[i].position.set(p.position.x, 7.6, p.position.z - p.userData.side * 2.4);
+    lampLights[i].intensity = 140 * Math.max(0, 1 - Math.abs(p.position.x) / 22);
+  });
+
+  // Caméra : plans enchaînés en cut, léger travelling, tremblement et focale qui s'ouvre avec la vitesse
+  drive.shotT += dt;
+  if (drive.shotT > SHOT_S) {
+    drive.shotT = 0;
+    drive.shot = (drive.shot + 1) % SHOTS.length;
+  }
+  const s = SHOTS[drive.shot], k = drive.shotT / SHOT_S;
+  drive.camZ += (car.position.z - drive.camZ) * Math.min(1, dt * 2.2);
+  const shake = 0.004 + (nos ? 0.018 : 0) + Math.max(0, drive.v - 120) * 0.00008;
+  camera.position.set(
+    lerp(s.from[0], s.to[0], k) + (Math.random() - 0.5) * shake,
+    lerp(s.from[1], s.to[1], k) + (Math.random() - 0.5) * shake,
+    lerp(s.from[2], s.to[2], k) + drive.camZ,
+  );
+  camera.lookAt(tmp.set(s.look[0], s.look[1], s.look[2] + car.position.z));
+  drive.fov = lerp(drive.fov, s.fov + Math.max(0, drive.v - 120) * 0.06 + (nos ? 8 : 0), Math.min(1, dt * 3));
+  camera.fov = drive.fov;
+  camera.updateProjectionMatrix();
+
+  // Compteur
+  while (drive.gear < 5 && drive.v * GEARS[drive.gear] > 3900) drive.gear++;
+  while (drive.gear > 1 && drive.v * GEARS[drive.gear] < 1600) drive.gear--;
+  const rpm = Math.max(850, drive.v * GEARS[drive.gear]);
+  $("h-speed").textContent = Math.round(drive.v);
+  $("h-gear").textContent = drive.gear;
+  $("h-rpm").style.width = `${Math.min(100, (rpm / 5000) * 100)}%`;
+  $("h-nos").style.width = `${(nos ? 1 - (phase - 10.5) / 3.5 : Math.min(1, phase / 10.5)) * 100}%`;
+}
+
+// De nuit, l'éclairage « studio » s'efface : ce sont les lampadaires qui éclairent la voiture
+function setNight(on) {
+  scene.environmentIntensity = on ? 0.22 : 0.85;
+  key.intensity = on ? 0.25 : 2.2;
+  rim.intensity = on ? 0.9 : 1.6;
+  hemi.intensity = on ? 0.15 : 0.45;
+}
+
+function startDrive() {
+  if (mode !== "home" || drive.on) return;
+  Object.assign(drive, { on: true, t: 0, v: 0, gear: 1, lane: 1.75, laneT: 6, shot: 0, shotT: 0, camZ: 1.75, fov: 42 });
+  car.position.z = 1.75;
+  world.visible = true;
+  floor.visible = ring.visible = false;
+  scene.fog.near = 25;
+  scene.fog.far = 170;
+  setNight(true);
+  controls.enabled = false;
+  document.body.classList.add("driving");
+  $("drive-label").textContent = "Garage";
+}
+
+function stopDrive() {
+  if (!drive.on) return;
+  drive.on = false;
+  car.position.set(0, 0, 0);
+  car.rotation.set(0, 0, 0);
+  shadow.position.z = 0;
+  world.visible = false;
+  floor.visible = ring.visible = true;
+  scene.fog.near = 14;
+  scene.fog.far = 32;
+  setNight(false);
+  camera.position.copy(HOME_POS);
+  controls.target.copy(HOME_TARGET);
+  camera.fov = 32;
+  camera.updateProjectionMatrix();
+  controls.enabled = true;
+  document.body.classList.remove("driving");
+  $("drive-label").textContent = "Rouler";
+}
+$("drive").onclick = () => (drive.on ? stopDrive() : startDrive());
+
+// ---------- États : accueil → entrée → dashboard → sortie ----------
+const ui = $("ui"), back = $("back");
+const FRAMES = { dash: $("dash"), radio: $("radio") };
+const URLS = { dash: "/dashboard", radio: "/autoradio" };
+const DURATION = 4200;
+let mode = "home", t0 = 0, dest = "dash";
+
+// dest : "dash" (combiné → dashboard) ou "radio" (écran central → autoradio)
+function enter(to = "dash") {
+  if (mode !== "home") return;
+  stopDrive();
+  dest = to;
+  const frame = FRAMES[dest];
+  if (!frame.src) frame.src = URLS[dest];
+  const { pos, look } = pathPoints(dest === "radio" ? nav : cluster);
+  posCurve = new THREE.CatmullRomCurve3([camera.position.clone(), ...pos]);
+  lookCurve = new THREE.CatmullRomCurve3([controls.target.clone(), ...look]);
+  controls.enabled = false;
+  ui.classList.add("hidden");
+  mode = "entering";
+  t0 = performance.now();
+}
+
+function leave() {
+  if (mode !== "dash") return;
+  FRAMES[dest].classList.remove("on");
+  back.classList.remove("on");
+  mode = "leaving";
+  t0 = performance.now();
+}
+
+$("go").onclick = () => enter("dash");
+$("radio-go").onclick = () => enter("radio");
+back.onclick = leave;
+// Échap tapé dans l'autoradio (le focus est dans l'iframe)
+addEventListener("message", (e) => { if (e.origin === location.origin && e.data === "clio:leave") leave(); });
+addEventListener("keydown", (e) => {
+  if (e.key === "Enter") enter("dash");
+  if ((e.key === "r" || e.key === "R") && mode === "home") enter("radio");
+  if (e.key === " " && mode === "home") {
+    e.preventDefault();
+    drive.on ? stopDrive() : startDrive();
+  }
+  if (e.key === "Escape") leave();
+});
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight, false);
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+}
+addEventListener("resize", resize);
+resize();
+
+let lastFrame = performance.now();
+renderer.setAnimationLoop((now) => {
+  const dt = Math.min(0.05, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (mode === "home") {
+    if (drive.on) updateDrive(dt);
+    else controls.update();
+  } else if (mode === "entering" || mode === "leaving") {
+    const k = clamp01((now - t0) / DURATION);
+    applyPath(ease(mode === "entering" ? k : 1 - k));
+    if (k >= 1 && mode === "entering") {
+      mode = "dash";
+      FRAMES[dest].classList.add("on");
+      FRAMES[dest].focus();
+      back.classList.add("on");
+    } else if (k >= 1) {
+      mode = "home";
+      camera.fov = 32;
+      camera.updateProjectionMatrix();
+      controls.enabled = true;
+      ui.classList.remove("hidden");
+      drawNav(0);
+    }
+  } else if (mode === "dash") {
+    return; // le dashboard couvre tout l'écran : inutile de dessiner la 3D
+  }
+  renderer.render(scene, camera);
+});
+
+// ---------- Infos ----------
+const FACTS = [
+  "Le moteur K9K est né en 2001. On le retrouve chez Dacia, Nissan… et même sous le capot des Mercedes Classe A et Citan.",
+  "La Clio IV a été la première Renault de série à porter le nouveau style de Laurens van den Acker, dévoilée au Mondial de Paris 2012.",
+  "Sous le volant, la prise OBD donne accès au bus CAN moteur à 500 kbit/s, sur les broches 6 et 14.",
+  "En pointe, un dCi 90 d'origine monte à environ 1,2 bar de pression turbo.",
+  "Pour régénérer le FAP, le calculateur fait monter le filtre à plus de 600 °C pour brûler la suie. Les longs trajets sur autoroute l'aident beaucoup.",
+  "Banquette rabattue, le coffre de la Clio Estate passe de 443 à environ 1 380 litres.",
+];
+let factIdx = Math.floor(Math.random() * FACTS.length);
+const factEl = $("fact");
+factEl.textContent = FACTS[factIdx];
+setInterval(() => {
+  factEl.style.opacity = 0;
+  setTimeout(() => {
+    factIdx = (factIdx + 1) % FACTS.length;
+    factEl.textContent = FACTS[factIdx];
+    factEl.style.opacity = 1;
+  }, 400);
+}, 9000);
+
+const LIVE = {
+  coolant: (v) => [`${Math.round(v)} °C`, v > 105 ? "hot" : v < 70 ? "cold" : ""],
+  oil:     (v) => [`${Math.round(v)} °C`, v > 125 ? "hot" : v < 70 ? "cold" : ""],
+  voltage: (v) => [`${v.toFixed(1)} V`, v < 12 || v > 15.2 ? "hot" : ""],
+  ambient: (v) => [`${Math.round(v)} °C`, ""],
+  baro:    (v) => [`${Math.round(v * 10)} hPa`, ""],
+};
+async function pollLive() {
+  if (mode === "dash") return;
+  try {
+    const s = await (await fetch("/api/state")).json();
+    const live = s.status.startsWith("connecté") || s.status === "démo";
+    $("dot").style.background = live ? "var(--ok)" : "var(--hot)";
+    $("dot").style.color = live ? "var(--ok)" : "var(--hot)";
+    $("conn").textContent = live ? (s.status === "démo" ? "Mode démo" : "Calculateur connecté") : s.status;
+    for (const [k, f] of Object.entries(LIVE)) {
+      const v = s.values[k], el = $("v-" + k);
+      const [txt, cls] = v == null ? ["—", ""] : f(v);
+      el.textContent = txt;
+      el.className = cls;
+    }
+    $("v-count").textContent = live ? Object.values(s.values).filter((v) => v != null).length : "—";
+  } catch {
+    $("dot").style.background = "var(--hot)";
+    $("conn").textContent = "script Python arrêté";
+  }
+}
+pollLive();
+setInterval(pollLive, 1000);
+</script>
+</body>
+</html>

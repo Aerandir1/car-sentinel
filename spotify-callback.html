@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion Spotify</title>
+<style>
+  :root { --bg: #07090c; --text: #e9eef4; --dim: #8592a0; --sp: #1ed760; --hot: #f85149; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+  body { display: grid; place-items: center; padding: 16px; box-sizing: border-box; text-align: center; }
+  i { display: block; width: 14px; height: 14px; margin: 0 auto 14px; border-radius: 50%; background: var(--sp); box-shadow: 0 0 14px var(--sp); }
+  .err i { background: var(--hot); box-shadow: 0 0 14px var(--hot); }
+  p { margin: 0; max-width: 420px; } small { color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="box"><i></i><p id="msg">Connexion à Spotify…</p></div>
+<script type="module">
+// Retour de la connexion Spotify (OAuth PKCE) : échange le code contre un jeton, le range là où
+// l'autoradio le lit (localStorage, même origine), puis ferme la fenêtre.
+const get = (k) => { try { return JSON.parse(localStorage.getItem("clio-radio-" + k)); } catch { return null; } };
+const msg = document.getElementById("msg");
+const q = new URLSearchParams(location.search);
+try {
+  if (q.get("error")) throw new Error(q.get("error") === "access_denied" ? "accès refusé" : q.get("error"));
+  if (!q.get("code") || q.get("state") !== get("sp-state")) throw new Error("réponse inattendue, relance la connexion depuis l'autoradio");
+  const r = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code", code: q.get("code"), redirect_uri: location.origin + "/spotify-callback",
+      client_id: get("settings")?.spClient ?? "", code_verifier: get("sp-verifier") ?? "",
+    }),
+  });
+  const t = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(t.error_description || t.error || `HTTP ${r.status}`);
+  localStorage.setItem("clio-radio-sp-token", JSON.stringify({
+    access: t.access_token, refresh: t.refresh_token, exp: Date.now() + t.expires_in * 1000,
+  }));
+  localStorage.removeItem("clio-radio-sp-verifier");
+  localStorage.removeItem("clio-radio-sp-state");
+  msg.innerHTML = "Spotify est connecté.<br><small>Cette fenêtre va se fermer.</small>";
+  setTimeout(() => (window.opener ? window.close() : location.replace("/")), 900);
+} catch (e) {
+  document.body.classList.add("err");
+  msg.innerHTML = `Connexion Spotify impossible : ${e.message.replace(/</g, "&lt;")}<br><small>Tu peux fermer cette fenêtre.</small>`;
+}
+</script>
+</body>
+</html>

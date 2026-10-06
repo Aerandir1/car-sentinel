@@ -1,0 +1,14 @@
+# Lancement :  docker compose up --build      puis  https://127.0.0.1:8080
+# Options du script :  CLIO_ARGS="--gps tcp:172.20.10.1:11123" docker compose up
+services:
+  clio:
+    build: .
+    image: dashboard-clio
+    command: ${CLIO_ARGS:---demo}
+    ports:
+      # 127.0.0.1 uniquement : Spotify n'accepte que cette adresse, et la page n'est pas exposée au réseau.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ./certs:/app/certs   # certificat gardé entre deux lancements (à approuver une fois dans Windows)
+      - ./logs:/app/logs     # CSV : CLIO_ARGS="--log logs/trajet.csv"
+    restart: unless-stopped
