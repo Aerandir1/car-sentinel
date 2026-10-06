@@ -46,38 +46,74 @@ La page est servie en **https://127.0.0.1:8080**. Au premier lancement, le scrip
 
 `--no-https` repasse en HTTP simple. Supprimer `certs/` pour régénérer le certificat.
 
-## Docker (Docker Desktop Windows, macOS, Linux)
-
-ELM327 USB branché, contact mis :
+## Docker sous Linux
 
 ```bash
 docker compose down                                                   # si un ancien conteneur tourne encore
 OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build          # puis https://127.0.0.1:8080
 ```
 
-`OBD_GID` donne au conteneur le droit d'ouvrir le port série (sous Arch, il appartient au groupe `uucp` ;
-par défaut 20 = dialout, celui de WSL / Debian / Ubuntu). `OBD_DEVICE=/dev/ttyACM0` si la clé n'apparaît pas
-en `ttyUSB0`. Autres options du script : `CLIO_ARGS="--port /dev/ttyUSB0 --log logs/trajet.csv"`
-(PowerShell : `$env:CLIO_ARGS="…"`).
+Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
+attend que l'ELM327 apparaisse. Seuls les ports série USB lui sont autorisés, pas les disques ni le reste.
+`OBD_GID` lui donne le droit d'ouvrir le port série (sous Arch il appartient au groupe `uucp` ; par défaut 20 =
+dialout, celui de Debian / Ubuntu / WSL). Clé en `ttyACM0` : `CLIO_ARGS="--port /hostdev/ttyACM0"`.
 
-Le certificat est rangé dans `certs/` et les CSV dans `logs/` (`--log logs/trajet.csv`). Le navigateur
-tourne sous Windows, hors du conteneur : rien de spécial côté Docker. Le conteneur n'a pas
-mkcert : soit on accepte l'avertissement, soit on importe `certs/selfsigned.pem` dans Windows (*Autorités de
-certification racines de confiance*).
+Le certificat est rangé dans `certs/`, la base dans `data/`, les CSV dans `logs/`. Le conteneur n'a pas mkcert :
+le navigateur affiche un avertissement à accepter une fois. Avec `restart: unless-stopped`, le conteneur se
+relance tout seul au démarrage de Docker : c'est l'équivalent de `service.sh`.
 
-**ELM327 depuis le conteneur.** Docker Desktop ne voit pas les ports COM de Windows. Selon l'adaptateur :
-- **Wi-Fi** : PC connecté au Wi-Fi de l'adaptateur, aucune clé à transmettre (`OBD_DEVICE=/dev/null`) :
-  `OBD_DEVICE=/dev/null CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400" docker compose up`
+## Docker sous Windows (Docker Desktop)
+
+Tout se fait dans PowerShell, dans le dossier du projet. Docker Desktop ne voit pas les ports COM de Windows :
+l'adaptateur passe soit par le Wi-Fi, soit par WSL2.
+
+**1. Une seule fois.** Dans Docker Desktop, *Settings → General* : cocher « Start Docker Desktop when you sign
+in ». Le conteneur se relancera alors tout seul à chaque démarrage de Windows.
+
+**2. La base dans un volume Docker.** Un dossier Windows (`C:\...`) partagé avec le conteneur est lent et
+SQLite peut y renvoyer « database is locked ». La base va donc dans un volume Docker (`CLIO_DATA=clio-data`).
+Pour en sortir une copie (pour l'ouvrir dans DB Browser for SQLite, par exemple) :
+
+```powershell
+docker compose stop
+docker compose cp clio:/app/data .\data-copie     # clio.db + ses fichiers -wal et -shm : garder les trois ensemble
+docker compose start
+```
+
+Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la section Linux.
+
+**3. Lancer, selon l'adaptateur.**
+
+- **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) :
+  ```powershell
+  $env:CLIO_DATA="clio-data"
+  $env:CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400"
+  $env:CLIO_VERSION=(git describe --always)
+  docker compose up -d --build
+  ```
 - **USB** : passer la clé à WSL2 avec [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
   ```powershell
   winget install usbipd
-  usbipd list                          # repérer le BUSID de l'ELM327 (CH340, FTDI…)
-  usbipd bind --busid 2-3              # une seule fois
-  usbipd attach --wsl --busid 2-3      # à refaire à chaque branchement
+  usbipd list                                        # repérer le BUSID de l'ELM327 (CH340, FTDI…)
+  usbipd bind --busid 2-3                            # une seule fois
+  usbipd attach --wsl --busid 2-3 --auto-attach      # laisse la fenêtre ouverte : rattache la clé à chaque branchement
   ```
-  puis `docker compose up --build`.
+  puis, dans un autre PowerShell :
+  ```powershell
+  $env:CLIO_DATA="clio-data"
+  $env:CLIO_VERSION=(git describe --always)
+  docker compose up -d --build
+  ```
+  Clé en `ttyACM0` : ajouter `$env:CLIO_ARGS="--port /hostdev/ttyACM0"`.
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
-  exemples de pyserial), puis `--port rfc2217://host.docker.internal:2217`.
+  exemples de pyserial), puis `$env:CLIO_ARGS="--port rfc2217://host.docker.internal:2217"`.
+
+**4.** Ouvrir https://127.0.0.1:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
+dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
+pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
+
+Les variables `$env:…` ne durent que le temps de la fenêtre PowerShell. Le conteneur, lui, les garde : il
+n'est utile de les redonner que pour le recréer (`docker compose up` après une mise à jour du projet).
 
 ## Enregistrement permanent
 

@@ -1,28 +1,39 @@
-# Lancement (ELM327 USB, contact mis) :
+# Lancement (Linux, ELM327 USB) :
 #   OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build      puis  https://127.0.0.1:8080
-# OBD_GID : groupe propriétaire du port série sur l'hôte.
-#   Arch : uucp · Debian / Ubuntu / WSL : dialout (20, par défaut).
-# OBD_DEVICE=/dev/ttyACM0 si la clé n'apparaît pas en ttyUSB0.
-# Autres options du script : CLIO_ARGS="--port /dev/ttyUSB0 --log logs/trajet.csv --fast" docker compose up
+# Windows (PowerShell), ELM327 Wi-Fi ou USB : voir la section « Docker sous Windows » du README.
+#
+# Variables (toutes facultatives) :
+#   CLIO_ARGS     options du script (défaut : --port /hostdev/ttyUSB0 ; Wi-Fi : --port socket://IP:35000 --baud 38400)
+#   OBD_GID       groupe du port série sur l'hôte (Arch : uucp ; défaut 20 = dialout, Debian / Ubuntu / WSL)
+#   CLIO_DATA     où ranger la base : dossier ./data (défaut) ou volume Docker clio-data (conseillé sous Windows)
+#   CLIO_VERSION  version enregistrée avec chaque session (l'image n'a pas le dossier .git)
+#   TZ            fuseau horaire des noms de trajets (défaut Europe/Paris)
 services:
   clio:
     build: .
     image: dashboard-clio
-    command: ${CLIO_ARGS:---port /dev/ttyUSB0}
+    command: ${CLIO_ARGS:---port /hostdev/ttyUSB0}
     # Tourne sous ton utilisateur (Linux) : certs/, logs/ et data/ restent à toi, pas à root
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       # 127.0.0.1 uniquement : la page n'est pas exposée au réseau.
       - "127.0.0.1:8080:8080"
-    devices:
-      - "${OBD_DEVICE:-/dev/ttyUSB0}:/dev/ttyUSB0"
+    volumes:
+      # /dev de l'hôte en lecture seule : le conteneur démarre sans la clé et la voit quand on la branche.
+      # Seuls les ports série USB sont autorisés (règles ci-dessous) : disques et autres périphériques restent bloqués.
+      - /dev:/hostdev:ro
+      - ./certs:/app/certs   # certificat gardé entre deux lancements (à approuver une fois dans Windows)
+      - ./logs:/app/logs     # CSV : CLIO_ARGS="--port /hostdev/ttyUSB0 --log logs/trajet.csv"
+      - ${CLIO_DATA:-./data}:/app/data   # base SQLite des mesures
+    device_cgroup_rules:
+      - "c 188:* rmw"        # /dev/ttyUSB* (CH340, FTDI, CP210x…)
+      - "c 166:* rmw"        # /dev/ttyACM*
     group_add:
       - "${OBD_GID:-20}"
-    volumes:
-      - ./certs:/app/certs   # certificat gardé entre deux lancements (à approuver une fois dans Windows)
-      - ./logs:/app/logs     # CSV : CLIO_ARGS="--port /dev/ttyUSB0 --log logs/trajet.csv"
-      - ./data:/app/data     # base SQLite des mesures horodatées
-      - /etc/localtime:/etc/localtime:ro   # heure locale de l'hôte : noms des trajets (« 08:01 »)
     environment:
-      CLIO_VERSION: ${CLIO_VERSION:-}      # version enregistrée avec chaque session (pas de .git dans l'image)
+      TZ: ${TZ:-Europe/Paris}
+      CLIO_VERSION: ${CLIO_VERSION:-}
     restart: unless-stopped
+
+volumes:
+  clio-data:                 # utilisé seulement avec CLIO_DATA=clio-data

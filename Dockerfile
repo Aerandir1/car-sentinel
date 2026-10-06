@@ -12,6 +12,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
+# Dossiers de travail à l'utilisateur du conteneur (1000) : un volume Docker vide (CLIO_DATA=clio-data)
+# en reprend le propriétaire, sinon la base ne pourrait pas y être créée.
+RUN mkdir -p data logs certs && chown 1000:1000 data logs certs
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8080
