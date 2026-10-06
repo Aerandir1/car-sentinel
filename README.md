@@ -122,9 +122,9 @@ certification racines de confiance*).
 Premier relevé à faire dans la voiture (contact mis, puis une seconde fois moteur tournant) :
 
 ```bash
-python inventaire.py --note "contact mis"
-python inventaire.py --port /dev/ttyUSB0 --note "moteur chaud, ralenti"
-python inventaire.py --port socket://192.168.0.10:35000 --baud 38400   # ELM327 Wi-Fi
+./lancer.sh inventaire --note "contact mis"            # ou python inventaire.py dans le venv
+./lancer.sh inventaire --port /dev/ttyUSB0 --note "moteur chaud, ralenti"
+./lancer.sh inventaire --port socket://192.168.0.10:35000 --baud 38400   # ELM327 Wi-Fi
 docker compose -f docker-compose.yml -f docker-compose.obd.yml run --rm --entrypoint python clio inventaire.py
 ```
 
