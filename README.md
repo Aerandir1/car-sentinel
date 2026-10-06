@@ -103,7 +103,7 @@ mkcert : soit on accepte l'avertissement, soit on importe `certs/selfsigned.pem`
 certification racines de confiance*).
 
 **ELM327 depuis le conteneur.** Docker Desktop ne voit pas les ports COM de Windows. Selon l'adaptateur :
-- **Wi-Fi** : rien à transmettre, `CLIO_ARGS="--port socket://192.168.0.10:35000" docker compose up`
+- **Wi-Fi** : rien à transmettre, `CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400" docker compose up`
   (PC connecté au Wi-Fi de l'adaptateur).
 - **USB** : passer la clé à WSL2 avec [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
   ```powershell
