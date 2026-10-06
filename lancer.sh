@@ -4,7 +4,7 @@
 #   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
 #   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv
 #
-# Les options sont transmises telles quelles à dashboard_clio.py (voir README).
+# Les options sont transmises telles quelles à src/dashboard_clio.py (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.
 
 set -euo pipefail
@@ -51,4 +51,4 @@ if [[ -z "${NO_BROWSER:-}" ]]; then
 fi
 
 echo "→ Dashboard sur $url  (Ctrl+C pour arrêter)"
-exec "$PY" dashboard_clio.py "${args[@]}"
+exec "$PY" src/dashboard_clio.py "${args[@]}"

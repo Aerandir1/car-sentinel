@@ -4,7 +4,7 @@
 Lit l'ECU en boucle dans un thread et sert dashboard.html + une API JSON
 sur https://127.0.0.1:8080. Aucune dépendance web : tout marche hors ligne.
 
-    python dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv
+    python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv
 """
 
 import argparse
@@ -18,7 +18,7 @@ from certs import ensure_cert
 from etat import CsvLogger, State
 from serveur import QuietServer, make_handler
 
-DATA = Path(__file__).resolve().parent / "data"   # bases SQLite des mesures horodatées (voir donnees.py)
+DATA = Path(__file__).resolve().parent.parent / "data"   # bases SQLite des mesures horodatées (voir donnees.py)
 
 
 def main():

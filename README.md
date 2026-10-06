@@ -1,7 +1,7 @@
 # Clio Sentinel
 
 Dashboard OBD temps réel pour la Clio IV dCi 90 (moteur K9K), sur PC portable, via un adaptateur ELM327
-branché sur la prise OBD. `dashboard_clio.py` lit l'ECU et sert le dashboard sur https://127.0.0.1:8080
+branché sur la prise OBD. `src/dashboard_clio.py` lit l'ECU et sert le dashboard sur https://127.0.0.1:8080
 (fonctionne hors ligne), plus une API JSON (`/api/state`, `/api/meta`, `/api/settings`).
 
 Autour :
@@ -12,16 +12,17 @@ Autour :
 - le scan approfondi du calculateur (inventaire des capteurs, UDS, diagnostic) : repo à part.
 
 ```
-dashboard_clio.py     point d'entrée : options, lancement de l'acquisition et du serveur
-etat.py               liste des métriques (METRICS), état partagé, CSV
-acquisition.py        lecture de l'ECU par l'ELM327
-serveur.py            serveur HTTP : page, logos, API JSON
-certs.py              certificat HTTPS (mkcert ou auto-signé)
-donnees.py            enregistrement des mesures horodatées (SQLite)
+src/
+  dashboard_clio.py   point d'entrée : options, lancement de l'acquisition et du serveur
+  etat.py             liste des métriques (METRICS), état partagé, CSV
+  acquisition.py      lecture de l'ECU par l'ELM327
+  serveur.py          serveur HTTP : page, logos, API JSON
+  certs.py            certificat HTTPS (mkcert ou auto-signé)
+  donnees.py          enregistrement des mesures horodatées (SQLite)
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
 lancer.sh             lancement en local (venv + navigateur)
-Dockerfile, docker-compose*.yml
+Dockerfile, docker-compose.yml
 ```
 
 ## Installation (Arch)
@@ -79,7 +80,7 @@ certification racines de confiance*).
 ## Utilisation
 
 ```bash
-python dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture, contact mis
+python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # dans la voiture, contact mis
 ```
 
 | Option | Rôle |
@@ -102,7 +103,7 @@ L'onglet **Paramètres** du dashboard règle tout ça à chaud :
   mode rapide (le basculer relance la connexion à l'ELM327).
 
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
-Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `etat.py`.
+Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `src/etat.py`.
 
 ## Courbes
 

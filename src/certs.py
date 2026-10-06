@@ -4,7 +4,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-CERTS = Path(__file__).resolve().parent / "certs"
+CERTS = Path(__file__).resolve().parent.parent / "certs"
 
 
 def ensure_cert():

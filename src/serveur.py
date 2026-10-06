@@ -8,7 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import donnees
 
-WEB = Path(__file__).resolve().parent / "web"   # pages, scripts et fichiers servis au navigateur
+WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
 LOGOS = WEB / "logo"
 
 
