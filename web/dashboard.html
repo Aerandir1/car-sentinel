@@ -389,17 +389,18 @@ function showSync(sync) {
   const srv = $("srv");
   srv.hidden = !sync;
   if (!sync) return;
-  const at = new Date(sync.t * 1000).toLocaleTimeString("fr-FR");
+  const hour = (t) => new Date(t * 1000).toLocaleTimeString("fr-FR");
+  const sent = sync.synced ? `Dernier envoi à ${hour(sync.synced)} (${sync.sent} mesures)` : "Pas encore d'envoi";
   srv.className = sync.ok === null ? "" : sync.ok ? "ok" : "ko";
   if (sync.ok === null) {
     $("srv-txt").textContent = "serveur…";
     srv.title = "Recherche du serveur";
   } else if (sync.ok) {
     $("srv-txt").textContent = `serveur · ${new URL(sync.url).hostname}`;
-    srv.title = `Serveur joignable : ${sync.url}\nDernier envoi à ${at} (${sync.sent} mesures)`;
+    srv.title = `Serveur joignable : ${sync.url}\n${sent}`;
   } else {
     $("srv-txt").textContent = "serveur injoignable";
-    srv.title = `Dernier essai à ${at} : ${sync.error}`;
+    srv.title = `Dernier essai à ${hour(sync.t)} : ${sync.error}\n${sent}`;
   }
 }
 

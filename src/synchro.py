@@ -29,9 +29,10 @@ from etat import DERIVED, METRICS
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
-RETRY_S = 10          # serveur injoignable : nouvel essai plus tôt, pour le voir revenir vite
+PING_S = 3            # entre deux vérifications que le serveur répond (témoin du dashboard)
 TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
+PING_TIMEOUT_S = 2    # vérification : connexion et réponse
 
 
 class SyncError(Exception):
@@ -57,18 +58,18 @@ class Client:
             self.addrs.append((u.hostname, u.port or 80, u.path))
         self.current = self.addrs[0]
 
-    def _connect(self):
+    def _connect(self, connect_s=CONNECT_S, timeout_s=TIMEOUT_S):
         """Ouvre la connexion : l'adresse qui a marché la dernière fois d'abord, puis les autres."""
         errors = []
         for host, port, base in [self.current] + [a for a in self.addrs if a != self.current]:
-            conn = http.client.HTTPConnection(host, port, timeout=CONNECT_S)
+            conn = http.client.HTTPConnection(host, port, timeout=connect_s)
             try:
                 conn.connect()
             except OSError as e:
                 conn.close()
                 errors.append(f"{host}:{port} {e}")
                 continue
-            conn.sock.settimeout(TIMEOUT_S)
+            conn.sock.settimeout(timeout_s)
             self.current = (host, port, base)
             return conn, base
         raise SyncError("serveur injoignable (" + " ; ".join(errors) + ")")
@@ -78,8 +79,8 @@ class Client:
         host, port, base = self.current
         return f"http://{host}:{port}{base}"
 
-    def request(self, method, path, body=None, query=None):
-        conn, base = self._connect()
+    def request(self, method, path, body=None, query=None, timeout_s=None):
+        conn, base = self._connect(*(timeout_s, timeout_s) if timeout_s else ())
         headers = {"Accept": "application/json"}
         data = None
         if body is not None:
@@ -95,6 +96,13 @@ class Client:
             return r.status, json.loads(payload) if payload else None
         except ValueError:
             raise SyncError(f"réponse inattendue du serveur ({r.status}) : {payload[:200]!r}")
+
+
+def ping(client):
+    """Le serveur répond-il ? Requête légère, délais courts."""
+    code, _ = client.request("GET", "/api/sync", query={"origin": ""}, timeout_s=PING_TIMEOUT_S)
+    if code != 200:
+        raise SyncError(f"le serveur a répondu {code}")
 
 
 def fingerprint(db):
@@ -117,7 +125,7 @@ def sync_once(db_path, client, name=None, version=None):
     try:
         origin = fingerprint(db)
         if origin is None:   # rien à envoyer : on vérifie quand même que le serveur répond (témoin du dashboard)
-            client._connect()[0].close()
+            ping(client)
             return 0
         code, st = client.request("GET", "/api/sync", query={"origin": origin})
         if code != 200:
@@ -154,26 +162,35 @@ def sync_once(db_path, client, name=None, version=None):
 
 
 def sync_loop(state, db_path, client, name, version):
-    """Thread de fond : synchronise toutes les EVERY_S secondes ; hors réseau, réessaie sans bruit toutes les RETRY_S."""
-    was_ok = None
+    """Thread de fond : vérifie toutes les PING_S secondes que le serveur répond et synchronise toutes les
+    EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
+
+    state.sync (témoin du dashboard) : ok, t (dernier contact ou essai), url, error, et du dernier envoi
+    réussi : synced (heure) et sent (mesures envoyées)."""
+    was_ok, next_sync, last = None, 0.0, {}
     while True:
         try:
-            n = sync_once(db_path, client, name, version)
-            state.sync = {"ok": True, "t": time.time(), "sent": n, "url": client.url}
-            if n or was_ok is not True:
-                print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
-                      if n else f"Synchro serveur ({client.url}) : à jour")
+            if time.time() >= next_sync:
+                n = sync_once(db_path, client, name, version)
+                next_sync = time.time() + EVERY_S
+                last = {"synced": time.time(), "sent": n}
+                if n or was_ok is not True:
+                    print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
+                          if n else f"Synchro serveur ({client.url}) : à jour")
+            else:
+                ping(client)
+            state.sync = {"ok": True, "t": time.time(), "url": client.url, **last}
             was_ok = True
         except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
-            state.sync = {"ok": False, "t": time.time(), "error": str(e)}
+            state.sync = {"ok": False, "t": time.time(), "error": str(e), **last}
             if was_ok is not False:   # n'annonce que le passage de joignable à injoignable
-                print(f"Synchro serveur impossible ({e}), nouvel essai toutes les {RETRY_S} s")
-            was_ok = False
+                print(f"Synchro serveur impossible ({e}), nouvel essai toutes les {PING_S} s")
+            was_ok, next_sync = False, 0.0   # au retour du serveur, on synchronise tout de suite
         except Exception:
             traceback.print_exc()
-            state.sync = {"ok": False, "t": time.time(), "error": "erreur interne de la synchro (voir le journal)"}
-            was_ok = False
-        time.sleep(EVERY_S if was_ok else RETRY_S)
+            state.sync = {"ok": False, "t": time.time(), "error": "erreur interne de la synchro (voir le journal)", **last}
+            was_ok, next_sync = False, time.time() + EVERY_S
+        time.sleep(PING_S)
 
 
 def add_arguments(p):
