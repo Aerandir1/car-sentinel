@@ -65,7 +65,9 @@ class Client:
             conn = http.client.HTTPSConnection(self.host, self.port, timeout=TIMEOUT_S, context=self.ctx)
         else:
             conn = http.client.HTTPConnection(self.host, self.port, timeout=TIMEOUT_S)
-        headers = {"Authorization": f"Bearer {self.token}", "Accept": "application/json"}
+        headers = {"Accept": "application/json"}
+        if self.token:   # sans jeton : serveur lancé en --no-auth (essais)
+            headers["Authorization"] = f"Bearer {self.token}"
         data = None
         if body is not None:
             data = gzip.compress(json.dumps(body, separators=(",", ":")).encode(), 6)
@@ -171,7 +173,7 @@ def add_arguments(p):
     p.add_argument("--server", metavar="URL", default=os.environ.get("CLIO_SERVER"),
                    help="clio-sentinel-server où envoyer la base, ex. https://192.168.1.20:8090 (ou CLIO_SERVER)")
     p.add_argument("--server-token", default=os.environ.get("CLIO_SERVER_TOKEN"),
-                   help="jeton du serveur (ou CLIO_SERVER_TOKEN)")
+                   help="jeton du serveur (ou CLIO_SERVER_TOKEN) ; à omettre si le serveur est en --no-auth")
     p.add_argument("--server-pin", metavar="SHA256", default=os.environ.get("CLIO_SERVER_PIN"),
                    help="empreinte du certificat du serveur, affichée à son lancement (ou CLIO_SERVER_PIN)")
     p.add_argument("--server-ca", metavar="FICHIER.pem", help="autorité qui a signé le certificat du serveur")
@@ -180,8 +182,6 @@ def add_arguments(p):
 
 
 def make_client(args):
-    if not args.server_token:
-        raise SyncError("--server donné sans --server-token (le jeton s'affiche au lancement du serveur)")
     return Client(args.server, args.server_token, args.server_pin, args.server_ca)
 
 
