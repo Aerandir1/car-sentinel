@@ -30,6 +30,8 @@ def obd_loop(state, args, logger_factory):
         fast = state.get_settings()["fast"]
         state.status = "connexion (mode rapide)…" if fast else "connexion…"
         conn = obd.OBD(portstr=args.port, baudrate=args.baud, fast=fast, timeout=1)
+        state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
+                         obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
         if conn.status() != obd.OBDStatus.CAR_CONNECTED:
             state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
             conn.close()
@@ -71,6 +73,7 @@ def obd_loop(state, args, logger_factory):
                 state.derive()
                 if time.time() - last_ok > MUTE_S:
                     state.status = "calculateur muet (contact coupé ?), attente…"
+                    state.adapter = "elm"
                     break
                 # Bride la boucle à max_hz (l'ELM327 est souvent plus lent de toute façon)
                 time.sleep(max(0.0, 1.0 / state.get_settings()["max_hz"] - (time.time() - t0)))
@@ -85,4 +88,5 @@ def obd_loop(state, args, logger_factory):
             continue
         if not state.status.startswith("calculateur muet"):
             state.status = "connexion perdue, reconnexion…"
+            state.adapter = "absent"
         time.sleep(2)

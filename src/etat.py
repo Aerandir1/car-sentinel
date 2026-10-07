@@ -62,6 +62,7 @@ class State:
         self.status = "démarrage"
         self.source = ""
         self.vin = None
+        self.adapter = "absent"   # ELM327 : "absent", "elm" (branché, calculateur muet), "car" (calculateur répond)
         self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
         self.hz = 0.0
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)

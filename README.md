@@ -255,7 +255,9 @@ Toutes les 60 s, le dashboard envoie au serveur les mesures qu'il n'a pas encore
 s'ils ont changé. Entre deux, il vérifie toutes les 3 s que le serveur répond ; hors réseau, il réessaie sans
 bruit et envoie dès que le serveur revient. Un envoi coupé est refait au suivant.
 Un témoin en haut du dashboard le montre : vert « serveur · adresse » quand il répond (avec l'adresse prise : Wi‑Fi
-ou VPN), rouge « serveur injoignable » sinon (la raison au survol), gris pendant le premier essai. La base locale
+ou VPN), rouge « serveur injoignable » sinon (la raison au survol), gris pendant le premier essai. Chaque
+vérification est une présence (`POST /api/hello`) : la page du serveur affiche ce PC, son adresse et l'état de
+l'ELM327. La base locale
 n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que depuis la maison et le VPN.
 
 | Option | Variable | Rôle |

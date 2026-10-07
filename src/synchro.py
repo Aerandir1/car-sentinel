@@ -29,7 +29,7 @@ from etat import DERIVED, METRICS
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
-PING_S = 3            # entre deux vérifications que le serveur répond (témoin du dashboard)
+PING_S = 3            # entre deux présences envoyées au serveur (témoins du dashboard et du serveur)
 TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 PING_TIMEOUT_S = 2    # vérification : connexion et réponse
@@ -81,7 +81,8 @@ class Client:
 
     def request(self, method, path, body=None, query=None, timeout_s=None):
         conn, base = self._connect(*(timeout_s, timeout_s) if timeout_s else ())
-        headers = {"Accept": "application/json"}
+        # Adresse de ce PC sur la route prise (Wi-Fi ou VPN) : le serveur derrière Docker ne la voit pas toujours
+        headers = {"Accept": "application/json", "X-Clio-Local-IP": conn.sock.getsockname()[0]}
         data = None
         if body is not None:
             data = gzip.compress(json.dumps(body, separators=(",", ":")).encode(), 6)
@@ -95,6 +96,8 @@ class Client:
         try:
             return r.status, json.loads(payload) if payload else None
         except ValueError:
+            if r.status >= 400:   # erreur en texte brut (« not found »…) : c'est l'appelant qui juge du code
+                return r.status, payload[:200].decode(errors="replace")
             raise SyncError(f"réponse inattendue du serveur ({r.status}) : {payload[:200]!r}")
 
 
@@ -102,6 +105,18 @@ def ping(client):
     """Le serveur répond-il ? Requête légère, délais courts."""
     code, _ = client.request("GET", "/api/sync", query={"origin": ""}, timeout_s=PING_TIMEOUT_S)
     if code != 200:
+        raise SyncError(f"le serveur a répondu {code}")
+
+
+def hello(client, state, name, version):
+    """Présence : ce PC, son adresse et l'état de l'ELM327, affichés sur la page du serveur.
+    Serveur d'avant /api/hello (404) : simple vérification qu'il répond."""
+    body = {"name": name, "host": socket.gethostname(), "version": version,
+            "obd": {"adapter": state.adapter, "status": state.status, "source": state.source, "vin": state.vin}}
+    code, _ = client.request("POST", "/api/hello", body, timeout_s=PING_TIMEOUT_S)
+    if code == 404:
+        ping(client)
+    elif code != 200:
         raise SyncError(f"le serveur a répondu {code}")
 
 
@@ -162,14 +177,15 @@ def sync_once(db_path, client, name=None, version=None):
 
 
 def sync_loop(state, db_path, client, name, version):
-    """Thread de fond : vérifie toutes les PING_S secondes que le serveur répond et synchronise toutes les
-    EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
+    """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
+    toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
     state.sync (témoin du dashboard) : ok, t (dernier contact ou essai), url, error, et du dernier envoi
     réussi : synced (heure) et sent (mesures envoyées)."""
     was_ok, next_sync, last = None, 0.0, {}
     while True:
         try:
+            hello(client, state, name, version)
             if time.time() >= next_sync:
                 n = sync_once(db_path, client, name, version)
                 next_sync = time.time() + EVERY_S
@@ -177,8 +193,6 @@ def sync_loop(state, db_path, client, name, version):
                 if n or was_ok is not True:
                     print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
                           if n else f"Synchro serveur ({client.url}) : à jour")
-            else:
-                ping(client)
             state.sync = {"ok": True, "t": time.time(), "url": client.url, **last}
             was_ok = True
         except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
