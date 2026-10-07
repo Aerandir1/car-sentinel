@@ -17,6 +17,7 @@ import traceback
 from pathlib import Path
 
 import donnees
+import synchro
 import trajets
 from acquisition import obd_loop
 from certs import ensure_cert
@@ -66,7 +67,14 @@ def main():
     p.add_argument("--no-https", action="store_true", help="sert la page en HTTP simple (sans certificat)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
+    synchro.add_arguments(p)
     args = p.parse_args()
+    if args.server and args.no_db:
+        p.error("--server envoie la base : incompatible avec --no-db")
+    try:
+        client = synchro.make_client(args) if args.server else None
+    except synchro.SyncError as e:
+        p.error(str(e))
 
     def logger_factory(keys):
         return CsvLogger(args.log, keys) if args.log else None
@@ -79,6 +87,10 @@ def main():
         state.recorder = donnees.Recorder(db_path, version())
         threading.Thread(target=trips_loop, args=(state, db_path), daemon=True).start()
         print(f"Mesures enregistrées dans {db_path}")
+        if client:
+            threading.Thread(target=synchro.sync_loop, args=(state, db_path, client, args.server_name, version()),
+                             daemon=True).start()
+            print(f"Synchro vers {args.server} (toutes les {synchro.EVERY_S} s quand il est joignable)")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})
     threading.Thread(target=obd_loop, args=(state, args, logger_factory), daemon=True).start()

@@ -387,7 +387,10 @@ async function poll() {
     for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
     const live = s.status.startsWith("connecté");
     $("dot").style.background = live ? css("--ok") : css("--hot");
-    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
+    // Synchro vers clio-sentinel-server (--server) : dernier essai, envoyé ou non
+    const sync = !s.sync ? "" : s.sync.ok ? " · serveur à jour" : " · serveur injoignable";
+    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz${sync}`;
+    $("status").title = s.sync?.error || "";
     updateTiles(s);
   } catch (e) {
     $("dot").style.background = css("--hot");

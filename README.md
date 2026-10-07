@@ -9,6 +9,8 @@ Autour :
   « Mode dashboard » ouvre ce dashboard et elle affiche les valeurs en direct lues sur `/api/state`
   (autorisé pour les pages servies depuis 127.0.0.1 / localhost) ;
 - [clio-autoradio](https://github.com/Aerandir1/clio-autoradio) : radio, navigation, CarPlay, Spotify (en pause) ;
+- [clio-sentinel-server](https://github.com/Aerandir1/clio-sentinel-server) : le serveur de la maison qui reçoit
+  les mesures et trajets et garde tout l'historique (voir « Serveur ») ;
 - le scan approfondi du calculateur (inventaire des capteurs, UDS, diagnostic) : repo à part.
 
 ```
@@ -20,6 +22,7 @@ src/
   certs.py            certificat HTTPS (mkcert ou auto-signé)
   donnees.py          base SQLite : sessions, mesures horodatées, trajets, événements
   trajets.py          découpage des mesures en trajets, fiche de chaque trajet
+  synchro.py          envoi de la base vers clio-sentinel-server
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
 lancer.sh             lancement en local (venv + navigateur)
@@ -158,6 +161,7 @@ python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main,
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
 | `--max-hz` | fréquence max d'acquisition (défaut 20) |
+| `--server URL` | envoie la base à clio-sentinel-server (voir « Serveur ») |
 
 L'onglet **Paramètres** du dashboard règle tout ça à chaud :
 - affichage (gardé dans le navigateur) : rafraîchissement de la page, durée du graphique ;
@@ -231,3 +235,31 @@ métrique, et `trip`, l'identifiant du trajet en cours.
 - Avec un ELM327, les PID sont interrogés l'un après l'autre : quelques Hz au total.
 - La température d'huile et la pression de rail sont rarement dispo en OBD standard chez Renault
   (mesures constructeur en UDS : voir le repo de scan du calculateur).
+
+## Serveur
+
+[clio-sentinel-server](https://github.com/Aerandir1/clio-sentinel-server) tourne à la maison et garde
+l'historique de tous les trajets. Il affiche à son lancement son adresse, son jeton et l'empreinte de son
+certificat ; on les donne au dashboard :
+
+```bash
+python src/dashboard_clio.py --server https://192.168.1.20:8090 --server-token JETON --server-pin EMPREINTE
+```
+
+Toutes les 60 s, le dashboard envoie au serveur les mesures qu'il n'a pas encore, par paquets, puis les trajets
+s'ils ont changé. Hors réseau, il réessaie sans bruit ; un envoi coupé est refait au suivant. La base locale
+n'est jamais modifiée. L'empreinte fait reconnaître le serveur à son certificat (auto-signé accepté, adresse IP
+libre) et refuser tout autre serveur.
+
+| Option | Variable | Rôle |
+|---|---|---|
+| `--server` | `CLIO_SERVER` | adresse du serveur |
+| `--server-token` | `CLIO_SERVER_TOKEN` | jeton du serveur |
+| `--server-pin` | `CLIO_SERVER_PIN` | empreinte SHA-256 du certificat du serveur |
+| `--server-ca` | | à la place de l'empreinte : autorité du certificat (ex. `rootCA.pem` de mkcert) |
+| `--server-name` | `CLIO_SERVER_NAME` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
+
+- Service : `CLIO_ARGS="--server https://... --server-token ... --server-pin ..." ./service.sh install`.
+- Docker : `CLIO_SERVER`, `CLIO_SERVER_TOKEN` et `CLIO_SERVER_PIN` avant `docker compose up` (`$env:…` sous
+  Windows). Serveur sur la même machine que le conteneur : `https://host.docker.internal:8090`.
+- Envoi à la main, sans le dashboard : `python src/synchro.py --server ... --server-token ... --server-pin ...`.

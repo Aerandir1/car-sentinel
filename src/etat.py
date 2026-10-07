@@ -64,6 +64,7 @@ class State:
         self.vin = None
         self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
         self.hz = 0.0
+        self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
         self.settings = {}
 
     def get_settings(self):
@@ -121,6 +122,7 @@ class State:
                 "values": dict(self.values),
                 "ts": dict(self.times),
                 "trip": self.trip,
+                "sync": self.sync,
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }
