@@ -2,7 +2,7 @@
 """Dashboard OBD-II temps réel pour Clio 4 (ELM327 + python-obd).
 
 Lit l'ECU en boucle dans un thread et sert dashboard.html + une API JSON
-sur https://127.0.0.1:8080. Aucune dépendance web : tout marche hors ligne.
+sur https://clio-sentinel.localhost:8080. Aucune dépendance web : tout marche hors ligne.
 
     python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv
 """
@@ -20,7 +20,7 @@ import donnees
 import synchro
 import trajets
 from acquisition import obd_loop
-from certs import ensure_cert
+from certs import HOST, ensure_cert
 from etat import CsvLogger, State
 from serveur import QuietServer, make_handler
 
@@ -105,7 +105,7 @@ def main():
         if not trusted:
             print("Certificat auto-signé : le navigateur affichera un avertissement à accepter une fois.\n"
                   "Pour l'éviter : sudo pacman -S mkcert nss && mkcert -install, puis relancer le script.")
-    print(f"Dashboard : {scheme}://127.0.0.1:{args.http}  (Ctrl+C pour quitter)")
+    print(f"Dashboard : {scheme}://{HOST}:{args.http}  (Ctrl+C pour quitter)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

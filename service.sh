@@ -40,7 +40,7 @@ WantedBy=default.target
 EOF
     systemctl --user daemon-reload
     systemctl --user enable --now "$NAME"
-    echo "→ Service installé et démarré : https://127.0.0.1:8080"
+    echo "→ Service installé et démarré : https://clio-sentinel.localhost:8080"
     echo "  Pour qu'il démarre avec l'ordi même sans ouvrir de session : sudo loginctl enable-linger $USER"
     ;;
 status)

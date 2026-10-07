@@ -33,19 +33,20 @@ for a in "${args[@]}"; do
     [[ "$a" == --http=* ]] && http_port="${a#--http=}"
     prev="$a"
 done
-url="$scheme://127.0.0.1:$http_port"
+url="$scheme://127.0.0.1:$http_port"                    # pour vérifier si le script tourne
+page="$scheme://clio-sentinel.localhost:$http_port"     # ce qu'on ouvre dans le navigateur
 
 open_browser() {
     if command -v chromium >/dev/null; then
-        chromium "$url" >/dev/null 2>&1 &
+        chromium "$page" >/dev/null 2>&1 &
     else
-        xdg-open "$url" >/dev/null 2>&1 &
+        xdg-open "$page" >/dev/null 2>&1 &
     fi
 }
 
 # Déjà lancé (service, voir service.sh) : on ouvre juste la page.
 if curl -sk -o /dev/null "$url"; then
-    echo "→ Dashboard déjà en route sur $url"
+    echo "→ Dashboard déjà en route sur $page"
     [[ -z "${NO_BROWSER:-}" ]] && open_browser
     exit 0
 fi
@@ -61,5 +62,5 @@ if [[ -z "${NO_BROWSER:-}" ]]; then
     ) &
 fi
 
-echo "→ Dashboard sur $url  (Ctrl+C pour arrêter)"
+echo "→ Dashboard sur $page  (Ctrl+C pour arrêter)"
 exec "$PY" src/dashboard_clio.py "${args[@]}"

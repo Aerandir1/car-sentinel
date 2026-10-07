@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import donnees
+from certs import HOST
 
 WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
 LOGOS = WEB / "logo"
@@ -31,21 +32,24 @@ def make_handler(state, scheme, db_path):
             self.send_header("Content-Type", ctype)
             # Le hub (page 3D, autre port) lit /api/state : autorisé pour les pages locales seulement
             origin = self.headers.get("Origin", "")
-            if urlsplit(origin).hostname in ("127.0.0.1", "localhost"):
+            hostname = urlsplit(origin).hostname or ""
+            if hostname in ("127.0.0.1", "localhost") or hostname.endswith(".localhost"):
                 self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
 
         def do_GET(self):
-            # Une seule origine (127.0.0.1) : les réglages du navigateur (localStorage) sont rangés par origine.
-            host = self.headers.get("Host", "")
-            if host.startswith("localhost"):
+            # Une seule origine (HOST) : les réglages du navigateur (localStorage) sont rangés par origine.
+            # Seules les pages sont redirigées : l'API reste lisible par le hub sur 127.0.0.1.
+            path = urlsplit(self.path).path
+            host = urlsplit("//" + self.headers.get("Host", ""))
+            if path in pages and host.hostname in ("127.0.0.1", "localhost", "::1"):
+                port = f":{host.port}" if host.port else ""
                 self.send_response(302)
-                self.send_header("Location", f"{scheme}://127.0.0.1{host[9:]}{self.path}")
+                self.send_header("Location", f"{scheme}://{HOST}{port}{self.path}")
                 self.end_headers()
                 return
-            path = urlsplit(self.path).path
             if path in pages:
                 self._send(200, (WEB / pages[path]).read_bytes(), "text/html; charset=utf-8")
             elif path.startswith("/logo/"):

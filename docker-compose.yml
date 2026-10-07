@@ -1,5 +1,5 @@
 # Lancement (Linux, ELM327 USB) :
-#   OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build      puis  https://127.0.0.1:8080
+#   OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build      puis  https://clio-sentinel.localhost:8080
 # Windows (PowerShell), ELM327 Wi-Fi ou USB : voir la section « Docker sous Windows » du README.
 #
 # Variables (toutes facultatives) :

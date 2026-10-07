@@ -1,7 +1,8 @@
 # Clio Sentinel
 
 Dashboard OBD temps réel pour la Clio IV dCi 90 (moteur K9K), sur PC portable, via un adaptateur ELM327
-branché sur la prise OBD. `src/dashboard_clio.py` lit l'ECU et sert le dashboard sur https://127.0.0.1:8080
+branché sur la prise OBD. `src/dashboard_clio.py` lit l'ECU et sert le dashboard sur
+https://clio-sentinel.localhost:8080
 (fonctionne hors ligne), plus une API JSON (`/api/state`, `/api/meta`, `/api/settings`).
 
 Autour :
@@ -40,20 +41,24 @@ pip install -r requirements.txt
 
 ## HTTPS
 
-La page est servie en **https://127.0.0.1:8080**. Au premier lancement, le script crée un certificat dans `certs/` :
+La page est servie en **https://clio-sentinel.localhost:8080**. Chromium et Firefox envoient tout nom en
+`.localhost` vers l'ordi lui-même : rien à mettre dans `/etc/hosts`. https://127.0.0.1:8080 et
+https://localhost:8080 redirigent vers ce nom (l'API, elle, répond aussi sur 127.0.0.1, pour le hub).
+Au premier lancement, le script crée un certificat dans `certs/` :
 - si **mkcert** est installé, le certificat est reconnu par le navigateur (aucun avertissement) :
   ```bash
   sudo pacman -S mkcert nss && mkcert -install    # une seule fois, puis relancer le script
   ```
 - sinon, certificat auto-signé : Chromium affiche un avertissement, « Paramètres avancés » → « Continuer ».
 
-`--no-https` repasse en HTTP simple. Supprimer `certs/` pour régénérer le certificat.
+`--no-https` repasse en HTTP simple. Supprimer `certs/` pour régénérer le certificat (un certificat sans le nom
+`clio-sentinel.localhost` est refait tout seul).
 
 ## Docker sous Linux
 
 ```bash
 docker compose down                                                   # si un ancien conteneur tourne encore
-OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build          # puis https://127.0.0.1:8080
+OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build          # puis https://clio-sentinel.localhost:8080
 ```
 
 Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
@@ -112,7 +117,7 @@ Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la sec
   exemples de pyserial), puis `$env:CLIO_ARGS="--port rfc2217://host.docker.internal:2217"`.
 
 Port 8080 déjà pris (« port is already allocated ») : `$env:CLIO_PORT="8106"` avant `docker compose up`,
-puis https://127.0.0.1:8106.
+puis https://clio-sentinel.localhost:8106.
 
 **Accès depuis les autres PC du réseau** : `$env:CLIO_HOST="0.0.0.0"` avant `docker compose up`, puis ouvrir le
 port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
@@ -121,9 +126,9 @@ New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TC
 ```
 Les autres PC ouvrent alors `https://<IP du serveur>:8106` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
 de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets. Le certificat n'est
-fait que pour 127.0.0.1 : les navigateurs affichent un avertissement à accepter.
+fait que pour cette machine : les navigateurs affichent un avertissement à accepter.
 
-**4.** Ouvrir https://127.0.0.1:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
+**4.** Ouvrir https://clio-sentinel.localhost:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
 dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
 pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
 
