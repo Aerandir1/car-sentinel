@@ -239,27 +239,23 @@ métrique, et `trip`, l'identifiant du trajet en cours.
 ## Serveur
 
 [clio-sentinel-server](https://github.com/Aerandir1/clio-sentinel-server) tourne à la maison et garde
-l'historique de tous les trajets. Il affiche à son lancement son adresse, son jeton et l'empreinte de son
-certificat ; on les donne au dashboard :
+l'historique de tous les trajets. On donne son adresse au dashboard ; avec plusieurs adresses (séparées par des
+virgules), la première qui répond est prise : la maison en direct sur le Wi‑Fi, sinon le VPN WireGuard sur la route.
 
 ```bash
-python src/dashboard_clio.py --server https://192.168.1.20:8090 --server-token JETON --server-pin EMPREINTE
+python src/dashboard_clio.py --server http://192.168.1.13:8207,http://10.100.0.1:8207
 ```
 
 Toutes les 60 s, le dashboard envoie au serveur les mesures qu'il n'a pas encore, par paquets, puis les trajets
 s'ils ont changé. Hors réseau, il réessaie sans bruit ; un envoi coupé est refait au suivant. La base locale
-n'est jamais modifiée. L'empreinte fait reconnaître le serveur à son certificat (auto-signé accepté, adresse IP
-libre) et refuser tout autre serveur.
+n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que depuis la maison et le VPN.
 
 | Option | Variable | Rôle |
 |---|---|---|
-| `--server` | `CLIO_SERVER` | adresse du serveur |
-| `--server-token` | `CLIO_SERVER_TOKEN` | jeton du serveur |
-| `--server-pin` | `CLIO_SERVER_PIN` | empreinte SHA-256 du certificat du serveur |
-| `--server-ca` | | à la place de l'empreinte : autorité du certificat (ex. `rootCA.pem` de mkcert) |
+| `--server` | `CLIO_SERVER` | adresse(s) du serveur, séparées par des virgules |
 | `--server-name` | `CLIO_SERVER_NAME` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
 
-- Service : `CLIO_ARGS="--server https://... --server-token ... --server-pin ..." ./service.sh install`.
-- Docker : `CLIO_SERVER`, `CLIO_SERVER_TOKEN` et `CLIO_SERVER_PIN` avant `docker compose up` (`$env:…` sous
-  Windows). Serveur sur la même machine que le conteneur : `https://host.docker.internal:8090`.
-- Envoi à la main, sans le dashboard : `python src/synchro.py --server ... --server-token ... --server-pin ...`.
+- Service : `CLIO_ARGS="--server http://192.168.1.13:8207,http://10.100.0.1:8207" ./service.sh install`.
+- Docker : `CLIO_SERVER=...` avant `docker compose up` (`$env:CLIO_SERVER=...` sous Windows). Serveur sur la
+  même machine que le conteneur : `http://host.docker.internal:8207`.
+- Envoi à la main, sans le dashboard : `python src/synchro.py --server ...`.

@@ -5,7 +5,11 @@ reçue : chaque envoi reprend de là, par paquets, et un envoi coupé (réseau p
 refait au suivant. Les trajets et événements partent en bloc quand ils ont changé. Rien n'est jamais
 modifié ni effacé dans la base locale.
 
-    python src/synchro.py --server https://192.168.1.20:8090 --server-token JETON --server-pin EMPREINTE
+    python src/synchro.py --server http://192.168.1.13:8207,http://10.100.0.1:8207
+
+Plusieurs adresses (séparées par des virgules) : la première qui répond est prise, et essayée en premier la
+fois suivante. Ex. la maison en direct sur le Wi-Fi, puis le VPN WireGuard sur la route. HTTP simple, sans jeton :
+le serveur n'est joignable que depuis la maison et le VPN.
 """
 
 import argparse
@@ -15,7 +19,6 @@ import http.client
 import json
 import os
 import socket
-import ssl
 import time
 import traceback
 from pathlib import Path
@@ -27,6 +30,7 @@ from etat import DERIVED, METRICS
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
 TIMEOUT_S = 15
+CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 
 
 class SyncError(Exception):
@@ -41,51 +45,51 @@ def meta():
 
 
 class Client:
-    """Connexion au serveur. Avec `pin`, le certificat est reconnu à son empreinte SHA-256 (auto-signé accepté) ;
-    sinon il est vérifié normalement (certificat reconnu, ou `ca` : fichier de l'autorité, ex. rootCA.pem de mkcert)."""
+    """Connexion au serveur, à la première de ses adresses qui répond."""
 
-    def __init__(self, url, token, pin=None, ca=None):
-        u = urlsplit(url.rstrip("/"))
-        if u.scheme not in ("http", "https") or not u.hostname:
-            raise SyncError(f"adresse du serveur invalide : {url}")
-        self.https, self.host, self.base = u.scheme == "https", u.hostname, u.path
-        self.port = u.port or (443 if self.https else 80)
-        self.token = token
-        self.pin = pin.replace(":", "").lower() if pin else None
-        if self.https:
-            if self.pin:
-                self.ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-                self.ctx.check_hostname = False
-                self.ctx.verify_mode = ssl.CERT_NONE   # vérifié juste après, à l'empreinte
-            else:
-                self.ctx = ssl.create_default_context(cafile=ca)
+    def __init__(self, urls):
+        self.addrs = []
+        for url in urls.split(","):
+            u = urlsplit(url.strip().rstrip("/"))
+            if u.scheme != "http" or not u.hostname:
+                raise SyncError(f"adresse du serveur invalide : {url.strip()} (attendu http://IP:PORT)")
+            self.addrs.append((u.hostname, u.port or 80, u.path))
+        self.current = self.addrs[0]
+
+    def _connect(self):
+        """Ouvre la connexion : l'adresse qui a marché la dernière fois d'abord, puis les autres."""
+        errors = []
+        for host, port, base in [self.current] + [a for a in self.addrs if a != self.current]:
+            conn = http.client.HTTPConnection(host, port, timeout=CONNECT_S)
+            try:
+                conn.connect()
+            except OSError as e:
+                conn.close()
+                errors.append(f"{host}:{port} {e}")
+                continue
+            conn.sock.settimeout(TIMEOUT_S)
+            self.current = (host, port, base)
+            return conn, base
+        raise SyncError("serveur injoignable (" + " ; ".join(errors) + ")")
+
+    @property
+    def url(self):
+        host, port, base = self.current
+        return f"http://{host}:{port}{base}"
 
     def request(self, method, path, body=None, query=None):
-        if self.https:
-            conn = http.client.HTTPSConnection(self.host, self.port, timeout=TIMEOUT_S, context=self.ctx)
-        else:
-            conn = http.client.HTTPConnection(self.host, self.port, timeout=TIMEOUT_S)
+        conn, base = self._connect()
         headers = {"Accept": "application/json"}
-        if self.token:   # sans jeton : serveur lancé en --no-auth (essais)
-            headers["Authorization"] = f"Bearer {self.token}"
         data = None
         if body is not None:
             data = gzip.compress(json.dumps(body, separators=(",", ":")).encode(), 6)
             headers.update({"Content-Type": "application/json", "Content-Encoding": "gzip"})
         try:
-            conn.connect()
-            if self.https and self.pin:
-                got = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest()
-                if got != self.pin:
-                    raise SyncError(f"empreinte du certificat inattendue ({got}) : ce n'est pas le bon serveur,"
-                                    " ou son certificat a été refait (redonner --server-pin)")
-            conn.request(method, self.base + path + (f"?{urlencode(query)}" if query else ""), data, headers)
+            conn.request(method, base + path + (f"?{urlencode(query)}" if query else ""), data, headers)
             r = conn.getresponse()
             payload = r.read()
         finally:
             conn.close()
-        if r.status == 401:
-            raise SyncError("jeton refusé par le serveur (--server-token)")
         try:
             return r.status, json.loads(payload) if payload else None
         except ValueError:
@@ -153,10 +157,10 @@ def sync_loop(state, db_path, client, name, version):
     while True:
         try:
             n = sync_once(db_path, client, name, version)
-            state.sync = {"ok": True, "t": time.time(), "sent": n}
+            state.sync = {"ok": True, "t": time.time(), "sent": n, "url": client.url}
             if n or was_ok is not True:
-                print(f"Synchro serveur : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}" if n
-                      else "Synchro serveur : à jour")
+                print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
+                      if n else f"Synchro serveur ({client.url}) : à jour")
             was_ok = True
         except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
             state.sync = {"ok": False, "t": time.time(), "error": str(e)}
@@ -170,19 +174,15 @@ def sync_loop(state, db_path, client, name, version):
 
 
 def add_arguments(p):
-    p.add_argument("--server", metavar="URL", default=os.environ.get("CLIO_SERVER"),
-                   help="clio-sentinel-server où envoyer la base, ex. https://192.168.1.20:8090 (ou CLIO_SERVER)")
-    p.add_argument("--server-token", default=os.environ.get("CLIO_SERVER_TOKEN"),
-                   help="jeton du serveur (ou CLIO_SERVER_TOKEN) ; à omettre si le serveur est en --no-auth")
-    p.add_argument("--server-pin", metavar="SHA256", default=os.environ.get("CLIO_SERVER_PIN"),
-                   help="empreinte du certificat du serveur, affichée à son lancement (ou CLIO_SERVER_PIN)")
-    p.add_argument("--server-ca", metavar="FICHIER.pem", help="autorité qui a signé le certificat du serveur")
+    p.add_argument("--server", metavar="URL[,URL…]", default=os.environ.get("CLIO_SERVER"),
+                   help="clio-sentinel-server où envoyer la base, une ou plusieurs adresses séparées par des virgules,"
+                        " ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (ou CLIO_SERVER)")
     p.add_argument("--server-name", default=os.environ.get("CLIO_SERVER_NAME") or socket.gethostname(),
                    help="nom de ce PC sur la page du serveur (défaut : nom de la machine)")
 
 
 def make_client(args):
-    return Client(args.server, args.server_token, args.server_pin, args.server_ca)
+    return Client(args.server)
 
 
 def main():
@@ -195,10 +195,11 @@ def main():
         p.error("--server manquant")
     from dashboard_clio import version
     try:
-        n = sync_once(args.db, make_client(args), args.server_name, version())
+        client = make_client(args)
+        n = sync_once(args.db, client, args.server_name, version())
     except (OSError, http.client.HTTPException, SyncError) as e:
         raise SystemExit(f"Synchro impossible : {e}")
-    print(f"{n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}, serveur à jour")
+    print(f"{n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}, serveur à jour ({client.url})")
 
 
 if __name__ == "__main__":

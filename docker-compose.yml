@@ -10,7 +10,7 @@
 #   TZ            fuseau horaire des noms de trajets (défaut Europe/Paris)
 #   CLIO_PORT     port de la page sur l'hôte (défaut 8080), si 8080 est déjà pris
 #   CLIO_HOST     0.0.0.0 : page accessible depuis les autres PC du réseau (défaut 127.0.0.1 : ce PC seulement)
-#   CLIO_SERVER, CLIO_SERVER_TOKEN, CLIO_SERVER_PIN   envoi vers clio-sentinel-server (voir README, « Serveur »)
+#   CLIO_SERVER   envoi vers clio-sentinel-server, ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (README, « Serveur »)
 #   CLIO_SERVER_NAME  nom de ce PC sur la page du serveur (défaut : nom du conteneur, peu parlant)
 services:
   clio:
@@ -40,8 +40,6 @@ services:
       TZ: ${TZ:-Europe/Paris}
       CLIO_VERSION: ${CLIO_VERSION:-}
       CLIO_SERVER: ${CLIO_SERVER:-}
-      CLIO_SERVER_TOKEN: ${CLIO_SERVER_TOKEN:-}
-      CLIO_SERVER_PIN: ${CLIO_SERVER_PIN:-}
       CLIO_SERVER_NAME: ${CLIO_SERVER_NAME:-clio-docker}
     restart: unless-stopped
 
