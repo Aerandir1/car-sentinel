@@ -252,7 +252,9 @@ python src/dashboard_clio.py --server http://192.168.1.13:8207,http://10.100.0.1
 ```
 
 Toutes les 60 s, le dashboard envoie au serveur les mesures qu'il n'a pas encore, par paquets, puis les trajets
-s'ils ont changé. Hors réseau, il réessaie sans bruit ; un envoi coupé est refait au suivant. La base locale
+s'ils ont changé. Hors réseau, il réessaie sans bruit toutes les 10 s ; un envoi coupé est refait au suivant.
+Un témoin en haut du dashboard le montre : vert « serveur · adresse » quand il répond (avec l'adresse prise : Wi‑Fi
+ou VPN), rouge « serveur injoignable » sinon (la raison au survol), gris pendant le premier essai. La base locale
 n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que depuis la maison et le VPN.
 
 | Option | Variable | Rôle |

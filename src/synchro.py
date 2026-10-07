@@ -29,6 +29,7 @@ from etat import DERIVED, METRICS
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
+RETRY_S = 10          # serveur injoignable : nouvel essai plus tôt, pour le voir revenir vite
 TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 
@@ -115,7 +116,8 @@ def sync_once(db_path, client, name=None, version=None):
     db = donnees.connect(db_path)
     try:
         origin = fingerprint(db)
-        if origin is None:
+        if origin is None:   # rien à envoyer : on vérifie quand même que le serveur répond (témoin du dashboard)
+            client._connect()[0].close()
             return 0
         code, st = client.request("GET", "/api/sync", query={"origin": origin})
         if code != 200:
@@ -152,7 +154,7 @@ def sync_once(db_path, client, name=None, version=None):
 
 
 def sync_loop(state, db_path, client, name, version):
-    """Thread de fond : synchronise toutes les EVERY_S secondes ; hors réseau, réessaie sans bruit."""
+    """Thread de fond : synchronise toutes les EVERY_S secondes ; hors réseau, réessaie sans bruit toutes les RETRY_S."""
     was_ok = None
     while True:
         try:
@@ -165,12 +167,13 @@ def sync_loop(state, db_path, client, name, version):
         except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
             state.sync = {"ok": False, "t": time.time(), "error": str(e)}
             if was_ok is not False:   # n'annonce que le passage de joignable à injoignable
-                print(f"Synchro serveur impossible ({e}), nouvel essai toutes les {EVERY_S} s")
+                print(f"Synchro serveur impossible ({e}), nouvel essai toutes les {RETRY_S} s")
             was_ok = False
         except Exception:
             traceback.print_exc()
+            state.sync = {"ok": False, "t": time.time(), "error": "erreur interne de la synchro (voir le journal)"}
             was_ok = False
-        time.sleep(EVERY_S)
+        time.sleep(EVERY_S if was_ok else RETRY_S)
 
 
 def add_arguments(p):

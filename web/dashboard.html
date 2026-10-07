@@ -23,6 +23,13 @@
   header .r-mark { height: 26px; color: var(--text); }
   #status { color: var(--dim); font-size: 13px; }
   #dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
+  /* Témoin clio-sentinel-server (--server) : vert joignable, rouge injoignable, gris premier essai en cours */
+  #srv { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim);
+         border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+  #srv[hidden] { display: none; }
+  #srv i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  #srv.ok { color: var(--ok); border-color: var(--ok); }
+  #srv.ko { color: var(--hot); border-color: var(--hot); }
   nav { display: flex; gap: 4px; margin-left: auto; }
   nav button.on { border-color: var(--accent); color: var(--accent); }
   header button { background: var(--panel); color: var(--text);
@@ -120,6 +127,7 @@
   <div id="dot"></div>
   <h1>Clio 4 dCi 90 · OBD</h1>
   <span id="status">chargement…</span>
+  <span id="srv" hidden><i></i><span id="srv-txt"></span></span>
   <nav>
     <button id="tab-dash" class="on">Tableau de bord</button>
     <button id="tab-trips">Trajets</button>
@@ -376,6 +384,25 @@ function drawGauges(s) {
   });
 }
 
+// Témoin de clio-sentinel-server, d'après le dernier essai de synchro (caché sans --server)
+function showSync(sync) {
+  const srv = $("srv");
+  srv.hidden = !sync;
+  if (!sync) return;
+  const at = new Date(sync.t * 1000).toLocaleTimeString("fr-FR");
+  srv.className = sync.ok === null ? "" : sync.ok ? "ok" : "ko";
+  if (sync.ok === null) {
+    $("srv-txt").textContent = "serveur…";
+    srv.title = "Recherche du serveur";
+  } else if (sync.ok) {
+    $("srv-txt").textContent = `serveur · ${new URL(sync.url).hostname}`;
+    srv.title = `Serveur joignable : ${sync.url}\nDernier envoi à ${at} (${sync.sent} mesures)`;
+  } else {
+    $("srv-txt").textContent = "serveur injoignable";
+    srv.title = `Dernier essai à ${at} : ${sync.error}`;
+  }
+}
+
 async function poll() {
   try {
     const s = await (await fetch("/api/state")).json();
@@ -387,14 +414,13 @@ async function poll() {
     for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
     const live = s.status.startsWith("connecté");
     $("dot").style.background = live ? css("--ok") : css("--hot");
-    // Synchro vers clio-sentinel-server (--server) : dernier essai, envoyé ou non
-    const sync = !s.sync ? "" : s.sync.ok ? " · serveur à jour" : " · serveur injoignable";
-    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz${sync}`;
-    $("status").title = s.sync?.error || "";
+    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
+    showSync(s.sync);
     updateTiles(s);
   } catch (e) {
     $("dot").style.background = css("--hot");
     $("status").textContent = "script Python injoignable";
+    $("srv").hidden = true;
   }
 }
 

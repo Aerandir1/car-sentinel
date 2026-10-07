@@ -88,6 +88,7 @@ def main():
         threading.Thread(target=trips_loop, args=(state, db_path), daemon=True).start()
         print(f"Mesures enregistrées dans {db_path}")
         if client:
+            state.sync = {"ok": None, "t": time.time()}   # premier essai en cours (témoin « serveur » du dashboard)
             threading.Thread(target=synchro.sync_loop, args=(state, db_path, client, args.server_name, version()),
                              daemon=True).start()
             print(f"Synchro vers {args.server} (toutes les {synchro.EVERY_S} s quand il est joignable)")
