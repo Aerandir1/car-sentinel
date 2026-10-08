@@ -40,10 +40,16 @@
   canvas { display: block; width: 100%; }
   #tach { aspect-ratio: 2 / 1.15; }
   #boostg { aspect-ratio: 1 / 1.15; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+  /* Tuiles rangées par catégorie ; les petites catégories se partagent une ligne */
+  #tiles { display: flex; flex-wrap: wrap; gap: 18px 16px; }
+  .group { min-width: 0; flex: 1 1 172px; }
+  .group h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em;
+              color: var(--dim); margin: 0 0 8px 2px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
   .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px;
-          transition: border-color .2s, background .2s; display: block; width: 100%; text-align: left;
-          color: inherit; font: inherit; cursor: pointer; }
+          transition: border-color .2s, background .2s; width: 100%; text-align: left;
+          color: inherit; font: inherit; cursor: pointer; display: flex; flex-direction: column; justify-content: flex-start; }
+  .tile .mm { margin-top: auto; }
   .tile:hover { border-color: #3a434f; }
   .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .spark { height: 34px; margin: 4px 0 2px; }
@@ -113,11 +119,93 @@
   .t-actions button { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
                       padding: 6px 12px; cursor: pointer; font: inherit; }
   .t-saved { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }
+  /* Paramètres : style et disposition des tuiles */
+  .seg.look { justify-self: start; }
+  .seg.look button { white-space: nowrap; }
+  #layout { max-width: 720px; margin-top: 16px; }
+  #layout h2 { font-size: 14px; margin: 0 0 4px; }
+  #layout .note { color: var(--dim); font-size: 12px; margin: 0 0 12px; }
+  .lay-group { margin-top: 12px; }
+  .lay-group h3 { font-size: 12px; font-weight: 600; color: var(--dim); text-transform: uppercase;
+                  letter-spacing: .08em; margin: 0 0 6px; }
+  .lay-list { list-style: none; margin: 0; padding: 4px; min-height: 40px; border: 1px dashed var(--line);
+              border-radius: 8px; display: grid; gap: 4px; }
+  .lay-list.over { border-color: var(--accent); }
+  .lay-list .empty { color: var(--dim); font-size: 12px; padding: 8px; }
+  .lay-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px;
+              background: var(--bg); border: 1px solid var(--line); }
+  .lay-item.off .lay-name { color: var(--dim); text-decoration: line-through; }
+  .lay-item.dragging { opacity: .4; }
+  .lay-item.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+  .lay-grip { cursor: grab; color: var(--dim); user-select: none; padding: 0 2px; }
+  .lay-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .lay-name input { accent-color: var(--accent); }
+  .lay-item select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                     padding: 4px 6px; font: inherit; font-size: 12px; max-width: 150px; }
+  .lay-item button, .lay-foot button, #s-default {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font: inherit; }
+  .lay-item button:disabled { opacity: .3; cursor: default; }
+  .lay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
+  .lay-foot label { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+  .lay-foot input { accent-color: var(--accent); }
+
+  /* ---------- Style « Liquid glass » : panneaux translucides et flous sur un fond coloré ---------- */
+  :root[data-look="glass"] {
+    --bg: #070a12; --panel: rgba(255, 255, 255, .07); --line: rgba(255, 255, 255, .14);
+    --text: #f4f7fb; --dim: rgba(228, 236, 247, .62);
+    --glass: linear-gradient(140deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .04) 45%, rgba(255, 255, 255, .07));
+    --glass-edge: inset 0 1px 0 rgba(255, 255, 255, .28), inset 0 -1px 0 rgba(255, 255, 255, .06),
+                  inset 1px 0 0 rgba(255, 255, 255, .08), 0 10px 30px rgba(0, 0, 0, .35);
+    --blur: blur(22px) saturate(180%);
+  }
+  [data-look="glass"] body { background: var(--bg); min-height: 100vh; }
+  [data-look="glass"] body::before {
+    content: ""; position: fixed; inset: -10%; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(38% 42% at 12% 18%, rgba(240, 180, 41, .38), transparent 70%),
+      radial-gradient(40% 45% at 88% 12%, rgba(88, 166, 255, .40), transparent 70%),
+      radial-gradient(45% 50% at 70% 92%, rgba(163, 113, 247, .36), transparent 70%),
+      radial-gradient(35% 40% at 20% 85%, rgba(63, 185, 80, .22), transparent 70%);
+    filter: blur(20px);
+  }
+  [data-look="glass"] header {
+    position: sticky; top: 0; z-index: 5; border-bottom: 1px solid var(--line);
+    background: rgba(10, 13, 20, .35); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  }
+  /* dialog#detail à part : dans :is() son id donnerait sa spécificité à .tile et écraserait .tile.hot */
+  [data-look="glass"] :is(.panel, .tile, .trip), [data-look="glass"] dialog#detail {
+    background: var(--glass); border: 1px solid var(--line); border-radius: 20px;
+    box-shadow: var(--glass-edge); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  }
+  [data-look="glass"] .tile { border-radius: 18px; transition: transform .2s, border-color .2s, background .2s; }
+  [data-look="glass"] .tile:hover { border-color: rgba(255, 255, 255, .3); transform: translateY(-1px); }
+  [data-look="glass"] .tile.hot { background: linear-gradient(140deg, rgba(248, 81, 73, .32), rgba(248, 81, 73, .1));
+                                  border-color: rgba(248, 81, 73, .7); }
+  [data-look="glass"] :is(header button, .seg, .badge, #srv) { border-radius: 999px; }
+  [data-look="glass"] header button, [data-look="glass"] :is(.lay-item, .t-note, .t-actions button, .d-filters select) {
+    background: rgba(255, 255, 255, .08); border-color: var(--line);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
+  }
+  [data-look="glass"] .seg button.on { background: rgba(255, 255, 255, .16); color: var(--accent); }
+  [data-look="glass"] .lay-item { border-radius: 10px; }
+  [data-look="glass"] .tip { background: rgba(10, 13, 20, .7); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+                             border-radius: 10px; }
+  [data-look="glass"] dialog#detail::backdrop { background: rgba(5, 7, 10, .45); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+  /* Transparence réduite demandée par le système : panneaux opaques */
+  @media (prefers-reduced-transparency: reduce) {
+    [data-look="glass"] :is(.panel, .tile, .trip, header), [data-look="glass"] dialog#detail { background: #161b26; backdrop-filter: none; }
+  }
+
   @media (max-width: 700px) {
     .gauges { grid-template-columns: 1fr; }
     header { flex-wrap: wrap; }
     .row { grid-template-columns: 1fr 70px; }
     .row input { grid-column: 1 / -1; grid-row: 2; }
+    .row .seg.look { grid-column: 1 / -1; grid-row: 2; }
+    .lay-item { flex-wrap: wrap; }
+    .lay-name { flex-basis: calc(100% - 50px); }
+    .lay-item select { max-width: none; flex: 1; margin-left: 22px; }
   }
 </style>
 </head>
@@ -140,7 +228,7 @@
     <div class="panel"><canvas id="tach"></canvas></div>
     <div class="panel"><canvas id="boostg"></canvas></div>
   </section>
-  <section class="tiles" id="tiles"></section>
+  <div id="tiles"></div>
 </main>
 <dialog id="detail" aria-labelledby="d-title">
   <div class="d-head">
@@ -172,6 +260,14 @@
   <section class="panel" id="settings">
     <h2>Affichage</h2>
     <p class="note">Propre à ce navigateur.</p>
+    <div class="row">
+      <label>Style<small>Liquid glass : panneaux translucides et flous</small></label>
+      <div class="seg look" id="s-look">
+        <button data-look="classic">Classique</button>
+        <button data-look="glass">Liquid glass</button>
+      </div>
+      <output id="o-look"></output>
+    </div>
     <div class="row">
       <label for="s-poll">Rafraîchissement de la page<small>Fréquence de lecture des valeurs</small></label>
       <input type="range" id="s-poll" min="50" max="2000" step="50">
@@ -205,8 +301,18 @@
       <output id="o-log_hz"></output>
     </div>
     <div class="row" style="grid-template-columns:1fr auto">
-      <span class="note" style="margin:0">Valeurs de départ : 200 ms et 120 s pour l'affichage.</span>
+      <span class="note" style="margin:0">Valeurs de départ : style classique, 200 ms et 120 s.</span>
       <button id="s-default">Affichage par défaut</button>
+    </div>
+  </section>
+  <section class="panel" id="layout">
+    <h2>Disposition des tuiles</h2>
+    <p class="note">Glisser une tuile par la poignée ⋮⋮ (ou ▲ ▼), changer sa catégorie, décocher pour la masquer.
+      Propre à ce navigateur.</p>
+    <div id="lay-groups"><p class="note">Les tuiles apparaissent une fois le script connecté au calculateur.</p></div>
+    <div class="lay-foot">
+      <label><input type="checkbox" id="s-grouped"> Afficher les titres de catégorie</label>
+      <button id="lay-default">Disposition par défaut</button>
     </div>
   </section>
 </main>
@@ -214,10 +320,51 @@
 
 <script>
 // Réglages d'affichage, gardés dans le navigateur
-const DEFAULTS = { poll_ms: 200, history_s: 120 };
+// layout : disposition choisie dans Paramètres ({ order, group, hidden }), null = disposition par défaut
+const DEFAULTS = { poll_ms: 200, history_s: 120, look: "classic", grouped: true, layout: null };
 const ui = { ...DEFAULTS };
 try { Object.assign(ui, JSON.parse(localStorage.getItem("clio-ui") || "{}")); } catch (e) {}
 const saveUi = () => { try { localStorage.setItem("clio-ui", JSON.stringify(ui)); } catch (e) {} };
+const applyLook = () => { document.documentElement.dataset.look = ui.look === "glass" ? "glass" : "classic"; };
+applyLook();
+
+// Catégories des tuiles, dans l'ordre d'affichage ; une métrique inconnue va dans « Autres »
+const GROUPS = [
+  { id: "drive", label: "Conduite",           keys: ["speed", "rpm", "pedal", "load", "fuel"] },
+  { id: "temp",  label: "Températures",       keys: ["coolant", "oil", "intake", "ambient"] },
+  { id: "air",   label: "Admission et turbo", keys: ["boost", "map", "maf", "throttle", "baro"] },
+  { id: "inj",   label: "Injection et EGR",   keys: ["rail", "egr", "egr_err"] },
+  { id: "elec",  label: "Électrique",         keys: ["voltage"] },
+  { id: "other", label: "Autres",             keys: [] },
+];
+const DEFAULT_ORDER = GROUPS.flatMap((g) => g.keys);
+const defaultGroup = (key) => (GROUPS.find((g) => g.keys.includes(key)) || GROUPS[GROUPS.length - 1]).id;
+
+// Tuiles de la voiture dans l'ordre choisi : [{ m, key, group, hidden }]
+function tileLayout() {
+  const L = ui.layout || {}, order = L.order || [], hidden = new Set(L.hidden || []);
+  const pos = (k) => {
+    const i = order.indexOf(k);
+    return i >= 0 ? i : 1000 + (DEFAULT_ORDER.includes(k) ? DEFAULT_ORDER.indexOf(k) : 999);
+  };
+  return (meta?.metrics || [])
+    .map((m) => ({ m, key: m.key, hidden: hidden.has(m.key),
+                   group: GROUPS.some((g) => g.id === L.group?.[m.key]) ? L.group[m.key] : defaultGroup(m.key) }))
+    .sort((a, b) => pos(a.key) - pos(b.key));
+}
+function saveLayout(items) {
+  const keys = items.map((i) => i.key);
+  const prev = ui.layout || {};
+  ui.layout = {   // garde aussi la place des métriques absentes de cette voiture / de cette connexion
+    order: keys.concat((prev.order || []).filter((k) => !keys.includes(k))),
+    group: { ...prev.group, ...Object.fromEntries(items.map((i) => [i.key, i.group])) },
+    hidden: items.filter((i) => i.hidden).map((i) => i.key)
+      .concat((prev.hidden || []).filter((k) => !keys.includes(k))),
+  };
+  saveUi();
+  renderTiles();
+  renderLayoutEditor();
+}
 // Presque constantes sur un trajet : pas de mini-courbe (la courbe détaillée reste dispo au clic)
 const NO_SPARK = new Set(["baro", "ambient"]);
 let meta = null, last = null;
@@ -229,20 +376,38 @@ const css = (name) => getComputedStyle(document.documentElement).getPropertyValu
 function fmt(v, unit) {
   if (v === null || v === undefined) return "—";
   if (Math.abs(v) < 0.005) v = 0;
-  if (unit === "bar" || unit === "V") return v.toFixed(2);
+  if (unit === "V") return v.toFixed(2);
+  if (unit === "bar") return Math.abs(v) < 10 ? v.toFixed(2) : Math.round(v).toString();   // turbo / rail
   if (unit === "tr/min") return Math.round(v).toString();
   return Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toString();
 }
 
-function buildTiles() {
-  $("tiles").innerHTML = meta.metrics.map((m) => `
+const tileHtml = (m) => `
     <button class="tile" id="t-${m.key}" data-key="${m.key}" title="Voir la courbe">
       <div class="lbl">${m.label}</div>
       <div class="val"><span>—</span><small>${m.unit}</small></div>
       ${NO_SPARK.has(m.key) ? "" : '<canvas class="spark"></canvas>'}
       <div class="mm">min — · max —</div>
-    </button>`).join("");
+    </button>`;
+
+// Une section par catégorie (ou une seule grille sans titres), tuiles masquées exclues
+function renderTiles() {
+  const items = tileLayout().filter((i) => !i.hidden);
+  const sections = ui.grouped
+    ? GROUPS.map((g) => ({ g, items: items.filter((i) => i.group === g.id) })).filter((s) => s.items.length)
+    : [{ g: null, items: GROUPS.flatMap((g) => items.filter((i) => i.group === g.id)) }];
+  $("tiles").innerHTML = sections.map(({ g, items }) => `
+    <section class="group" style="${g ? `flex: ${items.length} 1 ${items.length * 172}px` : "flex-basis: 100%"}">
+      ${g ? `<h2>${g.label}</h2>` : ""}
+      <div class="tiles">${items.map((i) => tileHtml(i.m)).join("")}</div>
+    </section>`).join("");
   for (const el of document.querySelectorAll(".tile")) el.onclick = () => openDetail(el.dataset.key);
+  if (last) updateTiles(last);
+}
+
+function buildTiles() {
+  renderTiles();
+  renderLayoutEditor();
   seedSeries();
   $("foot").textContent = meta.unsupported.length
     ? "Non supporté par le calculateur : " + meta.unsupported.join(", ")
@@ -252,6 +417,7 @@ function buildTiles() {
 function updateTiles(s) {
   for (const m of meta.metrics) {
     const el = $("t-" + m.key);
+    if (!el) continue;   // tuile masquée
     const v = s.values[m.key];
     el.querySelector(".val span").textContent = fmt(v, m.unit);
     el.querySelector(".mm").textContent = `min ${fmt(s.min[m.key], m.unit)} · max ${fmt(s.max[m.key], m.unit)}`;
@@ -754,7 +920,99 @@ for (const [id, f] of Object.entries(UI_FIELDS)) {
     if (f.key === "poll_ms") restartPoll();
   };
 }
-$("s-default").onclick = () => { Object.assign(ui, DEFAULTS); saveUi(); syncUi(); restartPoll(); };
+$("s-default").onclick = () => {
+  Object.assign(ui, { poll_ms: DEFAULTS.poll_ms, history_s: DEFAULTS.history_s, look: DEFAULTS.look });
+  saveUi(); syncUi(); applyLook(); restartPoll();
+};
+
+// Style : classique ou liquid glass
+function syncLook() {
+  for (const b of $("s-look").children) b.classList.toggle("on", b.dataset.look === ui.look);
+  $("o-look").textContent = "";
+}
+for (const b of $("s-look").children) {
+  b.onclick = () => { ui.look = b.dataset.look; saveUi(); applyLook(); syncLook(); };
+}
+
+// ---------- Disposition des tuiles ----------
+let dragKey = null;
+
+function moveTile(key, group, beforeKey) {   // vers la catégorie group, avant beforeKey (null : en dernier)
+  const items = tileLayout();
+  const it = items.splice(items.findIndex((i) => i.key === key), 1)[0];
+  it.group = group;
+  let at = beforeKey ? items.findIndex((i) => i.key === beforeKey) : -1;
+  if (at < 0) {   // après la dernière tuile de la catégorie
+    const lastOf = items.map((i) => i.group).lastIndexOf(group);
+    at = lastOf >= 0 ? lastOf + 1 : items.length;
+  }
+  items.splice(at, 0, it);
+  saveLayout(items);
+}
+function stepTile(key, dir) {   // ▲ / ▼ : échange avec la voisine de la même catégorie
+  const items = tileLayout();
+  const i = items.findIndex((x) => x.key === key);
+  const same = items.map((x, n) => n).filter((n) => items[n].group === items[i].group);
+  const j = same[same.indexOf(i) + dir];
+  if (j === undefined) return;
+  [items[i], items[j]] = [items[j], items[i]];
+  saveLayout(items);
+}
+
+function renderLayoutEditor() {
+  const box = $("lay-groups");
+  const items = tileLayout();
+  if (!items.length) return;
+  const opts = (sel) => GROUPS.map((g) => `<option value="${g.id}"${g.id === sel ? " selected" : ""}>${g.label}</option>`).join("");
+  box.innerHTML = GROUPS.map((g) => {
+    const mine = items.filter((i) => i.group === g.id);
+    if (g.id === "other" && !mine.length) return "";
+    return `
+      <div class="lay-group">
+        <h3>${g.label}</h3>
+        <ul class="lay-list" data-group="${g.id}">
+          ${mine.length ? mine.map((i, n) => `
+            <li class="lay-item${i.hidden ? " off" : ""}" draggable="true" data-key="${i.key}">
+              <span class="lay-grip" aria-hidden="true">⋮⋮</span>
+              <label class="lay-name"><input type="checkbox"${i.hidden ? "" : " checked"} aria-label="Afficher ${i.m.label}">
+                ${i.m.label}</label>
+              <select aria-label="Catégorie de ${i.m.label}">${opts(g.id)}</select>
+              <button data-dir="-1" aria-label="Monter"${n === 0 ? " disabled" : ""}>▲</button>
+              <button data-dir="1" aria-label="Descendre"${n === mine.length - 1 ? " disabled" : ""}>▼</button>
+            </li>`).join("") : '<li class="empty">Déposer une tuile ici</li>'}
+        </ul>
+      </div>`;
+  }).join("");
+
+  for (const li of box.querySelectorAll(".lay-item")) {
+    const key = li.dataset.key;
+    li.querySelector("input").onchange = (e) => {
+      const items = tileLayout();
+      items.find((i) => i.key === key).hidden = !e.target.checked;
+      saveLayout(items);
+    };
+    li.querySelector("select").onchange = (e) => moveTile(key, e.target.value, null);
+    for (const b of li.querySelectorAll("button")) b.onclick = () => stepTile(key, +b.dataset.dir);
+    li.ondragstart = (e) => { dragKey = key; li.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", key); };
+    li.ondragend = () => { dragKey = null; li.classList.remove("dragging"); };
+    li.ondragover = (e) => { if (!dragKey) return; e.preventDefault(); li.classList.add("drop-before"); };
+    li.ondragleave = () => li.classList.remove("drop-before");
+    li.ondrop = (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (dragKey && dragKey !== key) moveTile(dragKey, li.parentElement.dataset.group, key);
+    };
+  }
+  for (const ul of box.querySelectorAll(".lay-list")) {   // dépôt sur la liste, hors d'une tuile : en dernier
+    ul.ondragover = (e) => { if (!dragKey) return; e.preventDefault(); ul.classList.add("over"); };
+    ul.ondragleave = (e) => { if (!ul.contains(e.relatedTarget)) ul.classList.remove("over"); };
+    ul.ondrop = (e) => { e.preventDefault(); if (dragKey) moveTile(dragKey, ul.dataset.group, null); };
+  }
+}
+
+$("s-grouped").onchange = (e) => { ui.grouped = e.target.checked; saveUi(); renderTiles(); };
+$("lay-default").onclick = () => { ui.layout = null; ui.grouped = true; $("s-grouped").checked = true; saveUi(); renderTiles(); renderLayoutEditor(); };
+$("s-grouped").checked = ui.grouped;
+syncLook();
 
 const SERVER_FIELDS = {
   max_hz: (v) => `${v} Hz`,
