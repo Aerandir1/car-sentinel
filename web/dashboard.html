@@ -7,7 +7,7 @@
 <style>
   :root {
     --bg: #0d1014; --panel: #161b22; --line: #262d36; --text: #e6edf3; --dim: #8b949e;
-    --accent: #f0b429; --hot: #f85149; --cold: #58a6ff; --ok: #3fb950;
+    --accent: #f0b429; --hot: #f85149; --cold: #58a6ff; --ok: #3fb950; --redzone: #5c1d1d;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
@@ -222,6 +222,58 @@
     #splash *, #splash { animation-duration: 1ms !important; animation-delay: 0s !important; }
   }
 
+  /* ---------- Style « Renault » : identité 2021, noir profond, blanc, jaune Renault, angles vifs ---------- */
+  :root[data-look="renault"] {
+    --bg: #000; --panel: #0e0e0e; --line: #262626; --text: #fff; --dim: #8f8f8f;
+    --accent: #efdf00; --hot: #ff4d3d; --cold: #6cb4ff; --ok: #3ecf6a; --redzone: #4a1410;
+  }
+  [data-look="renault"] body { letter-spacing: .01em; }
+  [data-look="renault"] header { background: #000; border-bottom: 1px solid var(--line); padding: 12px 20px; gap: 18px; }
+  [data-look="renault"] header .r-mark { height: 34px; }
+  [data-look="renault"] header h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .14em;
+                                    padding-left: 18px; border-left: 1px solid var(--line); }
+  [data-look="renault"] #dot { border-radius: 0; width: 8px; height: 8px; flex: none; }
+  [data-look="renault"] #srv, [data-look="renault"] .badge { border-radius: 0; text-transform: uppercase;
+                                                             letter-spacing: .08em; font-size: 10.5px; }
+  [data-look="renault"] #srv i { border-radius: 0; }
+  /* Onglets : texte en capitales, l'onglet actif est souligné en jaune */
+  [data-look="renault"] nav { gap: 2px; }
+  [data-look="renault"] header button { background: none; border: 0; border-radius: 0; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .1em; font-size: 11.5px; font-weight: 600; padding: 8px 12px;
+    box-shadow: inset 0 -2px 0 transparent; transition: color .15s, box-shadow .15s; }
+  [data-look="renault"] :is(header button, header h1) { white-space: nowrap; }
+  [data-look="renault"] header button:hover { color: var(--text); }
+  [data-look="renault"] nav button.on { color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+  [data-look="renault"] #reset { border: 1px solid var(--line); margin-left: 10px; }
+  [data-look="renault"] #reset:hover { border-color: var(--text); }
+  [data-look="renault"] main { padding: 20px; gap: 20px; }
+  /* Panneaux et tuiles : aplats noirs, angles droits, filet jaune au survol */
+  [data-look="renault"] :is(.panel, .tile, .trip, .lay-item, .lay-list, .seg, .tip, dialog#detail,
+                             .d-close, .d-filters select, .t-note, .t-actions button, .lay-item select,
+                             .lay-item button, .lay-foot button, #s-default) { border-radius: 0; }
+  [data-look="renault"] .tile { position: relative; padding: 12px 14px; }
+  [data-look="renault"] .tile::before { content: ""; position: absolute; left: -1px; top: -1px; height: 2px; width: 0;
+                                        background: var(--accent); transition: width .25s ease; }
+  [data-look="renault"] .tile:hover { border-color: #3a3a3a; }
+  [data-look="renault"] .tile:hover::before { width: calc(100% + 2px); }
+  [data-look="renault"] .tile.hot { background: #1d0705; }
+  [data-look="renault"] .tile.hot::before { width: calc(100% + 2px); background: var(--hot); }
+  [data-look="renault"] .tile .lbl, [data-look="renault"] .d-head h2 { text-transform: uppercase; letter-spacing: .1em;
+                                                                       font-size: 10.5px; font-weight: 600; }
+  [data-look="renault"] .tile .val, [data-look="renault"] .d-now { font-weight: 700; letter-spacing: -.01em; }
+  [data-look="renault"] .group h2, [data-look="renault"] .lay-group h3 { color: var(--text); letter-spacing: .16em;
+                                                                         font-size: 11px; font-weight: 700; }
+  [data-look="renault"] .group h2::before, [data-look="renault"] .lay-group h3::before {
+    content: ""; display: inline-block; width: 10px; height: 2px; background: var(--accent);
+    vertical-align: middle; margin: -2px 8px 0 0; }
+  [data-look="renault"] :is(#settings, #layout) h2 { text-transform: uppercase; letter-spacing: .12em; font-size: 12.5px; }
+  [data-look="renault"] .seg button { text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; }
+  [data-look="renault"] .seg button.on { background: var(--text); color: #000; }
+  [data-look="renault"] :is(.lay-foot button, #s-default, .t-actions button):hover { border-color: var(--text); }
+  [data-look="renault"] .trip.live { border-color: var(--line); box-shadow: inset 2px 0 0 var(--ok); }
+  [data-look="renault"] dialog#detail::backdrop { background: rgba(0, 0, 0, .8); }
+  [data-look="renault"] #splash { background: #000; }
+
   @media (max-width: 700px) {
     .gauges { grid-template-columns: 1fr; }
     header { flex-wrap: wrap; }
@@ -304,8 +356,9 @@
     <h2>Affichage</h2>
     <p class="note">Propre à ce navigateur.</p>
     <div class="row">
-      <label>Style<small>Liquid glass : panneaux translucides et flous</small></label>
+      <label>Style<small>Renault : noir, blanc et jaune · Liquid glass : panneaux translucides et flous</small></label>
       <div class="seg look" id="s-look">
+        <button data-look="renault">Renault</button>
         <button data-look="classic">Classique</button>
         <button data-look="glass">Liquid glass</button>
       </div>
@@ -344,7 +397,7 @@
       <output id="o-log_hz"></output>
     </div>
     <div class="row" style="grid-template-columns:1fr auto">
-      <span class="note" style="margin:0">Valeurs de départ : style classique, 200 ms et 120 s.</span>
+      <span class="note" style="margin:0">Valeurs de départ : style Renault, 200 ms et 120 s.</span>
       <button id="s-default">Affichage par défaut</button>
     </div>
   </section>
@@ -364,11 +417,14 @@
 <script>
 // Réglages d'affichage, gardés dans le navigateur
 // layout : disposition choisie dans Paramètres ({ order, group, hidden }), null = disposition par défaut
-const DEFAULTS = { poll_ms: 200, history_s: 120, look: "classic", grouped: true, layout: null };
+const DEFAULTS = { poll_ms: 200, history_s: 120, look: "renault", grouped: true, layout: null };
 const ui = { ...DEFAULTS };
 try { Object.assign(ui, JSON.parse(localStorage.getItem("clio-ui") || "{}")); } catch (e) {}
 const saveUi = () => { try { localStorage.setItem("clio-ui", JSON.stringify(ui)); } catch (e) {} };
-const applyLook = () => { document.documentElement.dataset.look = ui.look === "glass" ? "glass" : "classic"; };
+const LOOKS = ["renault", "classic", "glass"];
+const applyLook = () => { document.documentElement.dataset.look = LOOKS.includes(ui.look) ? ui.look : DEFAULTS.look; };
+// Style Renault : arcs et courbes à bouts carrés
+const capStyle = () => (document.documentElement.dataset.look === "renault" ? "butt" : "round");
 applyLook();
 
 // Catégories des tuiles, dans l'ordre d'affichage ; une métrique inconnue va dans « Autres »
@@ -544,12 +600,12 @@ function drawGauge(canvas, { value, min, max, redline, ticks, tickLabel, big, sm
   const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
   const ang = (v) => a0 + (a1 - a0) * (Math.min(max, Math.max(min, v)) - min) / (max - min);
 
-  ctx.lineCap = "round";
-  ctx.lineWidth = R * 0.09;
+  ctx.lineCap = capStyle();
+  ctx.lineWidth = R * (capStyle() === "butt" ? 0.06 : 0.09);
   ctx.strokeStyle = css("--line");
   ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
   if (redline !== null) {
-    ctx.strokeStyle = "#5c1d1d";
+    ctx.strokeStyle = css("--redzone");
     ctx.beginPath(); ctx.arc(cx, cy, R, ang(redline), a1); ctx.stroke();
   }
   if (value !== null && value !== undefined) {
@@ -965,10 +1021,10 @@ for (const [id, f] of Object.entries(UI_FIELDS)) {
 }
 $("s-default").onclick = () => {
   Object.assign(ui, { poll_ms: DEFAULTS.poll_ms, history_s: DEFAULTS.history_s, look: DEFAULTS.look });
-  saveUi(); syncUi(); applyLook(); restartPoll();
+  saveUi(); syncUi(); applyLook(); syncLook(); restartPoll();
 };
 
-// Style : classique ou liquid glass
+// Style : Renault, classique ou liquid glass
 function syncLook() {
   for (const b of $("s-look").children) b.classList.toggle("on", b.dataset.look === ui.look);
   $("o-look").textContent = "";
