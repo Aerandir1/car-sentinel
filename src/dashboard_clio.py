@@ -82,6 +82,7 @@ def main():
         if args.port.startswith("/dev/"):
             args.port = "/hostdev/" + args.port[5:]
         if args.lan and os.environ.get("CLIO_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
+            on_lan = False   # la page n'est publiée que sur ce PC
             print("Attention : RESEAU=oui, mais le port n'est publié que sur ce PC. Mettre DOCKER_ECOUTE=0.0.0.0\n"
                   "dans clio.conf et relancer avec : docker compose --env-file clio.conf up -d")
     # Une synchro mal réglée ne doit pas empêcher le dashboard de tourner : on prévient et on continue sans

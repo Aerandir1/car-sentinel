@@ -1,5 +1,6 @@
 """Boucle d'acquisition, lancée dans un thread : lecture de l'ECU par l'ELM327."""
 
+import os
 import time
 import traceback
 
@@ -39,7 +40,19 @@ def _obd_loop(state, args, logger_factory):
     import obd
 
     state.source = args.port or "auto"
+    warned = False
     while True:
+        # Port série présent mais interdit : python-obd dirait juste « Not Connected »
+        if args.port and os.path.exists(args.port) and not os.access(args.port, os.R_OK | os.W_OK):
+            state.status = f"pas le droit d'ouvrir {args.port}"
+            state.adapter = "absent"
+            if not warned:
+                print(f"Attention : pas le droit d'ouvrir {args.port}. Docker : OBD_GID=<groupe du port> dans clio.conf"
+                      " (stat -c %g /dev/ttyUSB0) ; sinon ajouter l'utilisateur au groupe du port (uucp sous Arch,"
+                      " dialout ailleurs).")
+                warned = True
+            time.sleep(5)
+            continue
         fast = state.get_settings()["fast"]
         state.status = "connexion (mode rapide)…" if fast else "connexion…"
         conn = obd.OBD(portstr=args.port, baudrate=args.baud, fast=fast, timeout=1)
