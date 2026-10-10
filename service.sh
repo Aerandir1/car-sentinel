@@ -7,6 +7,7 @@
 #   ./service.sh remove        # arrête et supprime le service
 #
 # Options du script : CLIO_ARGS="--port /dev/ttyUSB0" ./service.sh install
+# Accès depuis le réseau : CLIO_ARGS="--lan" ./service.sh install   (voir README)
 
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
@@ -34,6 +35,7 @@ ExecStart=$VENV/bin/python src/dashboard_clio.py ${CLIO_ARGS:-}
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+Environment=CLIO_CERT_NAMES=${CLIO_CERT_NAMES:-}
 
 [Install]
 WantedBy=default.target

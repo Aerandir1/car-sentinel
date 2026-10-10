@@ -125,8 +125,9 @@ port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé 
 New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8106 -Action Allow -Profile Private
 ```
 Les autres PC ouvrent alors `https://<IP du serveur>:8106` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
-de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets. Le certificat n'est
-fait que pour cette machine : les navigateurs affichent un avertissement à accepter.
+de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets. Le conteneur ne voit pas
+les adresses de l'hôte : les donner pour le certificat avec `$env:CLIO_CERT_NAMES="192.168.1.20,mon-pc.local"`
+(sinon, avertissement de nom en plus de celui du certificat auto-signé).
 
 **4.** Ouvrir https://clio-sentinel.localhost:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
 dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
@@ -147,6 +148,43 @@ réponse pendant 10 s : la session se ferme et le script attend la suivante. Ord
 perdu, le trajet est clos au lancement suivant. Pour qu'il démarre avec l'ordi sans ouvrir de session :
 `sudo loginctl enable-linger $USER`.
 
+## Accès depuis le réseau (Raspberry Pi dans la voiture)
+
+Par défaut la page n'est servie qu'à la machine elle-même. Avec `--lan`, elle l'est aussi aux autres appareils
+du réseau (téléphone, tablette sur le tableau de bord, PC) :
+
+```bash
+python src/dashboard_clio.py --lan                    # à la main
+CLIO_ARGS="--lan" ./service.sh install                # en service, lancé au démarrage
+```
+
+Au lancement, le script affiche les adresses à ouvrir : `https://<nom>.local:8080` (le nom de la machine, résolu
+par mDNS : avahi, installé d'office sur Raspberry Pi OS) et `https://<IP>:8080` pour chaque adresse réseau.
+Le certificat couvre ces noms ; il est refait tout seul au lancement si une adresse a changé.
+
+- **Certificat** : sans mkcert, chaque appareil affiche l'avertissement à accepter une fois. Avec mkcert, installer
+  son autorité sur l'appareil pour ne plus l'avoir : le fichier `rootCA.pem` du dossier donné par `mkcert -CAROOT`
+  (Android : *Paramètres → Sécurité → Chiffrement → Installer un certificat CA* ; iPhone : l'ouvrir, puis
+  *Réglages → Général → Informations → Réglages des certificats* pour lui faire confiance).
+- **Dans la voiture**, sans box : le Pi crée son propre Wi‑Fi, sur lequel se connectent téléphone et tablette.
+  Avec NetworkManager (Raspberry Pi OS Bookworm) :
+  ```bash
+  sudo nmcli device wifi hotspot ifname wlan0 ssid Clio password "un-mot-de-passe"
+  sudo nmcli connection modify Hotspot connection.autoconnect yes      # au démarrage du Pi
+  ```
+  Le Pi y a toujours l'adresse `10.42.0.1` : la page est sur https://10.42.0.1:8080 (adresse fixe, à mettre en
+  favori ; tous les téléphones ne résolvent pas les noms `.local`). Le service peut démarrer avant ce Wi‑Fi :
+  donner l'adresse d'avance pour le certificat, et le lancer au démarrage du Pi sans ouvrir de session :
+  ```bash
+  CLIO_ARGS="--lan" CLIO_CERT_NAMES=10.42.0.1 ./service.sh install
+  sudo loginctl enable-linger $USER
+  ```
+- **Sécurité** : pas de mot de passe sur le dashboard ; tout appareil du réseau peut le voir et changer les
+  réglages d'acquisition et les notes des trajets. À réserver au Wi‑Fi de la voiture ou de la maison, protégé
+  par mot de passe, jamais un Wi‑Fi public.
+- **Hub** : une page servie par la même machine sur un autre port (clio-hub) et ouverte par le même nom
+  (`http://10.42.0.1:8000`) peut lire `/api/state`.
+
 ## Utilisation
 
 ```bash
@@ -164,6 +202,7 @@ python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main,
 | `--http` | port de la page web (défaut 8080) |
 | `--no-https` | sert la page en HTTP simple, sans certificat |
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
+| `--lan` | page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
 | `--max-hz` | fréquence max d'acquisition (défaut 20) |
 | `--server URL` | envoie la base à clio-sentinel-server (voir « Serveur ») |

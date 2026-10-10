@@ -30,10 +30,12 @@ def make_handler(state, scheme, db_path):
         def _send(self, code, body, ctype):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
-            # Le hub (page 3D, autre port) lit /api/state : autorisé pour les pages locales seulement
+            # Le hub (page 3D, autre port) lit /api/state : autorisé pour les pages de cette machine seulement,
+            # en local ou, avec --lan, appelée par le même nom depuis le réseau (http://clio.local:8000 → :8080)
             origin = self.headers.get("Origin", "")
             hostname = urlsplit(origin).hostname or ""
-            if hostname in ("127.0.0.1", "localhost") or hostname.endswith(".localhost"):
+            if (hostname in ("127.0.0.1", "localhost") or hostname.endswith(".localhost")
+                    or hostname == urlsplit("//" + self.headers.get("Host", "")).hostname):
                 self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Cache-Control", "no-store")
             self.end_headers()

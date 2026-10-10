@@ -20,7 +20,7 @@ import donnees
 import synchro
 import trajets
 from acquisition import obd_loop
-from certs import HOST, ensure_cert
+from certs import HOST, ensure_cert, lan_names
 from etat import CsvLogger, State
 from serveur import QuietServer, make_handler
 
@@ -67,8 +67,13 @@ def main():
     p.add_argument("--no-https", action="store_true", help="sert la page en HTTP simple (sans certificat)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
+    p.add_argument("--lan", action="store_true",
+                   help="page accessible depuis les autres appareils du réseau (= --bind 0.0.0.0)")
     synchro.add_arguments(p)
     args = p.parse_args()
+    if args.lan:
+        args.bind = "0.0.0.0"
+    on_lan = args.bind not in ("127.0.0.1", "localhost", "::1")
     if args.server and args.no_db:
         p.error("--server envoie la base : incompatible avec --no-db")
     try:
@@ -97,9 +102,10 @@ def main():
     threading.Thread(target=obd_loop, args=(state, args, logger_factory), daemon=True).start()
 
     scheme = "http" if args.no_https else "https"
+    names = lan_names() if on_lan else []
     server = QuietServer((args.bind, args.http), make_handler(state, scheme, db_path))
     if not args.no_https:
-        crt, key, trusted = ensure_cert()
+        crt, key, trusted = ensure_cert(names)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(crt, key)
         server.socket = ctx.wrap_socket(server.socket, server_side=True)
@@ -107,6 +113,10 @@ def main():
             print("Certificat auto-signé : le navigateur affichera un avertissement à accepter une fois.\n"
                   "Pour l'éviter : sudo pacman -S mkcert nss && mkcert -install, puis relancer le script.")
     print(f"Dashboard : {scheme}://{HOST}:{args.http}  (Ctrl+C pour quitter)")
+    for n in names:
+        print(f"  sur le réseau : {scheme}://{n}:{args.http}")
+    if on_lan:
+        print("  (pas de mot de passe : tout le réseau peut voir le dashboard et changer réglages et notes)")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
