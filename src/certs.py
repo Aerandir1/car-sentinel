@@ -13,6 +13,7 @@ CERTS = Path(__file__).resolve().parent.parent / "certs"
 # Nom de la page : les navigateurs envoient tout nom en .localhost vers la machine elle-même (pas de /etc/hosts)
 HOST = "clio-sentinel.localhost"
 LOCAL_NAMES = [HOST, "127.0.0.1", "localhost", "::1"]
+VIRTUAL_IFACES = ("docker", "br-", "veth", "virbr")   # réseaux internes de Docker / libvirt : injoignables du réseau
 
 
 def lan_names():
@@ -24,7 +25,7 @@ def lan_names():
         try:
             out = subprocess.run(["ip", "-j", "-4", "addr", "show", "up"], capture_output=True, text=True, timeout=5)
             names += [a["local"] for i in json.loads(out.stdout or "[]") for a in i.get("addr_info", [])
-                      if a.get("scope") == "global"]
+                      if a.get("scope") == "global" and not i.get("ifname", "").startswith(VIRTUAL_IFACES)]
         except (OSError, subprocess.SubprocessError, ValueError):
             pass
     names += [n.strip() for n in os.environ.get("CLIO_CERT_NAMES", "").split(",") if n.strip()]
