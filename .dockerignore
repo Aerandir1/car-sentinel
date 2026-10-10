@@ -8,3 +8,4 @@ lancer.sh
 .git/
 Dockerfile
 docker-compose*.yml
+clio.conf

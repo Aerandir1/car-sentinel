@@ -1,0 +1,33 @@
+# Réglages de Clio Sentinel, lus au lancement par le service, lancer.sh et Docker.
+# Le script crée clio.conf à partir de ce modèle au premier lancement : modifier clio.conf (pas dans git),
+# puis relancer : ./service.sh restart (service), ou docker compose --env-file clio.conf up -d (Docker).
+# Une option passée en ligne de commande (python src/dashboard_clio.py --http 8106) passe avant ce fichier.
+
+# Accès depuis les autres appareils du réseau (téléphone, tablette, autre PC) : oui / non.
+# Pas de mot de passe sur le dashboard : à réserver au Wi-Fi de la maison ou de la voiture, jamais un Wi-Fi public.
+RESEAU=non
+
+# Port de la page : http://clio-sentinel.localhost:8080 sur ce PC, http://<adresse>:8080 depuis le réseau
+PORT_PAGE=8080
+
+# Adaptateur ELM327 : vide = détection automatique ; /dev/ttyUSB0, /dev/ttyACM0 ;
+# Wi-Fi : socket://192.168.0.10:35000 (avec DEBIT=38400).
+ADAPTATEUR=
+DEBIT=
+
+# clio-sentinel-server : adresse(s) séparées par des virgules, la première qui répond est prise.
+# Ex. SERVEUR=http://192.168.1.13:8207,http://10.100.0.1:8207   (vide : pas d'envoi)
+SERVEUR=
+# Nom de ce PC sur la page du serveur (vide : nom de la machine)
+NOM_PC=
+
+# Autres options du script (voir le README), ex. --fast --log logs/trajet.csv
+AUTRES_OPTIONS=
+
+# --- Docker seulement ---
+# Adresse où le port est publié sur l'hôte : 127.0.0.1 (ce PC) ; 0.0.0.0 avec RESEAU=oui.
+DOCKER_ECOUTE=127.0.0.1
+# Groupe du port série sur l'hôte : stat -c %g /dev/ttyUSB0 (Arch : groupe uucp ; 20 = dialout, Debian / Ubuntu / WSL)
+OBD_GID=20
+# Base : ./data (défaut) ou clio-data (volume Docker, conseillé sous Windows)
+CLIO_DATA=./data

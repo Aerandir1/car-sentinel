@@ -1,29 +1,28 @@
 """Serveur HTTP : la page du dashboard, les logos et l'API JSON."""
 
 import json
-import ssl
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import donnees
-from certs import HOST
+from reseau import HOST
 
 WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
 LOGOS = WEB / "logo"
 
 
 class QuietServer(ThreadingHTTPServer):
-    """Ignore les connexions coupées et les clients qui parlent HTTP au port HTTPS."""
+    """Ignore les connexions coupées."""
 
     def handle_error(self, request, client_address):
         import sys
-        if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError, TimeoutError)):
+        if isinstance(sys.exc_info()[1], (ConnectionError, TimeoutError)):
             return
         super().handle_error(request, client_address)
 
 
-def make_handler(state, scheme, db_path):
+def make_handler(state, db_path):
     pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
 
     class Handler(BaseHTTPRequestHandler):
@@ -49,7 +48,7 @@ def make_handler(state, scheme, db_path):
             if path in pages and host.hostname in ("127.0.0.1", "localhost", "::1"):
                 port = f":{host.port}" if host.port else ""
                 self.send_response(302)
-                self.send_header("Location", f"{scheme}://{HOST}{port}{self.path}")
+                self.send_header("Location", f"http://{HOST}{port}{self.path}")
                 self.end_headers()
                 return
             if path in pages:

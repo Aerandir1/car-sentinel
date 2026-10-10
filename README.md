@@ -2,7 +2,7 @@
 
 Dashboard OBD temps réel pour la Clio IV dCi 90 (moteur K9K), sur PC portable, via un adaptateur ELM327
 branché sur la prise OBD. `src/dashboard_clio.py` lit l'ECU et sert le dashboard sur
-https://clio-sentinel.localhost:8080
+http://clio-sentinel.localhost:8080
 (fonctionne hors ligne), plus une API JSON (`/api/state`, `/api/meta`, `/api/settings`).
 
 Autour :
@@ -20,12 +20,14 @@ src/
   etat.py             liste des métriques (METRICS), état partagé, CSV
   acquisition.py      lecture de l'ECU par l'ELM327
   serveur.py          serveur HTTP : page, logos, API JSON
-  certs.py            certificat HTTPS (mkcert ou auto-signé)
+  config.py           lecture de clio.conf
+  reseau.py           adresses de la page (ce PC et réseau)
   donnees.py          base SQLite : sessions, mesures horodatées, trajets, événements
   trajets.py          découpage des mesures en trajets, fiche de chaque trajet
   synchro.py          envoi de la base vers clio-sentinel-server
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
+clio.conf.exemple     modèle des réglages : copié en clio.conf (pas dans git) au premier lancement
 lancer.sh             lancement en local (venv + navigateur)
 service.sh            enregistrement permanent : service systemd lancé avec la session
 Dockerfile, docker-compose.yml
@@ -39,36 +41,54 @@ python -m venv ~/.venvs/obd && source ~/.venvs/obd/bin/activate
 pip install -r requirements.txt
 ```
 
-## HTTPS
+## Réglages : clio.conf
 
-La page est servie en **https://clio-sentinel.localhost:8080**. Chromium et Firefox envoient tout nom en
-`.localhost` vers l'ordi lui-même : rien à mettre dans `/etc/hosts`. https://127.0.0.1:8080 et
-https://localhost:8080 redirigent vers ce nom (l'API, elle, répond aussi sur 127.0.0.1, pour le hub).
-Au premier lancement, le script crée un certificat dans `certs/` :
-- si **mkcert** est installé, le certificat est reconnu par le navigateur (aucun avertissement) :
-  ```bash
-  sudo pacman -S mkcert nss && mkcert -install    # une seule fois, puis relancer le script
-  ```
-- sinon, certificat auto-signé : Chromium affiche un avertissement, « Paramètres avancés » → « Continuer ».
+Tous les réglages sont dans **`clio.conf`**, à la racine du projet, lu par le service, `lancer.sh` et Docker. Il
+est créé au premier lancement depuis `clio.conf.exemple`, qui explique chaque ligne :
 
-`--no-https` repasse en HTTP simple. Supprimer `certs/` pour régénérer le certificat (un certificat sans le nom
-`clio-sentinel.localhost` est refait tout seul).
+| Réglage | Rôle |
+|---|---|
+| `RESEAU` | `oui` : page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
+| `PORT_PAGE` | port de la page (défaut 8080) |
+| `ADAPTATEUR`, `DEBIT` | port de l'ELM327 (vide : auto-détection) : `/dev/ttyACM0`, `socket://192.168.0.10:35000`… |
+| `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») |
+| `AUTRES_OPTIONS` | autres options du script (voir « Utilisation »), ex. `--fast --log logs/trajet.csv` |
+| `DOCKER_ECOUTE`, `OBD_GID`, `CLIO_DATA` | Docker seulement (voir « Docker ») |
+
+Après un changement : `./service.sh restart` (service), `docker compose --env-file clio.conf up -d` (Docker).
+Une option donnée en ligne de commande passe avant `clio.conf`.
+
+## Adresse de la page
+
+Sur ce PC, la page est servie en **http://clio-sentinel.localhost:8080** (HTTP simple, pas de certificat).
+Chromium et Firefox envoient tout nom en `.localhost` vers l'ordi lui-même : rien à mettre dans `/etc/hosts`.
+http://127.0.0.1:8080 et http://localhost:8080 redirigent vers ce nom (l'API, elle, répond aussi sur 127.0.0.1,
+pour le hub).
 
 ## Docker sous Linux
 
 ```bash
-docker compose down                                                   # si un ancien conteneur tourne encore
-OBD_GID=$(stat -c %g /dev/ttyUSB0) docker compose up --build          # puis https://clio-sentinel.localhost:8080
+cp clio.conf.exemple clio.conf          # si pas encore fait ; y mettre OBD_GID=$(stat -c %g /dev/ttyUSB0)
+docker compose down                     # si un ancien conteneur tourne encore
+docker compose --env-file clio.conf up -d --build        # puis http://clio-sentinel.localhost:8080
 ```
 
-Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
-attend que l'ELM327 apparaisse. Seuls les ports série USB lui sont autorisés, pas les disques ni le reste.
-`OBD_GID` lui donne le droit d'ouvrir le port série (sous Arch il appartient au groupe `uucp` ; par défaut 20 =
-dialout, celui de Debian / Ubuntu / WSL). Clé en `ttyACM0` : `CLIO_ARGS="--port /hostdev/ttyACM0"`.
+`--env-file clio.conf` est à donner à chaque `docker compose up` : c'est lui qui donne à Docker le port publié, le
+groupe du port série et l'emplacement de la base. Le conteneur reçoit les autres réglages de `clio.conf` tout seul.
 
-Le certificat est rangé dans `certs/`, la base dans `data/`, les CSV dans `logs/`. Le conteneur n'a pas mkcert :
-le navigateur affiche un avertissement à accepter une fois. Avec `restart: unless-stopped`, le conteneur se
+Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
+attend que l'ELM327 apparaisse (`/dev/ttyUSB0` par défaut ; clé en `ttyACM0` : `ADAPTATEUR=/dev/ttyACM0`, traduit
+tout seul en `/hostdev/ttyACM0`). Seuls les ports série USB lui sont autorisés, pas les disques ni le reste.
+`OBD_GID` lui donne le droit d'ouvrir le port série (sous Arch il appartient au groupe `uucp` ; par défaut 20 =
+dialout, celui de Debian / Ubuntu / WSL).
+
+La base est rangée dans `data/`, les CSV dans `logs/`. Avec `restart: unless-stopped`, le conteneur se
 relance tout seul au démarrage de Docker : c'est l'équivalent de `service.sh`.
+
+**Accès depuis le réseau** : dans `clio.conf`, `RESEAU=oui` et `DOCKER_ECOUTE=0.0.0.0`, puis
+`docker compose --env-file clio.conf up -d`. Le conteneur ne voit pas les adresses de l'hôte et ne les affiche pas :
+`ip -4 -br addr` les donne. Si `RESEAU=oui` mais que le port n'est publié que sur ce PC, le journal le signale
+(`docker compose logs`).
 
 ## Docker sous Windows (Docker Desktop)
 
@@ -76,10 +96,14 @@ Tout se fait dans PowerShell, dans le dossier du projet. Docker Desktop ne voit 
 l'adaptateur passe soit par le Wi-Fi, soit par WSL2.
 
 **1. Une seule fois.** Dans Docker Desktop, *Settings → General* : cocher « Start Docker Desktop when you sign
-in ». Le conteneur se relancera alors tout seul à chaque démarrage de Windows.
+in ». Le conteneur se relancera alors tout seul à chaque démarrage de Windows. Puis créer les réglages :
+```powershell
+Copy-Item clio.conf.exemple clio.conf
+notepad clio.conf
+```
 
 **2. La base dans un volume Docker.** Un dossier Windows (`C:\...`) partagé avec le conteneur est lent et
-SQLite peut y renvoyer « database is locked ». La base va donc dans un volume Docker (`CLIO_DATA=clio-data`).
+SQLite peut y renvoyer « database is locked ». Mettre donc `CLIO_DATA=clio-data` dans `clio.conf` (volume Docker).
 Pour en sortir une copie (pour l'ouvrir dans DB Browser for SQLite, par exemple) :
 
 ```powershell
@@ -90,56 +114,45 @@ docker compose start
 
 Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la section Linux.
 
-**3. Lancer, selon l'adaptateur.**
+**3. L'adaptateur**, dans `clio.conf` :
 
-- **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) :
-  ```powershell
-  $env:CLIO_DATA="clio-data"
-  $env:CLIO_ARGS="--port socket://192.168.0.10:35000 --baud 38400"
-  $env:CLIO_VERSION=(git describe --always)
-  docker compose up -d --build
-  ```
-- **USB** : passer la clé à WSL2 avec [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
+- **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) : `ADAPTATEUR=socket://192.168.0.10:35000` et `DEBIT=38400`.
+- **USB** : laisser `ADAPTATEUR` vide (ou `/dev/ttyACM0`) et passer la clé à WSL2 avec
+  [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
   ```powershell
   winget install usbipd
   usbipd list                                        # repérer le BUSID de l'ELM327 (CH340, FTDI…)
   usbipd bind --busid 2-3                            # une seule fois
   usbipd attach --wsl --busid 2-3 --auto-attach      # laisse la fenêtre ouverte : rattache la clé à chaque branchement
   ```
-  puis, dans un autre PowerShell :
-  ```powershell
-  $env:CLIO_DATA="clio-data"
-  $env:CLIO_VERSION=(git describe --always)
-  docker compose up -d --build
-  ```
-  Clé en `ttyACM0` : ajouter `$env:CLIO_ARGS="--port /hostdev/ttyACM0"`.
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
-  exemples de pyserial), puis `$env:CLIO_ARGS="--port rfc2217://host.docker.internal:2217"`.
+  exemples de pyserial), puis `ADAPTATEUR=rfc2217://host.docker.internal:2217`.
 
-Port 8080 déjà pris (« port is already allocated ») : `$env:CLIO_PORT="8106"` avant `docker compose up`,
-puis https://clio-sentinel.localhost:8106.
-
-**Accès depuis les autres PC du réseau** : `$env:CLIO_HOST="0.0.0.0"` avant `docker compose up`, puis ouvrir le
-port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
+**4. Lancer** (dans un autre PowerShell pour l'USB) :
 ```powershell
-New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8106 -Action Allow -Profile Private
+$env:CLIO_VERSION=(git describe --always)
+docker compose --env-file clio.conf up -d --build
 ```
-Les autres PC ouvrent alors `https://<IP du serveur>:8106` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
-de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets. Le conteneur ne voit pas
-les adresses de l'hôte : les donner pour le certificat avec `$env:CLIO_CERT_NAMES="192.168.1.20,mon-pc.local"`
-(sinon, avertissement de nom en plus de celui du certificat auto-signé).
+Ouvrir http://clio-sentinel.localhost:8080.
+`docker compose logs -f` pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
 
-**4.** Ouvrir https://clio-sentinel.localhost:8080 et accepter l'avertissement du certificat, ou importer `certs\selfsigned.pem`
-dans Windows (*Autorités de certification racines de confiance*) pour ne plus l'avoir. `docker compose logs -f`
-pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
+Port 8080 déjà pris (« port is already allocated ») : `PORT_PAGE=8106` dans `clio.conf`, relancer, puis
+http://clio-sentinel.localhost:8106.
 
-Les variables `$env:…` ne durent que le temps de la fenêtre PowerShell. Le conteneur, lui, les garde : il
-n'est utile de les redonner que pour le recréer (`docker compose up` après une mise à jour du projet).
+**Accès depuis les autres PC du réseau** : `RESEAU=oui` et `DOCKER_ECOUTE=0.0.0.0` dans `clio.conf`, relancer, puis
+ouvrir le port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
+```powershell
+New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private
+```
+Les autres PC ouvrent alors `http://<IP du PC>:8080` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
+de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets.
 
 ## Enregistrement permanent
 
 ```bash
-./service.sh install     # le script tourne en fond et démarre avec la session (status / remove)
+./service.sh install     # le script tourne en fond et démarre avec la session
+./service.sh restart     # après un changement dans clio.conf
+./service.sh status      # état et adresses de la page (remove pour le supprimer)
 ./lancer.sh              # ouvre la page (lance le script s'il ne tourne pas déjà)
 ```
 
@@ -150,33 +163,28 @@ perdu, le trajet est clos au lancement suivant. Pour qu'il démarre avec l'ordi 
 
 ## Accès depuis le réseau (Raspberry Pi dans la voiture)
 
-Par défaut la page n'est servie qu'à la machine elle-même. Avec `--lan`, elle l'est aussi aux autres appareils
-du réseau (téléphone, tablette sur le tableau de bord, PC) :
+Par défaut la page n'est servie qu'à la machine elle-même. Avec **`RESEAU=oui`** dans `clio.conf` (puis
+`./service.sh restart`), elle l'est aussi aux autres appareils du réseau (téléphone, tablette sur le tableau de
+bord, PC). À la main : `python src/dashboard_clio.py --lan`.
 
-```bash
-python src/dashboard_clio.py --lan                    # à la main
-CLIO_ARGS="--lan" ./service.sh install                # en service, lancé au démarrage
-```
+Au lancement, le script affiche les adresses à ouvrir (`./service.sh status` les redonne) :
+`http://<nom>.local:8080` (le nom de la machine, résolu par mDNS : avahi, installé d'office sur Raspberry Pi OS)
+et `http://<IP>:8080` pour chaque adresse réseau.
 
-Au lancement, le script affiche les adresses à ouvrir : `https://<nom>.local:8080` (le nom de la machine, résolu
-par mDNS : avahi, installé d'office sur Raspberry Pi OS) et `https://<IP>:8080` pour chaque adresse réseau.
-Le certificat couvre ces noms ; il est refait tout seul au lancement si une adresse a changé.
-
-- **Certificat** : sans mkcert, chaque appareil affiche l'avertissement à accepter une fois. Avec mkcert, installer
-  son autorité sur l'appareil pour ne plus l'avoir : le fichier `rootCA.pem` du dossier donné par `mkcert -CAROOT`
-  (Android : *Paramètres → Sécurité → Chiffrement → Installer un certificat CA* ; iPhone : l'ouvrir, puis
-  *Réglages → Général → Informations → Réglages des certificats* pour lui faire confiance).
+- **Ça ne s'ouvre pas** : `./service.sh status` doit montrer les lignes « sur le réseau » ; les deux appareils
+  doivent être sur le même Wi‑Fi (pas un réseau invité, qui isole les appareils) ; un pare-feu sur la machine
+  (ufw, firewalld) doit laisser passer le port 8080.
 - **Dans la voiture**, sans box : le Pi crée son propre Wi‑Fi, sur lequel se connectent téléphone et tablette.
   Avec NetworkManager (Raspberry Pi OS Bookworm) :
   ```bash
   sudo nmcli device wifi hotspot ifname wlan0 ssid Clio password "un-mot-de-passe"
   sudo nmcli connection modify Hotspot connection.autoconnect yes      # au démarrage du Pi
   ```
-  Le Pi y a toujours l'adresse `10.42.0.1` : la page est sur https://10.42.0.1:8080 (adresse fixe, à mettre en
-  favori ; tous les téléphones ne résolvent pas les noms `.local`). Le service peut démarrer avant ce Wi‑Fi :
-  donner l'adresse d'avance pour le certificat, et le lancer au démarrage du Pi sans ouvrir de session :
+  Le Pi y a toujours l'adresse `10.42.0.1` : la page est sur http://10.42.0.1:8080 (adresse fixe, à mettre en
+  favori ; tous les téléphones ne résolvent pas les noms `.local`). Pour le lancer au démarrage du Pi sans ouvrir
+  de session : `RESEAU=oui` dans `clio.conf`, puis
   ```bash
-  CLIO_ARGS="--lan" CLIO_CERT_NAMES=10.42.0.1 ./service.sh install
+  ./service.sh install
   sudo loginctl enable-linger $USER
   ```
 - **Sécurité** : pas de mot de passe sur le dashboard ; tout appareil du réseau peut le voir et changer les
@@ -191,6 +199,8 @@ Le certificat couvre ces noms ; il est refait tout seul au lancement si une adre
 python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main, contact mis
 ```
 
+Les options ci-dessous passent avant `clio.conf` ; pour les garder, les mettre dans `AUTRES_OPTIONS`.
+
 | Option | Rôle |
 |---|---|
 | `--port` | port série de l'ELM327 (auto-détection si absent) |
@@ -200,7 +210,6 @@ python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main,
 | `--log-hz` | fréquence du CSV (défaut 5 Hz) |
 | `--delay` | pause entre deux requêtes OBD (si l'ELM327 décroche) |
 | `--http` | port de la page web (défaut 8080) |
-| `--no-https` | sert la page en HTTP simple, sans certificat |
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
 | `--lan` | page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
@@ -299,12 +308,12 @@ vérification est une présence (`POST /api/hello`) : la page du serveur affiche
 l'ELM327. La base locale
 n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que depuis la maison et le VPN.
 
-| Option | Variable | Rôle |
+| `clio.conf` | Option | Rôle |
 |---|---|---|
-| `--server` | `CLIO_SERVER` | adresse(s) du serveur, séparées par des virgules |
-| `--server-name` | `CLIO_SERVER_NAME` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
+| `SERVEUR` | `--server` | adresse(s) du serveur, séparées par des virgules |
+| `NOM_PC` | `--server-name` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
 
-- Service : `CLIO_ARGS="--server http://192.168.1.13:8207,http://10.100.0.1:8207" ./service.sh install`.
-- Docker : `CLIO_SERVER=...` avant `docker compose up` (`$env:CLIO_SERVER=...` sous Windows). Serveur sur la
-  même machine que le conteneur : `http://host.docker.internal:8207`.
+- Service et Docker : `SERVEUR=http://192.168.1.13:8207,http://10.100.0.1:8207` dans `clio.conf`, puis
+  `./service.sh restart` (ou `docker compose --env-file clio.conf up -d`). Serveur sur la même machine que le
+  conteneur : `http://host.docker.internal:8207`.
 - Envoi à la main, sans le dashboard : `python src/synchro.py --server ...`.

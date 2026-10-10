@@ -4,7 +4,7 @@
 #   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
 #   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv
 #
-# Les options sont transmises telles quelles à src/dashboard_clio.py (voir README).
+# Réglages dans clio.conf ; les options passées ici vont à src/dashboard_clio.py et passent devant (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.
 
 set -euo pipefail
@@ -25,18 +25,20 @@ fi
 
 args=("$@")
 
-# URL de la page (suit --http et --no-https s'ils sont passés)
-scheme=https; http_port=8080; prev=""
+# Port de la page : --http s'il est passé, sinon PORT_PAGE de clio.conf (voir clio.conf.exemple)
+http_port=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' clio.conf 2>/dev/null | tail -n 1)
+http_port=${http_port:-8080}; prev=""
 for a in "${args[@]}"; do
-    [[ "$a" == "--no-https" ]] && scheme=http
     [[ "$prev" == "--http" ]] && http_port="$a"
     [[ "$a" == --http=* ]] && http_port="${a#--http=}"
     prev="$a"
 done
-url="$scheme://127.0.0.1:$http_port"                    # pour vérifier si le script tourne
-page="$scheme://clio-sentinel.localhost:$http_port"     # ce qu'on ouvre dans le navigateur
+
+url="http://127.0.0.1:$http_port"                    # pour vérifier si le script tourne
+page="http://clio-sentinel.localhost:$http_port"     # ce qu'on ouvre dans le navigateur
 
 open_browser() {
+    echo "→ Page : $page"
     if command -v chromium >/dev/null; then
         chromium "$page" >/dev/null 2>&1 &
     else
@@ -45,8 +47,8 @@ open_browser() {
 }
 
 # Déjà lancé (service, voir service.sh) : on ouvre juste la page.
-if curl -sk -o /dev/null "$url"; then
-    echo "→ Dashboard déjà en route sur $page"
+if curl -s -o /dev/null --max-time 2 "$url"; then
+    echo "→ Dashboard déjà en route"
     [[ -z "${NO_BROWSER:-}" ]] && open_browser
     exit 0
 fi
@@ -55,12 +57,11 @@ fi
 if [[ -z "${NO_BROWSER:-}" ]]; then
     (
         for _ in $(seq 1 30); do
-            curl -sk -o /dev/null "$url" && break
+            curl -s -o /dev/null --max-time 2 "$url" && { open_browser; break; }
             sleep 0.5
         done
-        open_browser
     ) &
 fi
 
-echo "→ Dashboard sur $page  (Ctrl+C pour arrêter)"
+echo "→ Lancement du dashboard (Ctrl+C pour arrêter)"
 exec "$PY" src/dashboard_clio.py "${args[@]}"
