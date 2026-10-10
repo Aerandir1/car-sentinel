@@ -33,6 +33,7 @@ PING_S = 3            # entre deux présences envoyées au serveur (témoins du 
 TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 PING_TIMEOUT_S = 2    # vérification : connexion et réponse
+DEFAULT_PORT = 8207   # port de clio-sentinel-server
 
 
 class SyncError(Exception):
@@ -51,11 +52,18 @@ class Client:
 
     def __init__(self, urls):
         self.addrs = []
-        for url in urls.split(","):
-            u = urlsplit(url.strip().rstrip("/"))
-            if u.scheme != "http" or not u.hostname:
-                raise SyncError(f"adresse du serveur invalide : {url.strip()} (attendu http://IP:PORT)")
-            self.addrs.append((u.hostname, u.port or 80, u.path))
+        for url in filter(None, (u.strip().rstrip("/") for u in urls.split(","))):
+            # « 10.100.0.1 » ou « 10.100.0.1:8207 » suffisent : http:// et le port par défaut sont ajoutés
+            try:
+                u = urlsplit(url if "://" in url else "http://" + url)
+                addr = (u.hostname, u.port or DEFAULT_PORT, u.path)
+            except ValueError:
+                u = None
+            if not u or u.scheme != "http" or not u.hostname:
+                raise SyncError(f"adresse du serveur invalide : {url} (attendu IP, IP:PORT ou http://IP:PORT)")
+            self.addrs.append(addr)
+        if not self.addrs:
+            raise SyncError("aucune adresse de serveur")
         self.current = self.addrs[0]
 
     def _connect(self, connect_s=CONNECT_S, timeout_s=TIMEOUT_S):

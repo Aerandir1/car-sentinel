@@ -150,10 +150,12 @@ de passe : tout le réseau peut le voir et changer les réglages et les notes de
 ## Enregistrement permanent
 
 ```bash
-./service.sh install     # le script tourne en fond et démarre avec la session
+./service.sh install     # le script tourne en fond et démarre avec l'ordi (une seule fois)
 ./service.sh restart     # après un changement dans clio.conf
-./service.sh status      # état et adresses de la page (remove pour le supprimer)
-./lancer.sh              # ouvre la page (lance le script s'il ne tourne pas déjà)
+./service.sh status      # tourne-t-il ? adresses de la page, ou l'erreur qui l'empêche de démarrer
+./service.sh logs        # journal en direct
+./service.sh stop        # arrêt (start pour relancer, remove pour supprimer le service)
+./lancer.sh              # ouvre la page (relance le service s'il ne tourne pas)
 ```
 
 Le service attend l'ELM327 et enregistre dès que le calculateur répond (contact mis). Contact coupé, plus de
@@ -313,7 +315,7 @@ n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que
 | `SERVEUR` | `--server` | adresse(s) du serveur, séparées par des virgules |
 | `NOM_PC` | `--server-name` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
 
-- Service et Docker : `SERVEUR=http://192.168.1.13:8207,http://10.100.0.1:8207` dans `clio.conf`, puis
+- Service et Docker : `SERVEUR=192.168.1.13,10.100.0.1` dans `clio.conf` (port 8207 par défaut ; `http://IP:PORT` aussi accepté), puis
   `./service.sh restart` (ou `docker compose --env-file clio.conf up -d`). Serveur sur la même machine que le
   conteneur : `http://host.docker.internal:8207`.
 - Envoi à la main, sans le dashboard : `python src/synchro.py --server ...`.

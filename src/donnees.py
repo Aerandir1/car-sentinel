@@ -16,6 +16,7 @@ import queue
 import sqlite3
 import threading
 import time
+import traceback
 import uuid
 
 SCHEMA_VERSION = 1
@@ -134,9 +135,9 @@ class Recorder:
 
     def _run(self):
         db = connect(self.path)
+        items = []
         while True:
             time.sleep(FLUSH_S)
-            items = []
             while True:
                 try:
                     items.append(self.queue.get_nowait())
@@ -144,19 +145,29 @@ class Recorder:
                     break
             if not items:
                 continue
-            new_sessions = {i[1]: i[2:] for i in items if i[0] == "session"}
-            samples = [i[1:] for i in items if i[0] == "sample"]
-            ends = {}
-            for sid, t, _k, _v in samples:
-                ends[sid] = max(ends.get(sid, t), t)
-            with db:
-                for sid, (source, vin, version, metrics) in new_sessions.items():
-                    t0 = min((s[1] for s in samples if s[0] == sid), default=now_ms())
-                    db.execute("INSERT INTO sessions (id, start_ms, end_ms, source, vin, version, metrics)"
-                               " VALUES (?, ?, ?, ?, ?, ?, ?)", (sid, t0, t0, source, vin, version, metrics))
-                db.executemany("INSERT INTO samples (session_id, t_ms, key, value) VALUES (?, ?, ?, ?)", samples)
-                for sid, end in ends.items():
-                    db.execute("UPDATE sessions SET end_ms = max(end_ms, ?) WHERE id = ?", (end, sid))
+            try:
+                self._write(db, items)
+                items = []
+            except sqlite3.Error:   # base verrouillée, disque plein… : on garde les mesures et on réessaie
+                traceback.print_exc()
+                time.sleep(5)
+
+    @staticmethod
+    def _write(db, items):
+        """Une transaction : tout est écrit, ou rien (et tout est réessayé)."""
+        new_sessions = {i[1]: i[2:] for i in items if i[0] == "session"}
+        samples = [i[1:] for i in items if i[0] == "sample"]
+        ends = {}
+        for sid, t, _k, _v in samples:
+            ends[sid] = max(ends.get(sid, t), t)
+        with db:
+            for sid, (source, vin, version, metrics) in new_sessions.items():
+                t0 = min((s[1] for s in samples if s[0] == sid), default=now_ms())
+                db.execute("INSERT INTO sessions (id, start_ms, end_ms, source, vin, version, metrics)"
+                           " VALUES (?, ?, ?, ?, ?, ?, ?)", (sid, t0, t0, source, vin, version, metrics))
+            db.executemany("INSERT INTO samples (session_id, t_ms, key, value) VALUES (?, ?, ?, ?)", samples)
+            for sid, end in ends.items():
+                db.execute("UPDATE sessions SET end_ms = max(end_ms, ?) WHERE id = ?", (end, sid))
 
 
 TRIP_FIELDS = ("id", "kind", "name", "start_ms", "end_ms", "closed", "vin", "distance_km", "coolant_start",

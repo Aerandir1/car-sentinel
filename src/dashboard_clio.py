@@ -71,10 +71,7 @@ def main():
     p.add_argument("--lan", action="store_true",
                    help="page accessible depuis les autres appareils du réseau (= --bind 0.0.0.0)")
     synchro.add_arguments(p)
-    try:
-        args = p.parse_args(config.argv() + sys.argv[1:])
-    except ValueError as e:
-        p.error(str(e))
+    args = p.parse_args(config.argv() + sys.argv[1:])
     if args.lan:
         args.bind = "0.0.0.0"
     # Dans Docker, le script écoute toujours sur 0.0.0.0 : c'est la publication du port sur l'hôte qui décide
@@ -87,12 +84,15 @@ def main():
         if args.lan and os.environ.get("CLIO_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
             print("Attention : RESEAU=oui, mais le port n'est publié que sur ce PC. Mettre DOCKER_ECOUTE=0.0.0.0\n"
                   "dans clio.conf et relancer avec : docker compose --env-file clio.conf up -d")
+    # Une synchro mal réglée ne doit pas empêcher le dashboard de tourner : on prévient et on continue sans
+    client = None
     if args.server and args.no_db:
-        p.error("--server envoie la base : incompatible avec --no-db")
-    try:
-        client = synchro.make_client(args) if args.server else None
-    except synchro.SyncError as e:
-        p.error(str(e))
+        print("Attention : --server envoie la base, incompatible avec --no-db : synchro désactivée")
+    elif args.server:
+        try:
+            client = synchro.make_client(args)
+        except synchro.SyncError as e:
+            print(f"Attention : {e} : synchro désactivée (SERVEUR dans clio.conf)")
 
     def logger_factory(keys):
         return CsvLogger(args.log, keys) if args.log else None
@@ -109,12 +109,16 @@ def main():
             state.sync = {"ok": None, "t": time.time()}   # premier essai en cours (témoin « serveur » du dashboard)
             threading.Thread(target=synchro.sync_loop, args=(state, db_path, client, args.server_name, version()),
                              daemon=True).start()
-            print(f"Synchro vers {args.server} (toutes les {synchro.EVERY_S} s quand il est joignable)")
+            print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})
     threading.Thread(target=obd_loop, args=(state, args, logger_factory), daemon=True).start()
 
-    server = QuietServer((args.bind, args.http), make_handler(state, db_path))
+    try:
+        server = QuietServer((args.bind, args.http), make_handler(state, db_path))
+    except OSError as e:
+        sys.exit(f"Erreur : impossible d'ouvrir le port {args.http} ({e.strerror}). Le dashboard tourne déjà"
+                 f" (./service.sh status) ? Sinon changer PORT_PAGE dans clio.conf.")
     print(f"Dashboard : http://{HOST}:{args.http}  (Ctrl+C pour quitter)")
     for n in lan_names() if on_lan else []:
         print(f"  sur le réseau : http://{n}:{args.http}")

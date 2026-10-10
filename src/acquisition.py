@@ -1,6 +1,7 @@
 """Boucle d'acquisition, lancée dans un thread : lecture de l'ECU par l'ELM327."""
 
 import time
+import traceback
 
 from etat import METRICS
 
@@ -23,6 +24,18 @@ def read_vin(obd, conn):
 
 
 def obd_loop(state, args, logger_factory):
+    """Lit l'ECU sans fin ; une erreur imprévue est notée au journal et la connexion reprend."""
+    while True:
+        try:
+            _obd_loop(state, args, logger_factory)
+        except Exception as e:
+            traceback.print_exc()
+            state.status = f"erreur ({e}), nouvel essai dans 5 s"
+            state.adapter = "absent"
+            time.sleep(5)
+
+
+def _obd_loop(state, args, logger_factory):
     import obd
 
     state.source = args.port or "auto"
@@ -66,7 +79,11 @@ def obd_loop(state, args, logger_factory):
                         continue
                     last_ok = time.time()
                     v = r.value.magnitude if hasattr(r.value, "magnitude") else r.value
-                    v = float(conv(v) if conv else v)
+                    try:
+                        v = float(conv(v) if conv else v)
+                    except (TypeError, ValueError):
+                        state.update(key, None)
+                        continue
                     state.update(key, round(v, 2))
                     if delay:
                         time.sleep(delay)

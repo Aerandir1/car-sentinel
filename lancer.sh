@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Lance le serveur du dashboard Clio.
+# Ouvre le dashboard Clio dans le navigateur, en le lançant s'il ne tourne pas déjà.
 #
-#   ./lancer.sh                 # dans la voiture (ELM327 auto-détecté)
-#   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv
+#   ./lancer.sh                 # service installé (service.sh) : le relance au besoin ; sinon lance le script ici
+#   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv     # lance le script ici avec ces options (sans le service)
 #
 # Réglages dans clio.conf ; les options passées ici vont à src/dashboard_clio.py et passent devant (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.
@@ -11,33 +11,24 @@ set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
 VENV="${VENV:-$HOME/.venvs/obd}"
-
-# Environnement Python : créé et rempli au premier lancement.
-if [[ ! -x "$VENV/bin/python" ]]; then
-    echo "→ Création du venv $VENV"
-    python -m venv "$VENV"
-fi
-PY="$VENV/bin/python"
-if ! "$PY" -c "import obd" 2>/dev/null; then
-    echo "→ Installation des dépendances"
-    "$PY" -m pip install -q -r requirements.txt
-fi
-
-args=("$@")
+UNIT="$HOME/.config/systemd/user/clio-sentinel.service"
 
 # Port de la page : --http s'il est passé, sinon PORT_PAGE de clio.conf (voir clio.conf.exemple)
 http_port=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' clio.conf 2>/dev/null | tail -n 1)
 http_port=${http_port:-8080}; prev=""
-for a in "${args[@]}"; do
+for a in "$@"; do
     [[ "$prev" == "--http" ]] && http_port="$a"
     [[ "$a" == --http=* ]] && http_port="${a#--http=}"
     prev="$a"
 done
+page="http://clio-sentinel.localhost:$http_port"
 
-url="http://127.0.0.1:$http_port"                    # pour vérifier si le script tourne
-page="http://clio-sentinel.localhost:$http_port"     # ce qu'on ouvre dans le navigateur
+running() {   # le dashboard répond-il (et pas un autre programme sur ce port) ?
+    curl -sf --max-time 1 "http://127.0.0.1:$http_port/api/state" 2>/dev/null | grep -q '"status"'
+}
 
 open_browser() {
+    [[ -n "${NO_BROWSER:-}" ]] && return
     echo "→ Page : $page"
     if command -v chromium >/dev/null; then
         chromium "$page" >/dev/null 2>&1 &
@@ -46,22 +37,39 @@ open_browser() {
     fi
 }
 
-# Déjà lancé (service, voir service.sh) : on ouvre juste la page.
-if curl -s -o /dev/null --max-time 2 "$url"; then
-    echo "→ Dashboard déjà en route"
-    [[ -z "${NO_BROWSER:-}" ]] && open_browser
+# Déjà en route : on ouvre juste la page.
+if [[ $# -eq 0 ]] && running; then
+    open_browser
     exit 0
 fi
 
-# Ouvre le navigateur une fois le serveur prêt.
-if [[ -z "${NO_BROWSER:-}" ]]; then
-    (
-        for _ in $(seq 1 30); do
-            curl -s -o /dev/null --max-time 2 "$url" && { open_browser; break; }
-            sleep 0.5
-        done
-    ) &
+# Service installé et pas d'options : c'est lui qui fait tourner le script (pas de deuxième copie ici).
+if [[ $# -eq 0 && -f "$UNIT" ]]; then
+    ./service.sh restart && open_browser
+    exit
 fi
 
+# Deux copies se disputeraient l'ELM327 et la base
+if systemctl --user is-active -q clio-sentinel 2>/dev/null; then
+    echo "Le service tourne déjà : ./service.sh stop d'abord pour lancer le script ici avec des options"
+    echo "(ou les mettre dans AUTRES_OPTIONS de clio.conf, puis ./service.sh restart)"
+    exit 1
+fi
+
+# Environnement Python : créé et rempli au premier lancement.
+if ! "$VENV/bin/python" -c "import obd" 2>/dev/null; then
+    echo "→ Installation de Python et des dépendances dans $VENV"
+    python -m venv "$VENV"
+    "$VENV/bin/python" -m pip install -q -r requirements.txt
+fi
+
+# Ouvre le navigateur une fois le serveur prêt.
+(
+    for _ in $(seq 1 30); do
+        running && { open_browser; break; }
+        sleep 0.5
+    done
+) &
+
 echo "→ Lancement du dashboard (Ctrl+C pour arrêter)"
-exec "$PY" src/dashboard_clio.py "${args[@]}"
+exec "$VENV/bin/python" src/dashboard_clio.py "$@"

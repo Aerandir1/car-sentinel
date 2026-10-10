@@ -16,7 +16,7 @@ ADAPTATEUR=
 DEBIT=
 
 # clio-sentinel-server : adresse(s) séparées par des virgules, la première qui répond est prise.
-# Ex. SERVEUR=http://192.168.1.13:8207,http://10.100.0.1:8207   (vide : pas d'envoi)
+# Port 8207 par défaut. Ex. SERVEUR=192.168.1.13,10.100.0.1   (vide : pas d'envoi)
 SERVEUR=
 # Nom de ce PC sur la page du serveur (vide : nom de la machine)
 NOM_PC=

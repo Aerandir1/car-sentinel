@@ -40,9 +40,9 @@ def _yes(key, value):
     v = value.lower()
     if v in ("oui", "o", "yes", "y", "1", "true", "vrai"):
         return True
-    if v in ("non", "n", "no", "0", "false", "faux"):
-        return False
-    raise ValueError(f"clio.conf : {key}={value} (attendu : oui ou non)")
+    if v not in ("non", "n", "no", "0", "false", "faux"):
+        print(f"Attention : clio.conf : {key}={value} (attendu : oui ou non), compris comme non")
+    return False
 
 
 def argv():
@@ -62,4 +62,8 @@ def argv():
             flag = on if _yes(key, conf[key]) else off
             if flag:
                 out.append(flag)
-    return out + shlex.split(conf.get("AUTRES_OPTIONS", ""))
+    try:
+        return out + shlex.split(conf.get("AUTRES_OPTIONS", ""))
+    except ValueError as e:   # guillemet non fermé…
+        print(f"Attention : clio.conf : AUTRES_OPTIONS illisible ({e}), ignoré")
+        return out
