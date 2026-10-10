@@ -4,6 +4,7 @@ import os
 import time
 import traceback
 
+import demo
 from etat import METRICS
 
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
@@ -36,12 +37,29 @@ def obd_loop(state, args, logger_factory):
             time.sleep(5)
 
 
+def _demo_on(state):
+    return state.get_settings().get("demo", False)
+
+
+def _pause(state, seconds):
+    """Attente entre deux essais, écourtée si le mode démo est activé."""
+    end = time.time() + seconds
+    while time.time() < end and not _demo_on(state):
+        time.sleep(0.2)
+
+
 def _obd_loop(state, args, logger_factory):
     import obd
 
-    state.source = args.port or "auto"
     warned = False
     while True:
+        if _demo_on(state):   # mode démo (onglet Paramètres) : l'ELM327 est laissé de côté
+            state.adapter = "absent"
+            state.clear_live()
+            demo.run(state, lambda: _demo_on(state))
+            state.clear_live()
+            continue
+        state.source = args.port or "auto"
         # Port série présent mais interdit : python-obd dirait juste « Not Connected »
         if args.port and os.path.exists(args.port) and not os.access(args.port, os.R_OK | os.W_OK):
             state.status = f"pas le droit d'ouvrir {args.port}"
@@ -51,17 +69,17 @@ def _obd_loop(state, args, logger_factory):
                       " (stat -c %g /dev/ttyUSB0) ; sinon ajouter l'utilisateur au groupe du port (uucp sous Arch,"
                       " dialout ailleurs).")
                 warned = True
-            time.sleep(5)
+            _pause(state, 5)
             continue
         fast = state.get_settings()["fast"]
         state.status = "connexion (mode rapide)…" if fast else "connexion…"
         conn = obd.OBD(portstr=args.port, baudrate=args.baud, fast=fast, timeout=1)
         state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
                          obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
-        if conn.status() != obd.OBDStatus.CAR_CONNECTED:
+        if conn.status() != obd.OBDStatus.CAR_CONNECTED or _demo_on(state):
             state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
             conn.close()
-            time.sleep(5)
+            _pause(state, 5)
             continue
 
         cmds = []
@@ -81,8 +99,8 @@ def _obd_loop(state, args, logger_factory):
 
         try:
             while conn.is_connected():
-                if state.get_settings()["fast"] != fast:
-                    break  # mode rapide basculé : on se reconnecte avec le nouveau réglage
+                if state.get_settings()["fast"] != fast or _demo_on(state):
+                    break  # mode rapide basculé (reconnexion avec le nouveau réglage) ou mode démo
                 t0 = time.time()
                 delay = state.get_settings()["delay"]
                 for key, cmd, conv in cmds:
@@ -114,7 +132,7 @@ def _obd_loop(state, args, logger_factory):
             if logger:
                 logger.close()
             conn.close()
-        if state.get_settings()["fast"] != fast:
+        if state.get_settings()["fast"] != fast or _demo_on(state):
             continue
         if not state.status.startswith("calculateur muet"):
             state.status = "connexion perdue, reconnexion…"

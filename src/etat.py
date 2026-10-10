@@ -44,7 +44,8 @@ SETTINGS_LIMITS = {
 }
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
-SETTINGS_FLAGS = ("fast",)
+# Mode démo : valeurs simulées (demo.py) à la place de l'ECU, jamais enregistrées.
+SETTINGS_FLAGS = ("fast", "demo")
 
 
 class State:
@@ -85,7 +86,7 @@ class State:
     def update(self, key, value, t_ms=None):
         """Nouvelle valeur, horodatée à l'appel (juste après la réponse du calculateur) sauf t_ms donné."""
         t_ms = t_ms or donnees.now_ms()
-        if self.recorder:
+        if self.recorder and not self.settings.get("demo"):   # valeurs de démo : pas dans la base
             self.recorder.add(key, t_ms, value)
         with self.lock:
             self.values[key] = value
@@ -108,6 +109,13 @@ class State:
         self.source, self.vin = source, vin
         if self.recorder:
             self.recorder.start_session(source, vin, metrics)
+
+    def clear_live(self):
+        """Oublie les dernières valeurs et les min/max (entrée et sortie du mode démo)."""
+        with self.lock:
+            for d in (self.values, self.times, self.mins, self.maxs):
+                d.clear()
+            self.hz = 0.0
 
     def reset_minmax(self):
         with self.lock:

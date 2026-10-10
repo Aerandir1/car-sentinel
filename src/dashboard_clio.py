@@ -65,6 +65,7 @@ def main():
     p.add_argument("--delay", type=float, default=0.0, help="pause en s entre deux requêtes OBD")
     p.add_argument("--max-hz", type=float, default=20.0, help="fréquence max d'acquisition (défaut 20)")
     p.add_argument("--fast", action="store_true", help="mode rapide python-obd (requêtes plus courtes)")
+    p.add_argument("--demo", action="store_true", help="démarre en mode démo (valeurs simulées, rien d'enregistré)")
     p.add_argument("--http", type=int, default=8080, help="port local de la page web (défaut 8080)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
@@ -112,7 +113,8 @@ def main():
                              daemon=True).start()
             print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
     state.set_settings({"max_hz": args.max_hz,
-                        "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast})
+                        "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,
+                        "demo": args.demo})
     threading.Thread(target=obd_loop, args=(state, args, logger_factory), daemon=True).start()
 
     try:

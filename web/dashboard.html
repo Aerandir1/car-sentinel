@@ -377,6 +377,11 @@
     <h2 style="margin-top:20px">Acquisition <span id="saved">enregistré</span></h2>
     <p class="note">Appliqué tout de suite par le script Python, jusqu'à son arrêt.</p>
     <div class="row">
+      <label for="s-demo">Mode démo<small>Trajet simulé, sans voiture ni ELM327. Rien n'est enregistré ni envoyé au serveur</small></label>
+      <input type="checkbox" id="s-demo" style="width:auto;justify-self:start">
+      <output id="o-demo"></output>
+    </div>
+    <div class="row">
       <label for="s-max_hz">Fréquence max d'acquisition<small>Boucle de lecture de l'ECU</small></label>
       <input type="range" id="s-max_hz" min="0.5" max="50" step="0.5">
       <output id="o-max_hz"></output>
@@ -1119,6 +1124,10 @@ const SERVER_FIELDS = {
   log_hz: (v) => `${v} Hz`,
 };
 function showServer(st) {
+  if (st.demo !== undefined) {
+    $("s-demo").checked = st.demo;
+    $("o-demo").textContent = st.demo ? "activé" : "désactivé";
+  }
   if (st.fast !== undefined) {
     $("s-fast").checked = st.fast;
     $("o-fast").textContent = st.fast ? "activé" : "désactivé";
@@ -1149,6 +1158,7 @@ for (const [k, show] of Object.entries(SERVER_FIELDS)) {
   };
 }
 $("s-fast").onchange = (e) => sendServer({ fast: e.target.checked });
+$("s-demo").onchange = (e) => sendServer({ demo: e.target.checked });
 
 syncUi();
 restartPoll();

@@ -22,6 +22,7 @@ src/
   serveur.py          serveur HTTP : page, logos, API JSON
   config.py           lecture de clio.conf
   reseau.py           adresses de la page (ce PC et réseau)
+  demo.py             mode démo : trajet simulé
   donnees.py          base SQLite : sessions, mesures horodatées, trajets, événements
   trajets.py          découpage des mesures en trajets, fiche de chaque trajet
   synchro.py          envoi de la base vers clio-sentinel-server
@@ -214,6 +215,7 @@ Les options ci-dessous passent avant `clio.conf` ; pour les garder, les mettre d
 | `--http` | port de la page web (défaut 8080) |
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
 | `--lan` | page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
+| `--demo` | démarre en mode démo (valeurs simulées, rien d'enregistré) |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
 | `--max-hz` | fréquence max d'acquisition (défaut 20) |
 | `--server URL` | envoie la base à clio-sentinel-server (voir « Serveur ») |
@@ -221,7 +223,9 @@ Les options ci-dessous passent avant `clio.conf` ; pour les garder, les mettre d
 L'onglet **Paramètres** du dashboard règle tout ça à chaud :
 - affichage (gardé dans le navigateur) : rafraîchissement de la page, durée du graphique ;
 - acquisition (appliqué par le script jusqu'à son arrêt) : fréquence max, pause entre requêtes OBD, fréquence du CSV,
-  mode rapide (le basculer relance la connexion à l'ELM327).
+  mode rapide (le basculer relance la connexion à l'ELM327) ;
+- **mode démo** : un trajet simulé en boucle (démarrage, ville, voie rapide, arrêt), pour voir le dashboard sans
+  voiture. Rien n'est enregistré dans la base ni envoyé au serveur ; le décocher reprend l'ELM327.
 
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `src/etat.py`.
