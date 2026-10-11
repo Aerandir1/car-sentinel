@@ -184,7 +184,7 @@ def sync_once(db_path, client, name=None, version=None):
         db.close()
 
 
-def sync_loop(state, db_path, client, name, version):
+def sync_loop(state, bases, client, version):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
@@ -193,9 +193,10 @@ def sync_loop(state, db_path, client, name, version):
     was_ok, next_sync, last = None, 0.0, {}
     while True:
         try:
-            hello(client, state, name, version)
+            hello(client, state, bases[0][1], version)   # présence sous le nom de la vraie base
             if time.time() >= next_sync:
-                n = sync_once(db_path, client, name, version)
+                # Chaque base est une origine à part sur le serveur (la démo n'y est pas mêlée aux vrais trajets)
+                n = sum(sync_once(db_path, client, name, version) for db_path, name in bases)
                 next_sync = time.time() + EVERY_S
                 last = {"synced": time.time(), "sent": n}
                 if n or was_ok is not True:

@@ -43,11 +43,13 @@ def version():
     return os.environ.get("CLIO_VERSION")
 
 
-def trips_loop(state, db_path):
-    """Découpe les mesures en trajets au fil de l'eau (voir trajets.py)."""
+def trips_loop(state, db_path, demo_path):
+    """Découpe les mesures en trajets au fil de l'eau (voir trajets.py), dans la vraie base et celle de la démo."""
     while True:
         try:
-            state.trip = trajets.update(db_path)
+            trip = trajets.update(db_path)
+            demo_trip = trajets.update(demo_path)
+            state.trip = demo_trip if state.get_settings().get("demo") else trip
         except Exception:
             traceback.print_exc()
         time.sleep(TRIPS_EVERY_S)
@@ -65,7 +67,7 @@ def main():
     p.add_argument("--delay", type=float, default=0.0, help="pause en s entre deux requêtes OBD")
     p.add_argument("--max-hz", type=float, default=20.0, help="fréquence max d'acquisition (défaut 20)")
     p.add_argument("--fast", action="store_true", help="mode rapide python-obd (requêtes plus courtes)")
-    p.add_argument("--demo", action="store_true", help="démarre en mode démo (valeurs simulées, rien d'enregistré)")
+    p.add_argument("--demo", action="store_true", help="démarre en mode démo (trajet simulé, base à part)")
     p.add_argument("--http", type=int, default=8080, help="port local de la page web (défaut 8080)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
@@ -100,17 +102,19 @@ def main():
         return CsvLogger(args.log, keys) if args.log else None
 
     state = State()
-    db_path = None
+    db_path = demo_path = None
     if not args.no_db:
         db_path = Path(args.db) if args.db else DATA / "clio.db"
+        demo_path = db_path.with_name(db_path.stem + "-demo.db")   # mode démo : base à part, jamais mêlée
         db_path.parent.mkdir(parents=True, exist_ok=True)
         state.recorder = donnees.Recorder(db_path, version())
-        threading.Thread(target=trips_loop, args=(state, db_path), daemon=True).start()
-        print(f"Mesures enregistrées dans {db_path}")
+        state.demo_recorder = donnees.Recorder(demo_path, version())
+        threading.Thread(target=trips_loop, args=(state, db_path, demo_path), daemon=True).start()
+        print(f"Mesures enregistrées dans {db_path} (mode démo : {demo_path.name})")
         if client:
             state.sync = {"ok": None, "t": time.time()}   # premier essai en cours (témoin « serveur » du dashboard)
-            threading.Thread(target=synchro.sync_loop, args=(state, db_path, client, args.server_name, version()),
-                             daemon=True).start()
+            bases = [(db_path, args.server_name), (demo_path, f"{args.server_name} · démo")]
+            threading.Thread(target=synchro.sync_loop, args=(state, bases, client, version()), daemon=True).start()
             print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,
@@ -118,7 +122,8 @@ def main():
     threading.Thread(target=obd_loop, args=(state, args, logger_factory), daemon=True).start()
 
     try:
-        server = QuietServer((args.bind, args.http), make_handler(state, db_path))
+        server = QuietServer((args.bind, args.http), make_handler(
+            state, lambda: demo_path if state.get_settings().get("demo") else db_path))
     except OSError as e:
         sys.exit(f"Erreur : impossible d'ouvrir le port {args.http} ({e.strerror}). Le dashboard tourne déjà"
                  f" (./service.sh status) ? Sinon changer PORT_PAGE dans clio.conf.")

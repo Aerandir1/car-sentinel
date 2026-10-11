@@ -44,7 +44,7 @@ SETTINGS_LIMITS = {
 }
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
-# Mode démo : valeurs simulées (demo.py) à la place de l'ECU, jamais enregistrées.
+# Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (clio-demo.db).
 SETTINGS_FLAGS = ("fast", "demo")
 
 
@@ -55,7 +55,8 @@ class State:
         self.lock = threading.Lock()
         self.values = {}
         self.times = {}       # horodatage (ms UTC) de la dernière valeur de chaque métrique
-        self.recorder = None  # donnees.Recorder : chaque valeur part aussi dans la base
+        self.recorder = None       # donnees.Recorder : chaque valeur part aussi dans la base
+        self.demo_recorder = None  # la même chose pour le mode démo, dans une base à part
         self.mins = {}
         self.maxs = {}
         self.supported = []
@@ -86,8 +87,9 @@ class State:
     def update(self, key, value, t_ms=None):
         """Nouvelle valeur, horodatée à l'appel (juste après la réponse du calculateur) sauf t_ms donné."""
         t_ms = t_ms or donnees.now_ms()
-        if self.recorder and not self.settings.get("demo"):   # valeurs de démo : pas dans la base
-            self.recorder.add(key, t_ms, value)
+        rec = self.active_recorder()
+        if rec:
+            rec.add(key, t_ms, value)
         with self.lock:
             self.values[key] = value
             self.times[key] = t_ms
@@ -107,8 +109,13 @@ class State:
     def start_session(self, source, vin, metrics):
         """Connexion au calculateur établie : nouvelle session dans la base."""
         self.source, self.vin = source, vin
-        if self.recorder:
-            self.recorder.start_session(source, vin, metrics)
+        rec = self.active_recorder()
+        if rec:
+            rec.start_session(source, vin, metrics)
+
+    def active_recorder(self):
+        """Base où vont les mesures : celle de la démo en mode démo, la vraie sinon."""
+        return self.demo_recorder if self.settings.get("demo") else self.recorder
 
     def clear_live(self):
         """Oublie les dernières valeurs et les min/max (entrée et sortie du mode démo)."""

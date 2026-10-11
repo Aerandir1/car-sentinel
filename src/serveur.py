@@ -22,7 +22,8 @@ class QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_handler(state, db_path):
+def make_handler(state, current_db):
+    """current_db() : base affichée (trajets, courbes), celle de la démo en mode démo ; None avec --no-db."""
     pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
 
     class Handler(BaseHTTPRequestHandler):
@@ -60,6 +61,7 @@ def make_handler(state, db_path):
                 else:
                     self._send(404, b"not found", "text/plain")
             elif path in ("/api/trips", "/api/history"):
+                db_path = current_db()
                 if not db_path:
                     self._send(404, b"enregistrement desactive (--no-db)", "text/plain")
                     return
@@ -95,8 +97,9 @@ def make_handler(state, db_path):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps(saved).encode(), "application/json")
-            elif self.path == "/api/trips/note" and db_path:
+            elif self.path == "/api/trips/note" and current_db():
                 try:
+                    db_path = current_db()
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                     found = donnees.set_note(db_path, str(body["id"]), str(body.get("note") or "")[:500])
                 except (ValueError, TypeError, KeyError):

@@ -219,10 +219,11 @@ def history(path, trip_id, key, from_ms=None, to_ms=None):
                 return {"trip_id": None, "key": key, "step_ms": None, "points": []}
         lo_t, hi_t = 0, 2**62
         if trip_id is not None:
-            row = db.execute("SELECT start_ms, end_ms FROM trips WHERE id = ?", (trip_id,)).fetchone()
+            row = db.execute("SELECT start_ms, end_ms, closed FROM trips WHERE id = ?", (trip_id,)).fetchone()
             if row is None:
                 raise ValueError("trajet inconnu")
-            lo_t, hi_t = row
+            # Trajet en cours : jusqu'à la dernière mesure (sa fin en base n'est recalculée que toutes les 10 s)
+            lo_t, hi_t = row[0], row[1] if row[2] else 2**62
         args = (key, max(lo_t, from_ms or 0), min(hi_t, to_ms or 2**62))
         lo, hi, n = db.execute("SELECT min(t_ms), max(t_ms), count(*) FROM samples"
                                " WHERE key = ? AND t_ms >= ? AND t_ms <= ?", args).fetchone()

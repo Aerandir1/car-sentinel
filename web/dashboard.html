@@ -142,9 +142,11 @@
   .lay-name input { accent-color: var(--accent); }
   .lay-item select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
                      padding: 4px 6px; font: inherit; font-size: 12px; max-width: 150px; }
-  .lay-item button, .lay-foot button, #s-default {
+  .lay-item button, .lay-foot button, #s-default, #s-demo {
     background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
     padding: 4px 10px; cursor: pointer; font: inherit; }
+  #s-demo { padding: 8px 18px; font-weight: 600; }
+  #s-demo.on { background: var(--accent); border-color: var(--accent); color: #000; }
   .lay-item button:disabled { opacity: .3; cursor: default; }
   .lay-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; }
   .lay-foot label { display: flex; align-items: center; gap: 8px; margin-right: auto; }
@@ -250,7 +252,7 @@
   /* Panneaux et tuiles : aplats noirs, angles droits, filet jaune au survol */
   [data-look="renault"] :is(.panel, .tile, .trip, .lay-item, .lay-list, .seg, .tip, dialog#detail,
                              .d-close, .d-filters select, .t-note, .t-actions button, .lay-item select,
-                             .lay-item button, .lay-foot button, #s-default) { border-radius: 0; }
+                             .lay-item button, .lay-foot button, #s-default, #s-demo) { border-radius: 0; }
   [data-look="renault"] .tile { position: relative; padding: 12px 14px; }
   [data-look="renault"] .tile::before { content: ""; position: absolute; left: -1px; top: -1px; height: 2px; width: 0;
                                         background: var(--accent); transition: width .25s ease; }
@@ -269,7 +271,7 @@
   [data-look="renault"] :is(#settings, #layout) h2 { text-transform: uppercase; letter-spacing: .12em; font-size: 12.5px; }
   [data-look="renault"] .seg button { text-transform: uppercase; letter-spacing: .08em; font-size: 11.5px; }
   [data-look="renault"] .seg button.on { background: var(--text); color: #000; }
-  [data-look="renault"] :is(.lay-foot button, #s-default, .t-actions button):hover { border-color: var(--text); }
+  [data-look="renault"] :is(.lay-foot button, #s-default, #s-demo, .t-actions button):hover { border-color: var(--text); }
   [data-look="renault"] .trip.live { border-color: var(--line); box-shadow: inset 2px 0 0 var(--ok); }
   [data-look="renault"] dialog#detail::backdrop { background: rgba(0, 0, 0, .8); }
   [data-look="renault"] #splash { background: #000; }
@@ -353,7 +355,12 @@
 </main>
 <main id="view-set" hidden>
   <section class="panel" id="settings">
-    <h2>Affichage</h2>
+    <h2>Mode démo</h2>
+    <div class="row" style="grid-template-columns:1fr auto">
+      <label>Voir le dashboard sans voiture<small>Trajet simulé en boucle. Rien n'est enregistré ni envoyé au serveur</small></label>
+      <button id="s-demo">Lancer la démo</button>
+    </div>
+    <h2 style="margin-top:20px">Affichage</h2>
     <p class="note">Propre à ce navigateur.</p>
     <div class="row">
       <label>Style<small>Renault : noir, blanc et jaune · Liquid glass : panneaux translucides et flous</small></label>
@@ -376,11 +383,6 @@
     </div>
     <h2 style="margin-top:20px">Acquisition <span id="saved">enregistré</span></h2>
     <p class="note">Appliqué tout de suite par le script Python, jusqu'à son arrêt.</p>
-    <div class="row">
-      <label for="s-demo">Mode démo<small>Trajet simulé, sans voiture ni ELM327. Rien n'est enregistré ni envoyé au serveur</small></label>
-      <input type="checkbox" id="s-demo" style="width:auto;justify-self:start">
-      <output id="o-demo"></output>
-    </div>
     <div class="row">
       <label for="s-max_hz">Fréquence max d'acquisition<small>Boucle de lecture de l'ECU</small></label>
       <input type="range" id="s-max_hz" min="0.5" max="50" step="0.5">
@@ -706,15 +708,16 @@ const dlg = $("detail");
 // Graduations « rondes » : pas de 1, 2 ou 5 × 10^n, environ n graduations
 function niceTicks(lo, hi, n = 5) {
   const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw));
-  const step = [1, 2, 5, 10].map((k) => k * mag).find((k) => k >= raw);
-  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;   // l'axe s'arrête sur des graduations
+  const step = +[1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= raw).toFixed(10);
+  lo = Math.floor(lo / step + 1e-9) * step; hi = Math.ceil(hi / step - 1e-9) * step;   // l'axe s'arrête sur des graduations
   const ticks = [];
   for (let v = lo; v <= hi + step * 1e-9; v += step) ticks.push(+v.toFixed(10));
-  return { ticks, lo, hi };
+  const decimals = (String(step).split(".")[1] || "").length;   // 20 → « 20 », 0,25 → « 0.25 »
+  return { ticks, lo, hi, label: (v) => v.toFixed(decimals) };
 }
 const TIME_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200].map((s) => s * 1000);
 const hhmm = (t, sec) => new Date(t).toLocaleTimeString("fr-FR", sec ? {} : { hour: "2-digit", minute: "2-digit" });
-const duree = (ms) => ms < 60000 ? `${Math.round(ms / 1000)} s`
+const duree = (ms) => ms < 1000 ? `${Math.round(ms)} ms` : ms < 60000 ? `${Math.round(ms / 1000)} s`
   : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${Math.floor(ms / 3600000)} h ${String(Math.round(ms % 3600000 / 60000)).padStart(2, "0")}`;
 
 async function loadTrips() {
@@ -773,7 +776,10 @@ function drawDetail() {
   const L = 56, R = 14, T = 10, B = 26, pw = w - L - R, ph = h - T - B;
   const dom = yDomain(D.pts, m) || m.range;
   const pad = (dom[1] - dom[0]) * 0.08;
-  const { ticks, lo, hi } = niceTicks(dom[0] - pad, dom[1] + pad);
+  // La marge ne sort pas de l'échelle de la métrique quand les valeurs y sont (pas de -20 km/h ni de 110 %)
+  const lo0 = dom[0] >= m.range[0] ? Math.max(dom[0] - pad, m.range[0]) : dom[0] - pad;
+  const hi0 = dom[1] <= m.range[1] ? Math.min(dom[1] + pad, m.range[1]) : dom[1] + pad;
+  const { ticks, lo, hi, label } = niceTicks(lo0, hi0);
   const x = (t) => L + ((t - D.x0) / (D.x1 - D.x0)) * pw;
   const y = (v) => T + ph * (1 - (v - lo) / (hi - lo));
   D.geom = { L, pw, x, y };
@@ -785,7 +791,7 @@ function drawDetail() {
     ctx.strokeStyle = css("--line");
     ctx.beginPath(); ctx.moveTo(L, Math.round(y(v)) + 0.5); ctx.lineTo(w - R, Math.round(y(v)) + 0.5); ctx.stroke();
     ctx.fillStyle = css("--dim");
-    ctx.fillText(fmt(v, m.unit), L - 8, y(v));
+    ctx.fillText(label(v), L - 8, y(v));
   }
   ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2);
   ctx.textAlign = "center"; ctx.fillText(m.unit, 0, 0); ctx.restore();
@@ -812,14 +818,14 @@ function drawDetail() {
   const gap = Math.max(5000, (D.step || 0) * 3);
   ctx.save();
   ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
-  const accent = css("--accent");
+  const accent = css("--accent"), base = y(Math.min(hi, Math.max(lo, 0)));
   ctx.fillStyle = accent; ctx.globalAlpha = 0.1;
   let run = [];
   const flush = () => {
     if (run.length > 1) {
-      ctx.beginPath(); ctx.moveTo(x(run[0][0]), T + ph);
+      ctx.beginPath(); ctx.moveTo(x(run[0][0]), base);
       for (const [t, v] of run) ctx.lineTo(x(t), y(v));
-      ctx.lineTo(x(run[run.length - 1][0]), T + ph); ctx.fill();
+      ctx.lineTo(x(run[run.length - 1][0]), base); ctx.fill();
     }
     run = [];
   };
@@ -1125,8 +1131,8 @@ const SERVER_FIELDS = {
 };
 function showServer(st) {
   if (st.demo !== undefined) {
-    $("s-demo").checked = st.demo;
-    $("o-demo").textContent = st.demo ? "activé" : "désactivé";
+    $("s-demo").classList.toggle("on", st.demo);
+    $("s-demo").textContent = st.demo ? "Arrêter la démo" : "Lancer la démo";
   }
   if (st.fast !== undefined) {
     $("s-fast").checked = st.fast;
@@ -1158,7 +1164,7 @@ for (const [k, show] of Object.entries(SERVER_FIELDS)) {
   };
 }
 $("s-fast").onchange = (e) => sendServer({ fast: e.target.checked });
-$("s-demo").onchange = (e) => sendServer({ demo: e.target.checked });
+$("s-demo").onclick = (e) => sendServer({ demo: !e.target.classList.contains("on") });
 
 syncUi();
 restartPoll();
