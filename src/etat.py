@@ -81,6 +81,11 @@ class State:
         self.hz = 0.0
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
         self.settings = {}
+        # Onglet Diagnostic (diagnostic.py) : diag_want demande l'adaptateur, l'acquisition le laisse et le
+        # signale par port_free, puis attend que diag_want retombe pour reprendre
+        self.diag_want = threading.Event()
+        self.port_free = threading.Event()
+        self.diag = None      # diagnostic.Diag
 
     def get_settings(self):
         with self.lock:

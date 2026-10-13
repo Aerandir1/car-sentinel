@@ -20,6 +20,8 @@ src/
   etat.py             liste des métriques (METRICS), état partagé, CSV
   acquisition.py      lecture de l'ECU par l'ELM327
   renault.py          mesures Renault (UDS, lecture seule) quand l'OBD standard ne les donne pas
+  etalonnage.py       gain et décalage des mesures Renault (onglet Étalonnage)
+  diagnostic.py       onglet Diagnostic : codes défaut et scan UDS, lecture seule (liste blanche)
   serveur.py          serveur HTTP : page, logos, API JSON
   config.py           lecture de clio.conf
   reseau.py           adresses de la page (ce PC et réseau)
@@ -269,6 +271,30 @@ pression atmo (`22 2009`), consigne EGR (`22 2408`), débit carburant (`22 2806`
 Le réglage est rangé dans `data/etalonnage.json` (à côté de la base). Comme la valeur brute est gardée, un
 étalonnage corrigé s'applique aussi aux courbes des trajets passés. Les mesures déjà vérifiées (huile, tension,
 pédale) peuvent y être réajustées de la même façon.
+
+## Diagnostic
+
+L'onglet **Diagnostic** lit les codes défaut et fouille les identifiants des calculateurs, sans jamais rien
+écrire ni effacer. Pendant un diagnostic, le dashboard laisse l'ELM327 (témoins « diagnostic ») et
+l'enregistrement est en pause ; il reprend tout seul après.
+
+- **Codes défaut** : OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis UDS 19 02 sur le moteur
+  (7E0) et le tableau de bord (743). Contact mis suffit.
+- **Scan des identifiants** : lecture (UDS 22) de chaque DID d'une plage, sur le moteur, le tableau de bord ou une
+  autre adresse. Les DID qui répondent sont rangés dans `data/diag/*.json`, au format de `uds_scan.py`
+  (clio-iv-obd-utils). Cocher deux scans ou plus et « Comparer » liste ce qui change : faire un scan contact mis,
+  un au ralenti, un à 2500 tr/min isole les mesures vivantes.
+- **Session étendue (10 03)** : certains DID ne répondent qu'en session de diagnostic étendue, comme avec l'outil
+  du garage. Moteur coupé (contact mis) et voiture à l'arrêt obligatoires : régime et vitesse sont lus juste avant,
+  la session est refusée sinon. Retour en session normale (10 01) à la fin, même si le scan est arrêté ; sans
+  message pendant ~5 s, le calculateur y revient de lui-même.
+
+**Liste blanche** (`ALLOWED` dans `src/diagnostic.py`, vérifiée au seul endroit qui écrit sur le port) : seules
+partent vers la voiture les lectures (OBD 01, 03, 07, 09 ; UDS 22, 19 02), l'entrée / sortie de session (10 03,
+10 01) et son maintien (3E). Tout le reste est refusé avant l'envoi, en particulier 10 02 (programmation), 27
+(déverrouillage), 2E (écriture), 2F (actionneurs), 31 (routines), 11 (redémarrage), 14 / 04 (effacement des
+défauts). Même liste que `obd_scan.py` dans clio-iv-obd-utils. Le dashboard n'a pas de mot de passe : avec
+`RESEAU=oui`, tout appareil du réseau peut lancer un diagnostic (en lecture seule).
 
 ## Courbes
 

@@ -18,6 +18,7 @@ import traceback
 from pathlib import Path
 
 import config
+import diagnostic
 import donnees
 import etalonnage
 import synchro
@@ -122,6 +123,7 @@ def main():
     calib_dir = db_path.parent if db_path else DATA
     calib_dir.mkdir(parents=True, exist_ok=True)
     state.calib = etalonnage.Store(calib_dir / "etalonnage.json")
+    state.diag = diagnostic.Diag(state, args, calib_dir)   # onglet Diagnostic : scans rangés dans data/diag/
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,
                         "demo": args.demo})

@@ -150,11 +150,28 @@ def _demo_on(state):
     return state.get_settings().get("demo", False)
 
 
+def _busy(state):
+    """L'adaptateur est demandé ailleurs : mode démo, ou diagnostic (onglet Diagnostic)."""
+    return _demo_on(state) or state.diag_want.is_set()
+
+
 def _pause(state, seconds):
-    """Attente entre deux essais, écourtée si le mode démo est activé."""
+    """Attente entre deux essais, écourtée si le mode démo ou un diagnostic est demandé."""
     end = time.time() + seconds
-    while time.time() < end and not _demo_on(state):
+    while time.time() < end and not _busy(state):
         time.sleep(0.2)
+
+
+def _lend_to_diag(state):
+    """Laisse l'adaptateur au diagnostic (port fermé et verrou relâché) jusqu'à ce qu'il ait fini."""
+    state.status = "diagnostic en cours (onglet Diagnostic), enregistrement en pause"
+    state.adapter = "absent"
+    state.elm, state.ecu = "diag", "diag"
+    state.port_free.set()
+    while state.diag_want.is_set():
+        time.sleep(0.2)
+    state.port_free.clear()
+    state.elm, state.ecu = "recherche", "off"
 
 
 def _obd_loop(state, args, logger_factory):
@@ -173,6 +190,9 @@ def _obd_loop_locked(state, args, logger_factory, held):
     while True:
         while held:
             release(held.pop())
+        if state.diag_want.is_set():
+            _lend_to_diag(state)
+            continue
         if _demo_on(state):   # mode démo (onglet Paramètres) : l'ELM327 est laissé de côté
             state.adapter = "absent"
             state.elm, state.ecu, state.protocol = "demo", "demo", None
@@ -255,7 +275,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             state.elm = "ok"
             state.port = conn.port_name() or port
             state.ecu = "ok" if state.adapter == "car" else "muet"
-        if conn.status() != obd.OBDStatus.CAR_CONNECTED or _demo_on(state):
+        if conn.status() != obd.OBDStatus.CAR_CONNECTED or _busy(state):
             state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
             conn.close()
             _pause(state, 5)
@@ -294,8 +314,8 @@ def _obd_loop_locked(state, args, logger_factory, held):
 
         try:
             while conn.is_connected():
-                if state.get_settings()["fast"] != fast or _demo_on(state):
-                    break  # mode rapide basculé (reconnexion avec le nouveau réglage) ou mode démo
+                if state.get_settings()["fast"] != fast or _busy(state):
+                    break  # mode rapide basculé (reconnexion avec le nouveau réglage), mode démo ou diagnostic
                 t0 = time.time()
                 delay = state.get_settings()["delay"]
                 for key, cmd, conv, slow in cmds:
@@ -337,7 +357,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             if logger:
                 logger.close()
             conn.close()
-        if state.get_settings()["fast"] != fast or _demo_on(state):
+        if state.get_settings()["fast"] != fast or _busy(state):
             continue
         if not state.status.startswith("calculateur muet"):
             state.status = "connexion perdue, reconnexion…"

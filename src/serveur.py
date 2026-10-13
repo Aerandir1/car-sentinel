@@ -107,6 +107,19 @@ def make_handler(state, current_db):
                 self._send(200, json.dumps(state.get_settings()).encode(), "application/json")
             elif path == "/api/calib":
                 self._send(200, json.dumps(calib_info()).encode(), "application/json")
+            elif path in ("/api/diag", "/api/diag/scan", "/api/diag/compare"):
+                q = parse_qs(urlsplit(self.path).query)
+                try:
+                    if path == "/api/diag":
+                        body = state.diag.status()
+                    elif path == "/api/diag/scan":
+                        body = state.diag.load_scan(q.get("name", [""])[0])
+                    else:
+                        body = state.diag.compare(q.get("f", []))
+                except (ValueError, OSError) as e:
+                    self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                    return
+                self._send(200, json.dumps(body).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -122,6 +135,17 @@ def make_handler(state, current_db):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps(saved).encode(), "application/json")
+            elif self.path in ("/api/diag/start", "/api/diag/stop"):
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    if self.path == "/api/diag/start":
+                        state.diag.start(body)
+                    else:
+                        state.diag.stop()
+                except (ValueError, TypeError, AttributeError) as e:
+                    self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                    return
+                self._send(200, json.dumps(state.diag.status()).encode(), "application/json")
             elif self.path == "/api/calib":
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
