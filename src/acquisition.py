@@ -17,6 +17,9 @@ from etat import METRICS
 
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
 BAUDS = (38400, 9600, 115200, 230400, 57600)   # débits courants des ELM327 (sans effet sur les clés USB en ttyACM)
+# PID standard essayés même si le calculateur ne les annonce pas dans sa liste (PID 00, 20, 40…) : le taux
+# d'éthanol (01 52) d'une FlexiFuel peut répondre sans être annoncé. Gardé seulement s'il répond.
+FORCE_PROBE = {"ethanol"}
 
 
 def candidates(dev):
@@ -131,6 +134,16 @@ def read_vin(obd, conn):
         v = v.decode("ascii", "ignore")
     v = "".join(c for c in str(v) if c.isalnum())
     return v or None
+
+
+def read_fuel_type(obd, conn):
+    """Type de carburant annoncé par le calculateur (01 51, ex. « Gasoline », « Bifuel running Ethanol »),
+    ou None. Dit si le calculateur se déclare FlexiFuel."""
+    try:
+        r = conn.query(obd.commands.FUEL_TYPE, force=True)
+    except Exception:
+        return None
+    return None if r.is_null() or not r.value else str(r.value)
 
 
 def obd_loop(state, args, logger_factory):
@@ -262,20 +275,27 @@ def _obd_loop_locked(state, args, logger_factory, held):
             continue
 
         # Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Ford s'il répond
-        cmds = []   # (clé, commande, conversion, lecture espacée ou None pour l'OBD standard)
+        cmds = []   # (clé, commande, conversion, lecture espacée ou None pour l'OBD standard, requête forcée)
         state.supported, state.unsupported, state.sources, state.raw_keys = [], [], {}, []
         extra = []
         spaced = lambda c: " ".join(c[i:i + 2] for i in range(0, len(c), 2))   # b"015C" → "01 5C"
         for key, _lbl, _u, name, conv, *_ in METRICS:
             cmd = getattr(obd.commands, name, None) if name else None   # None : mesure Ford seulement
             if cmd is not None and conn.supports(cmd):
-                cmds.append((key, cmd, conv, None))
+                cmds.append((key, cmd, conv, None, False))
                 state.supported.append(key)
                 state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
                 continue
+            if cmd is not None and key in FORCE_PROBE and ford.probe(conn, cmd):
+                # Répond sans être annoncé : interrogé en forçant python-obd (qui sinon l'ignore)
+                cmds.append((key, cmd, conv, None, True))
+                state.supported.append(key)
+                state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
+                print(f"{key} ({spaced(cmd.command.decode())}) : non annoncé par le calculateur, mais il répond")
+                continue
             rcmd = ford.command(obd, key)
             if rcmd is not None and ford.probe(conn, rcmd):
-                cmds.append((key, rcmd, None, ford.Slow(ford.FALLBACK[key][4])))
+                cmds.append((key, rcmd, None, ford.Slow(ford.FALLBACK[key][4]), True))
                 state.supported.append(key)
                 state.sources[key] = {"kind": "ford", "cmd": f"22 {ford.FALLBACK[key][0]}"}
                 state.raw_keys.append(key)
@@ -287,6 +307,9 @@ def _obd_loop_locked(state, args, logger_factory, held):
             print("Mesures Ford lues en plus de l'OBD standard : " + ", ".join(extra))
         keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys]
         state.protocol = conn.protocol_name()
+        state.fuel_type = read_fuel_type(obd, conn)
+        print(f"Type de carburant annoncé (01 51) : {state.fuel_type or 'non donné'}"
+              + ("" if "ethanol" in state.supported else " ; taux d'éthanol (01 52) : pas de réponse"))
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
         state.status = "connecté (rapide)" if fast else "connecté"
         logger = logger_factory(keys)
@@ -298,10 +321,10 @@ def _obd_loop_locked(state, args, logger_factory, held):
                     break  # mode rapide basculé (reconnexion avec le nouveau réglage) ou mode démo
                 t0 = time.time()
                 delay = state.get_settings()["delay"]
-                for key, cmd, conv, slow in cmds:
+                for key, cmd, conv, slow, force in cmds:
                     if slow is not None and not slow.due():
                         continue   # mesure Ford lente : lue moins souvent
-                    r = conn.query(cmd, force=slow is not None)
+                    r = conn.query(cmd, force=force)
                     if slow is not None:   # mesure Ford : valeur brute, étalonnée par state
                         state.update_raw(key, None if r.is_null() else r.value)
                         if not r.is_null() and r.value is not None:

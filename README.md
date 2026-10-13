@@ -358,8 +358,11 @@ métrique, et `trip`, l'identifiant du trajet en cours.
 ## Limites
 
 - Avec un ELM327, les PID sont interrogés l'un après l'autre : quelques Hz au total.
-- Le taux d'éthanol (PID 52) n'est pas annoncé par le PCM dans le relevé OBDb 2022 : s'il manque, aucun DID Ford
-  connu ne le remplace pour l'instant (à chercher avec un scan UDS, comme clio-iv-obd-utils pour la Clio).
+- Taux d'éthanol (PID 52) : le relevé OBDb 2022 vient d'une Fiesta essence (01 51 → « Gasoline »), il ne dit
+  donc rien de la FlexiFuel. À la connexion, le script écrit au journal le type de carburant annoncé (01 51,
+  aussi au survol du témoin « Calculateur ») et interroge 01 52 même si le calculateur ne l'annonce pas : la
+  tuile apparaît s'il répond (« ethanol (01 52) : non annoncé par le calculateur, mais il répond »). Sinon,
+  aucun DID Ford connu ne le remplace pour l'instant (à chercher avec un scan UDS après un plein d'E85).
 - Mesures Ford sans relevé sur une 1.0 EcoBoost FlexiFuel : à valider dans l'onglet Étalonnage.
 
 ## Serveur

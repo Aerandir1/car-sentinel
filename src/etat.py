@@ -93,6 +93,7 @@ class State:
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
         self.port = None
         self.protocol = None  # protocole OBD du calculateur, ex. « ISO 15765-4 (CAN 11/500) »
+        self.fuel_type = None # type de carburant annoncé (01 51), ex. « Bifuel running Ethanol »
         self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
         self.hz = 0.0
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
@@ -188,7 +189,8 @@ class State:
                 "meta_rev": self.meta_rev,
                 "sync": self.sync,
                 "link": {"elm": self.elm, "ecu": self.ecu, "name": self.elm_name, "port": self.port,
-                         "protocol": self.protocol, "vin": self.vin},
+                         "protocol": self.protocol, "vin": self.vin,
+                         "fuel_type": self.fuel_type},
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }
