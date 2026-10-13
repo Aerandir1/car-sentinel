@@ -172,6 +172,39 @@
   .lay-foot label { display: flex; align-items: center; gap: 8px; margin-right: auto; }
   .lay-foot input { accent-color: var(--accent); }
 
+  /* Onglet Étalonnage : gain et décalage des mesures Renault, comparés à l'ordinateur de bord */
+  #calib { max-width: 1100px; display: grid; gap: 12px; }
+  #calib h2 { font-size: 14px; margin: 0 0 4px; }
+  #calib .note { color: var(--dim); font-size: 12px; margin: 0; }
+  #calib .row { grid-template-columns: 1fr 2fr 130px; }
+  .c-pick { flex-wrap: wrap; justify-self: start; }
+  .c-pick button { text-align: left; }
+  .c-pick button small { display: block; font-size: 11px; color: var(--dim); }
+  .c-pick button small.ok { color: var(--ok); }
+  .c-pick button small.todo { color: var(--accent); }
+  .c-pick button.on small { color: inherit; opacity: .7; }   /* bouton choisi : fond clair en style Renault */
+  .c-live { display: flex; flex-wrap: wrap; gap: 8px 32px; align-items: baseline; }
+  .c-live small { display: block; color: var(--dim); font-size: 12px; }
+  .c-live b { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .c-live b small { display: inline; font-size: 13px; font-weight: 400; margin-left: 4px; }
+  .c-live .main b { color: var(--accent); }
+  #c-chart { height: min(340px, 45vh); touch-action: none; cursor: crosshair; }
+  .c-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .c-in, .c-btn { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+                  padding: 6px 10px; font: inherit; }
+  .c-in { min-width: 0; }
+  .c-btn { cursor: pointer; }
+  .c-btn:disabled { opacity: .4; cursor: default; }
+  .c-btn.primary { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 600; }
+  .c-refs { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .c-refs th { color: var(--dim); font-weight: 500; text-align: left; }
+  .c-refs :is(th, td) { padding: 6px 8px 6px 0; border-top: 1px solid var(--line); }
+  .c-refs td.bad { color: var(--hot); }
+  .c-refs button { background: none; border: 0; color: var(--dim); cursor: pointer; font: inherit; }
+  .c-msg { color: var(--dim); font-size: 12px; margin: 0; min-height: 1.4em; }
+  .c-msg.err { color: var(--hot); }
+  .c-msg.ok { color: var(--ok); }
+
   /* ---------- Style « Liquid glass » : panneaux translucides et flous sur un fond coloré ---------- */
   :root[data-look="glass"] {
     --bg: #070a12; --panel: rgba(255, 255, 255, .07); --line: rgba(255, 255, 255, .14);
@@ -205,7 +238,7 @@
   [data-look="glass"] .tile.hot { background: linear-gradient(140deg, rgba(248, 81, 73, .32), rgba(248, 81, 73, .1));
                                   border-color: rgba(248, 81, 73, .7); }
   [data-look="glass"] :is(header button, .seg, .badge, .chip) { border-radius: 999px; }
-  [data-look="glass"] header button, [data-look="glass"] :is(.lay-item, .t-note, .t-actions button, .d-filters select) {
+  [data-look="glass"] header button, [data-look="glass"] :is(.lay-item, .t-note, .t-actions button, .d-filters select, .c-in, .c-btn:not(.primary)) {
     background: rgba(255, 255, 255, .08); border-color: var(--line);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
   }
@@ -273,7 +306,7 @@
   /* Panneaux et tuiles : aplats noirs, angles droits, filet jaune au survol */
   [data-look="renault"] :is(.panel, .tile, .trip, .lay-item, .lay-list, .seg, .tip, dialog#detail,
                              .d-close, .d-filters select, .t-note, .t-actions button, .lay-item select,
-                             .lay-item button, .lay-foot button, #s-default, #s-demo) { border-radius: 0; }
+                             .lay-item button, .lay-foot button, #s-default, #s-demo, .c-in, .c-btn) { border-radius: 0; }
   [data-look="renault"] .tile { position: relative; padding: 12px 14px; }
   [data-look="renault"] .tile::before { content: ""; position: absolute; left: -1px; top: -1px; height: 2px; width: 0;
                                         background: var(--accent); transition: width .25s ease; }
@@ -308,6 +341,8 @@
     .lay-item { flex-wrap: wrap; }
     .lay-name { flex-basis: calc(100% - 50px); }
     .lay-item select { max-width: none; flex: 1; margin-left: 22px; }
+    #calib .row { grid-template-columns: 1fr 130px; }
+    #calib .row input[type="number"] { grid-column: auto; grid-row: auto; }
   }
 </style>
 </head>
@@ -342,6 +377,7 @@
   <nav>
     <button id="tab-dash" class="on">Tableau de bord</button>
     <button id="tab-trips">Trajets</button>
+    <button id="tab-cal">Étalonnage</button>
     <button id="tab-set">Paramètres</button>
     <button id="reset">Réinit. min/max</button>
   </nav>
@@ -378,6 +414,54 @@
 </dialog>
 <main id="view-trips" hidden>
   <section id="trips"><p class="empty">Chargement…</p></section>
+</main>
+<main id="view-cal" hidden>
+  <section class="panel" id="calib">
+    <div>
+      <h2>Étalonnage des mesures Renault</h2>
+      <p class="note">Valeur = brut × gain + décalage. Noter des valeurs lues sur l'ordinateur de bord à des moments
+        différents (ralenti, ville, voie rapide), puis « Calculer depuis les références ». Les curseurs servent à
+        affiner. En roulant, c'est le passager qui note. Les trajets enregistrés se rejouent ici à l'arrêt.</p>
+    </div>
+    <div class="seg c-pick" id="c-pick"></div>
+    <p class="c-msg" id="c-avail"></p>
+    <div class="c-live">
+      <div><small>Valeur brute</small><b id="c-raw">—</b></div>
+      <div class="main"><small>Valeur étalonnée</small><b id="c-val">—</b></div>
+      <div id="c-l100w"><small>Soit, à cette vitesse</small><b id="c-l100">—</b></div>
+    </div>
+    <div class="row">
+      <label for="c-gain">Gain<small>Multiplie la valeur brute. Curseur : de ×0,01 à ×100 autour du gain par défaut</small></label>
+      <input type="range" id="c-gain" min="-2" max="2" step="0.001">
+      <input type="number" id="c-gain-n" class="c-in" step="any" aria-label="Gain exact">
+    </div>
+    <div class="row">
+      <label for="c-off">Décalage<small>Ajouté après le gain, dans l'unité de la mesure</small></label>
+      <input type="range" id="c-off">
+      <input type="number" id="c-off-n" class="c-in" step="any" aria-label="Décalage exact">
+    </div>
+    <div class="d-filters">
+      <select id="c-src" aria-label="Période affichée"></select>
+      <button class="c-btn" id="c-now">Noter l'instant</button>
+      <span class="c-msg" id="c-sel">Choisir le moment de la référence : « Noter l'instant », ou cliquer / glisser sur la courbe.</span>
+    </div>
+    <div class="d-plot"><canvas id="c-chart"></canvas></div>
+    <p class="d-info" id="c-info"></p>
+    <div class="c-form">
+      <label for="c-ref">Valeur lue sur l'ordinateur de bord</label>
+      <input id="c-ref" class="c-in" inputmode="decimal" placeholder="ex. 5,4" size="7">
+      <select id="c-unit" class="c-in" aria-label="Unité de la valeur lue"></select>
+      <button class="c-btn" id="c-add">Ajouter la référence</button>
+    </div>
+    <table class="c-refs" id="c-refs"></table>
+    <div class="c-form">
+      <button class="c-btn" id="c-solve">Calculer depuis les références</button>
+      <button class="c-btn" id="c-save">Enregistrer</button>
+      <button class="c-btn primary" id="c-valid">Valider : afficher la tuile</button>
+      <button class="c-btn" id="c-reset">Valeurs par défaut</button>
+    </div>
+    <p class="c-msg" id="c-msg"></p>
+  </section>
 </main>
 <main id="view-set" hidden>
   <section class="panel" id="settings">
@@ -559,6 +643,8 @@ function buildTiles() {
     meta.metrics.some((m) => m.source && m.source.kind === "calc")
       && `<span class="src calc">calculé</span> déduit d'autres mesures (suralimentation = pression admission − pression atmo)`,
     meta.unsupported.length && "Non supporté par le calculateur : " + meta.unsupported.join(", "),
+    meta.to_calibrate?.length && "Mesures Renault lues, à étalonner avant d'être affichées (onglet Étalonnage) : "
+      + meta.to_calibrate.join(", "),
   ].filter(Boolean).join("<br>");
 }
 
@@ -808,6 +894,7 @@ function showLink(s) {
     ok: ["ok", l.name || "ELM327", port, `Adaptateur connecté : ${l.name || "ELM327"}${l.port ? ` sur ${l.port}` : ""}`],
     absent: ["ko", "ELM327", "absent", "Aucun adaptateur ne répond : brancher la clé (ou ADAPTATEUR=… dans clio.conf)"],
     refuse: ["ko", "ELM327", "accès refusé", `Pas le droit d'ouvrir ${l.port} : voir le journal du script`],
+    occupe: ["warn", "ELM327", "port occupé", `${l.port} est utilisé par un autre programme (scan ?) : reprise dès qu'il le libère`],
     ko: ["ko", l.name || "ELM327", "ne répond pas", "L'adaptateur est là mais son initialisation a échoué"],
     demo: ["demo", "Démo", "", "Mode démo : l'adaptateur est laissé de côté (onglet Paramètres)"],
   }[l.elm] || ["off", "ELM327", l.elm, ""];
@@ -827,7 +914,8 @@ function showLink(s) {
 async function poll() {
   try {
     const s = await (await fetch("/api/state")).json();
-    if (!meta || meta.metrics.length === 0 || s.status !== (last && last.status)) {
+    // Liste des tuiles à recharger : connexion qui change, ou mesure validée dans l'onglet Étalonnage
+    if (!meta || meta.metrics.length === 0 || s.status !== last?.status || s.meta_rev !== last?.meta_rev) {
       meta = await (await fetch("/api/meta")).json();
       buildTiles();
     }
@@ -1068,16 +1156,19 @@ addEventListener("resize", drawDetail);
 // ---------- Onglets ----------
 let tripsTimer = null;
 function showTab(name) {
-  for (const t of ["dash", "trips", "set"]) {
+  for (const t of ["dash", "trips", "cal", "set"]) {
     $("view-" + t).hidden = t !== name;
     $("tab-" + t).classList.toggle("on", t === name);
   }
   clearInterval(tripsTimer);
+  clearInterval(C.timer);
+  if (name === "cal") openCalib();
   if (name === "set") loadServerSettings();
   if (name === "trips") { renderTrips(); tripsTimer = setInterval(renderTrips, 10000); }
 }
 $("tab-dash").onclick = () => showTab("dash");
 $("tab-trips").onclick = () => showTab("trips");
+$("tab-cal").onclick = () => showTab("cal");
 $("tab-set").onclick = () => showTab("set");
 
 // ---------- Trajets ----------
@@ -1154,6 +1245,313 @@ async function renderTrips() {
     : [Object.assign(document.createElement("p"), { className: "empty",
         textContent: "Pas encore de trajet. Un trajet commence au démarrage du moteur." })]));
 }
+
+// ---------- Étalonnage des mesures Renault ----------
+// valeur = brut × gain + décalage. Une référence, c'est la valeur lue sur l'ordinateur de bord pendant une
+// fenêtre de temps : elle donne une équation a × gain + b × décalage = référence (a, b : moyennes du brut et de
+// la vitesse sur la fenêtre). Une seule référence fixe le gain, deux ou plus le gain et le décalage.
+const C = { key: null, all: {}, gain: 1, offset: 0, dirty: false, src: "live", pts: [], step: null,
+            x0: 0, x1: 0, sel: null, drag: null, timer: null, geom: null };
+const LIVE_S = 300;   // en direct : les 5 dernières minutes
+const NOTE_S = 5;     // « Noter l'instant » : les 5 dernières secondes (l'ordinateur de bord lisse aussi)
+const calOf = () => C.all[C.key];
+const calVal = (raw) => raw == null ? null : raw * C.gain + C.offset;
+const isFuel = () => calOf()?.unit === "L/h";   // L/h ici, L/100 km sur l'ordinateur de bord
+const mean = (pts) => { const v = pts.map((p) => p[1]).filter((x) => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+const num6 = (v) => +v.toPrecision(6);
+
+function calMsg(text, kind = "") { const m = $("c-msg"); m.textContent = text; m.className = "c-msg " + kind; }
+
+async function loadCalib() {
+  try { C.all = await (await fetch("/api/calib")).json(); } catch (e) { calMsg("Le script Python ne répond pas.", "err"); return; }
+  const keys = Object.keys(C.all);
+  if (!C.all[C.key])   // par défaut : la première mesure lue qui attend son étalonnage
+    C.key = keys.find((k) => C.all[k].available && !C.all[k].validated) || keys.find((k) => !C.all[k].trusted) || keys[0];
+  if (!C.dirty) { C.gain = calOf().gain; C.offset = calOf().offset; }
+  renderCalib();
+}
+
+function renderCalib() {
+  const c = calOf();
+  $("c-pick").innerHTML = Object.entries(C.all).map(([k, m]) => `
+    <button data-k="${k}" class="${k === C.key ? "on" : ""}">${m.label}
+      <small class="${m.validated ? "ok" : m.available ? "todo" : ""}">22 ${m.did} · ${m.validated ? "validée" : "à étalonner"}${m.available ? "" : " · pas lue"}</small></button>`).join("");
+  for (const b of $("c-pick").children) b.onclick = () => {
+    if (b.dataset.k === C.key) return;
+    C.key = b.dataset.k; C.dirty = false; C.gain = calOf().gain; C.offset = calOf().offset;
+    renderCalib(); loadCalData();
+  };
+  $("c-avail").textContent = c.available ? ""
+    : "Pas lue en ce moment (calculateur non connecté, ou il ne répond pas à ce DID) : choisir un trajet enregistré pour l'étalonner.";
+  $("c-unit").innerHTML = (isFuel() ? ["L/100 km", "L/h"] : [c.unit]).map((u) => `<option>${u}</option>`).join("");
+  $("c-l100w").hidden = !isFuel();
+  syncCalInputs();
+  renderRefs();
+  $("c-valid").textContent = c.validated ? "Retirer la tuile" : "Valider : afficher la tuile";
+  $("c-valid").classList.toggle("primary", !c.validated);
+  calStatus();
+}
+
+function calStatus() {
+  const c = calOf();
+  const state = c.validated ? "Validée : la tuile est sur le tableau de bord, avec cet étalonnage."
+    : "Pas encore validée : seule la valeur brute est enregistrée, la tuile n'est pas affichée.";
+  calMsg(C.dirty ? "Modifications non enregistrées. " + state : state, C.dirty ? "err" : "");
+}
+
+// Curseurs : gain en échelle logarithmique autour du gain par défaut, décalage sur ± la plage de la mesure
+function syncCalInputs() {
+  const c = calOf(), span = c.range[1] - c.range[0];
+  $("c-gain").value = Math.log10(Math.abs(C.gain / c.default_gain));
+  $("c-gain-n").value = num6(C.gain);
+  const off = $("c-off");
+  let lo = c.default_offset - span, hi = c.default_offset + span;
+  if (C.offset < lo || C.offset > hi) { lo = C.offset - span; hi = C.offset + span; }   // hors du curseur : recentré
+  off.min = lo; off.max = hi; off.step = span / 2000; off.value = C.offset;
+  $("c-off-n").value = num6(C.offset);
+}
+function calChanged() { C.dirty = true; calStatus(); calLive(); renderRefs(); drawCal(); }
+$("c-gain").oninput = (e) => {
+  C.gain = Math.sign(C.gain || 1) * Math.abs(calOf().default_gain) * 10 ** +e.target.value;
+  $("c-gain-n").value = num6(C.gain); calChanged();
+};
+$("c-gain-n").onchange = (e) => {
+  const v = parseFloat(e.target.value);
+  if (isFinite(v) && v !== 0) { C.gain = v; syncCalInputs(); calChanged(); } else syncCalInputs();
+};
+$("c-off").oninput = (e) => { C.offset = +e.target.value; $("c-off-n").value = num6(C.offset); calChanged(); };
+$("c-off-n").onchange = (e) => {
+  const v = parseFloat(e.target.value);
+  if (isFinite(v)) { C.offset = v; syncCalInputs(); calChanged(); } else syncCalInputs();
+};
+
+// Valeur en direct : brute, étalonnée avec les curseurs, et en L/100 km pour la conso
+function calLive() {
+  const c = calOf();
+  if (!c) return;
+  const v = last?.values ?? {}, raw = v["brut." + C.key];
+  const fresh = raw != null && Date.now() - (last.ts["brut." + C.key] || 0) < 10000;
+  const val = fresh ? calVal(raw) : null;
+  $("c-raw").textContent = fresh ? String(raw) : "—";
+  $("c-val").innerHTML = `${fmt(val, c.unit)}<small>${c.unit}</small>`;
+  if (isFuel()) {
+    const l100 = val != null && v.speed > 3 ? 100 * val / v.speed : null;
+    $("c-l100").innerHTML = l100 == null ? "—<small>à l'arrêt</small>" : `${fmt(l100)}<small>L/100 km</small>`;
+  }
+}
+
+// Période affichée : en direct, ou un trajet enregistré
+async function loadCalTrips() {
+  const sel = $("c-src");
+  let trips = [];
+  try { trips = await (await fetch("/api/trips")).json(); } catch (e) {}
+  sel.replaceChildren(new Option(`En direct (${LIVE_S / 60} dernières min)`, "live"),
+    ...trips.map((t) => new Option(`${t.id === last?.trip ? "En cours · " : ""}${t.name} · ${duree(t.end_ms - t.start_ms)}`
+      + (t.kind === "trajet" ? ` · ${fmtKm(t.distance_km)}` : "") + (t.note ? ` · ${t.note}` : ""), t.id)));
+  sel.value = [...sel.options].some((o) => o.value === C.src) ? C.src : "live";
+  C.src = sel.value;
+}
+$("c-src").onchange = (e) => { C.src = e.target.value; $("c-now").hidden = C.src !== "live"; loadCalData(); };
+
+// Points [t_ms, valeur] d'une clé : depuis la base, sinon ce que la page a vu depuis son ouverture
+async function calHistory(key, query) {
+  try {
+    const r = await fetch(`/api/history?key=${key}&${query}`);
+    if (!r.ok) throw new Error();
+    return await r.json();
+  } catch (e) {
+    return { points: (series[key] || []).slice(), step_ms: null };
+  }
+}
+
+async function loadCalData() {
+  const key = C.key, live = C.src === "live";
+  const h = await calHistory("brut." + key, live ? `from=${Date.now() - LIVE_S * 1000}` : `trip=${encodeURIComponent(C.src)}`);
+  if (key !== C.key) return;   // mesure changée pendant le chargement
+  C.pts = h.points; C.step = h.step_ms;
+  const first = C.pts.length ? C.pts[0][0] : Date.now(), end = C.pts.length ? C.pts[C.pts.length - 1][0] : Date.now();
+  C.x1 = live ? Date.now() : end;
+  C.x0 = live ? C.x1 - LIVE_S * 1000 : first;
+  if (C.x1 - C.x0 < 10000) C.x0 = C.x1 - 10000;
+  const n = C.pts.filter((p) => p[1] != null).length;
+  $("c-info").textContent = !C.pts.length ? "Pas de valeur brute enregistrée sur cette période."
+    : `${n} point${n > 1 ? "s" : ""}` + (C.step ? ` · moyenne par tranches de ${duree(C.step)}` : "")
+      + " · courbe recalculée avec le gain et le décalage des curseurs";
+  drawCal();
+}
+
+function drawCal() {
+  const c = calOf(), canvas = $("c-chart");
+  if (!c || $("view-cal").hidden) return;
+  const [ctx, w, h] = setupCanvas(canvas);
+  const L = 56, R = 14, T = 10, B = 26, pw = w - L - R, ph = h - T - B;
+  const pts = C.pts.map(([t, v]) => [t, calVal(v)]);
+  // Référence dans l'unité de la courbe (L/100 km → L/h avec la vitesse du moment)
+  const refY = (r) => r.unit === c.unit ? r.ref : r.unit === "L/100 km" && r.speed ? r.ref * r.speed / 100 : null;
+  const refs = c.refs.filter((r) => refY(r) != null && r.t1 >= C.x0 && r.t0 <= C.x1);
+  const dom = yDomain(pts.concat(refs.map((r) => [r.t0, refY(r)])), c) || c.range;
+  const pad = (dom[1] - dom[0]) * 0.08;
+  const { ticks, lo, hi, label } = niceTicks(dom[0] - pad, dom[1] + pad);
+  const x = (t) => L + ((t - C.x0) / (C.x1 - C.x0)) * pw;
+  const y = (v) => T + ph * (1 - (v - lo) / (hi - lo));
+  C.geom = { L, pw };
+
+  ctx.font = "11px system-ui"; ctx.lineWidth = 1;
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  for (const v of ticks) {
+    ctx.strokeStyle = css("--line");
+    ctx.beginPath(); ctx.moveTo(L, Math.round(y(v)) + 0.5); ctx.lineTo(w - R, Math.round(y(v)) + 0.5); ctx.stroke();
+    ctx.fillStyle = css("--dim"); ctx.fillText(label(v), L - 8, y(v));
+  }
+  ctx.save(); ctx.translate(12, T + ph / 2); ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center"; ctx.fillText(c.unit, 0, 0); ctx.restore();
+  const span = C.x1 - C.x0, step = TIME_STEPS.find((s) => span / s <= 7) || 3600000 * 4;
+  const off = new Date().getTimezoneOffset() * 60000;
+  ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  for (let t = Math.ceil((C.x0 - off) / step) * step + off; t <= C.x1; t += step)
+    ctx.fillText(hhmm(t, step < 60000), Math.min(w - R - 20, Math.max(L + 20, x(t))), h - 6);
+
+  ctx.save();
+  ctx.beginPath(); ctx.rect(L, T, pw, ph); ctx.clip();
+  // Fenêtres des références (bleu) et sélection en cours (jaune)
+  const band = ([t0, t1], col, alpha) => {
+    ctx.fillStyle = css(col); ctx.globalAlpha = alpha;
+    ctx.fillRect(x(t0), T, Math.max(2, x(t1) - x(t0)), ph); ctx.globalAlpha = 1;
+  };
+  for (const r of c.refs) if (r.t1 >= C.x0 && r.t0 <= C.x1) band([r.t0, r.t1], "--cold", 0.12);
+  if (C.sel) band(C.sel, "--accent", 0.18);
+  // Valeur de chaque référence (même unité que la courbe) : trait sur sa fenêtre
+  ctx.strokeStyle = css("--cold"); ctx.lineWidth = 3;
+  for (const r of refs) { ctx.beginPath(); ctx.moveTo(x(r.t0) - 6, y(refY(r))); ctx.lineTo(x(r.t1) + 6, y(refY(r))); ctx.stroke(); }
+  ctx.strokeStyle = css("--accent"); ctx.lineWidth = 2; ctx.lineJoin = ctx.lineCap = "round";
+  tracePath(ctx, pts, x, y, Math.max(5000, (C.step || 0) * 3));
+  ctx.stroke();
+  ctx.restore();
+}
+
+// Choix du moment : clic (± 2,5 s) ou glisser sur la courbe, ou « Noter l'instant » en direct
+function calTime(clientX) {
+  const r = $("c-chart").getBoundingClientRect(), g = C.geom;
+  return C.x0 + Math.min(1, Math.max(0, (clientX - r.left - g.L) / g.pw)) * (C.x1 - C.x0);
+}
+$("c-chart").addEventListener("pointerdown", (e) => {
+  if (!C.geom) return;
+  C.drag = calTime(e.clientX); C.sel = [C.drag - 2500, C.drag + 2500];
+  $("c-chart").setPointerCapture(e.pointerId); showSel();
+});
+$("c-chart").addEventListener("pointermove", (e) => {
+  if (C.drag == null) return;
+  const t = calTime(e.clientX);
+  if (Math.abs(t - C.drag) > 3000) { C.sel = [Math.min(t, C.drag), Math.max(t, C.drag)]; showSel(); }
+});
+$("c-chart").addEventListener("pointerup", () => { C.drag = null; });
+$("c-now").onclick = () => {
+  C.sel = [Date.now() - NOTE_S * 1000, Date.now()];
+  showSel(); $("c-ref").focus();
+};
+function showSel() {
+  const [t0, t1] = C.sel;
+  const inSel = C.pts.filter((p) => p[0] >= t0 && p[0] <= t1), m = mean(inSel);
+  $("c-sel").textContent = `Moment choisi : ${hhmm(t0, true)} → ${hhmm(t1, true)} (${duree(t1 - t0)})`
+    + (m != null ? ` · courbe ${fmt(calVal(m), calOf().unit)} ${calOf().unit}` : "")
+    + " · entrer la valeur lue à ce moment.";
+  drawCal();
+}
+
+$("c-add").onclick = addRef;
+$("c-ref").onkeydown = (e) => { if (e.key === "Enter") addRef(); };
+async function addRef() {
+  const c = calOf(), ref = parseFloat($("c-ref").value.replace(",", ".")), unit = $("c-unit").value;
+  if (!C.sel) return calMsg("Choisir d'abord le moment : « Noter l'instant », ou cliquer / glisser sur la courbe.", "err");
+  if (!isFinite(ref)) return calMsg("Entrer la valeur lue sur l'ordinateur de bord (ex. 5,4).", "err");
+  const [t0, t1] = C.sel.map(Math.round), q = `from=${t0}&to=${t1}`;
+  // Valeurs exactes de la fenêtre (la courbe d'un long trajet est moyennée)
+  const [raw, spd] = await Promise.all([calHistory("brut." + C.key, q), calHistory("speed", q)]);
+  const inWin = (h) => h.points.filter((p) => p[0] >= t0 && p[0] <= t1);
+  const mr = mean(inWin(raw)), ms = mean(inWin(spd));
+  if (mr == null) return calMsg("Pas de valeur brute à ce moment-là : la mesure n'était pas lue.", "err");
+  let a = mr, b = 1;
+  if (unit === "L/100 km") {   // conso (L/h) / vitesse (km/h) × 100 : linéaire en gain et décalage
+    if (!(ms > 3)) return calMsg("Véhicule à l'arrêt à ce moment-là : pas de L/100 km. Choisir L/h, ou un moment en roulant.", "err");
+    a = 100 * mr / ms; b = 100 / ms;
+  }
+  const refs = c.refs.concat([{ t0, t1, ref, unit, a, b, raw: mr, speed: ms }]);
+  if (await saveCal({ refs })) {
+    $("c-ref").value = ""; C.sel = null;
+    $("c-sel").textContent = "Référence ajoutée. Choisir un autre moment pour la suivante.";
+    renderRefs(); drawCal();
+  }
+}
+
+function renderRefs() {
+  const c = calOf(), refs = c.refs;
+  if (!refs.length) { $("c-refs").innerHTML = ""; $("c-solve").disabled = true; return; }
+  $("c-solve").disabled = false;
+  $("c-refs").innerHTML = `<tr><th>Moment</th><th>Lu sur le bord</th><th>Avec ce réglage</th><th>Écart</th><th></th></tr>`
+    + refs.map((r, i) => {
+      const got = r.a * C.gain + r.b * C.offset, err = r.ref ? (got - r.ref) / Math.abs(r.ref) : 0;
+      return `<tr><td>${new Date(r.t0).toLocaleDateString("fr-FR")} ${hhmm(r.t0, true)} · ${duree(r.t1 - r.t0)}`
+        + `${r.speed != null ? ` · ${Math.round(r.speed)} km/h` : ""}</td>`
+        + `<td>${fmt(r.ref)} ${r.unit}</td><td>${fmt(got)} ${r.unit}</td>`
+        + `<td class="${Math.abs(err) > 0.1 ? "bad" : ""}">${err > 0 ? "+" : ""}${Math.round(err * 100)} %</td>`
+        + `<td><button data-i="${i}" aria-label="Supprimer cette référence">✕</button></td></tr>`;
+    }).join("");
+  for (const b of $("c-refs").querySelectorAll("button"))
+    b.onclick = () => saveCal({ refs: c.refs.filter((_, i) => i !== +b.dataset.i) }).then(() => { renderRefs(); drawCal(); });
+}
+
+// Moindres carrés sur les références : gain et décalage (2 références ou plus), sinon le gain seul
+$("c-solve").onclick = () => {
+  const refs = calOf().refs;
+  let saa = 0, sab = 0, sbb = 0, sar = 0, sbr = 0;
+  for (const r of refs) { saa += r.a * r.a; sab += r.a * r.b; sbb += r.b * r.b; sar += r.a * r.ref; sbr += r.b * r.ref; }
+  const det = saa * sbb - sab * sab;
+  let note = "";
+  if (refs.length >= 2 && det > 1e-6 * saa * sbb) {
+    C.gain = (sar * sbb - sab * sbr) / det; C.offset = (saa * sbr - sab * sar) / det;
+  } else {
+    C.gain = refs.reduce((s, r) => s + r.a * (r.ref - r.b * C.offset), 0) / saa;
+    note = refs.length >= 2 ? " Références trop semblables pour le décalage : noter aussi à un autre régime."
+      : " Une seule référence : gain seul, décalage gardé. En noter une autre, à un autre régime.";
+  }
+  syncCalInputs(); calChanged();
+  calMsg("Gain et décalage calculés : vérifier l'écart de chaque référence, puis Enregistrer." + note, "ok");
+};
+
+async function saveCal(change) {
+  try {
+    const r = await fetch("/api/calib", { method: "POST", body: JSON.stringify({ key: C.key, ...change }) });
+    if (!r.ok) throw new Error(await r.text());
+    C.all = await r.json();
+    return true;
+  } catch (e) {
+    calMsg(`Pas enregistré : ${e.message || "le script Python ne répond pas"}`, "err");
+    return false;
+  }
+}
+const saveValues = async (extra = {}) => {
+  if (await saveCal({ gain: C.gain, offset: C.offset, ...extra })) { C.dirty = false; renderCalib(); drawCal(); return true; }
+};
+$("c-save").onclick = async () => { if (await saveValues()) calMsg("Enregistré. " + $("c-msg").textContent, "ok"); };
+$("c-valid").onclick = () => saveValues({ validated: !calOf().validated });
+$("c-reset").onclick = async () => {
+  if (await saveCal({ reset: true })) {
+    C.dirty = false; C.gain = calOf().gain; C.offset = calOf().offset;
+    renderCalib(); drawCal(); calMsg("Gain et décalage par défaut remis (les références sont gardées).", "ok");
+  }
+};
+
+async function openCalib() {
+  await loadCalib();
+  if (!calOf()) return;
+  await loadCalTrips();
+  $("c-now").hidden = C.src !== "live";
+  await loadCalData();
+  calLive();
+  clearInterval(C.timer);
+  C.timer = setInterval(() => { calLive(); if (C.src === "live") loadCalData(); }, 1000);
+}
+addEventListener("resize", drawCal);
 
 // ---------- Paramètres ----------
 let pollTimer = null;

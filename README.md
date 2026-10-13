@@ -248,9 +248,27 @@ Au démarrage, le script demande au calculateur quels PID il supporte et n'affic
 Pour une mesure absente en OBD standard, il essaie l'équivalent Renault (`src/renault.py`) : température d'huile
 (`22 2007`), tension d'alimentation du calculateur (`22 2005`), pédale d'accélérateur (`22 202E`). Ce sont des
 lectures UDS (service 0x22), qui n'écrivent jamais rien dans le calculateur ; chacune n'est gardée que si le
-calculateur répond avec une valeur plausible (journal : « Mesures Renault lues en plus de l'OBD standard »).
+calculateur répond (journal : « Mesures Renault lues en plus de l'OBD standard »).
 Identifiants tirés de [OBDb](https://github.com/OBDb/Renault-Clio) (CC BY-SA 4.0).
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `src/etat.py`.
+
+## Étalonnage
+
+Trois autres mesures Renault, trouvées par le scan UDS (clio-iv-obd-utils), ont une échelle inconnue :
+pression atmo (`22 2009`), consigne EGR (`22 2408`), débit carburant (`22 2806`). Elles sont lues et leur
+**valeur brute** est enregistrée (clé `brut.<mesure>` dans la base), mais leur tuile n'apparaît qu'une fois
+étalonnées et validées dans l'onglet **Étalonnage** :
+
+1. choisir la mesure ; la valeur brute et la valeur étalonnée s'affichent en direct ;
+2. noter des références : « Noter l'instant » (en roulant, par le passager) ou clic / glisser sur la courbe d'un
+   trajet enregistré, puis la valeur lue sur l'ordinateur de bord (la conso en L/100 km ou en L/h) ;
+3. « Calculer depuis les références » : une référence fixe le gain, deux ou plus (à des régimes différents) le
+   gain et le décalage ; les curseurs affinent, la courbe et l'écart de chaque référence suivent ;
+4. « Enregistrer », puis « Valider : afficher la tuile ».
+
+Le réglage est rangé dans `data/etalonnage.json` (à côté de la base). Comme la valeur brute est gardée, un
+étalonnage corrigé s'applique aussi aux courbes des trajets passés. Les mesures déjà vérifiées (huile, tension,
+pédale) peuvent y être réajustées de la même façon.
 
 ## Courbes
 

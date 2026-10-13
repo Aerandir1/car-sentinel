@@ -6,6 +6,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import donnees
+import renault
+from etat import METRICS
 from reseau import HOST
 
 WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
@@ -25,6 +27,27 @@ class QuietServer(ThreadingHTTPServer):
 def make_handler(state, current_db):
     """current_db() : base affichée (trajets, courbes), celle de la démo en mode démo ; None avec --no-db."""
     pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
+    labels = {k: (lbl, u) for k, lbl, u, *_ in METRICS}
+
+    def calib_info():
+        """Mesures Renault pour l'onglet Étalonnage : réglage, et si le calculateur les donne (available)."""
+        out = state.calib.describe()
+        for key, c in out.items():
+            c["label"], c["unit"] = labels[key]
+            c["available"] = key in state.raw_keys
+        return out
+
+    def history(db_path, trip, key, from_ms, to_ms):
+        """Courbe d'une métrique ; une mesure Renault validée est recalculée depuis sa valeur brute avec
+        l'étalonnage actuel (les trajets passés profitent d'un étalonnage corrigé)."""
+        # (pas en démo : la démo enregistre aussi la vraie valeur, qu'on garde pour comparer)
+        if key in renault.FALLBACK and not state.get_settings().get("demo") and state.calib.get(key)[2]:
+            h = donnees.history(db_path, trip, "brut." + key, from_ms, to_ms)
+            if h["points"]:
+                h["key"] = key
+                h["points"] = [[t, None if v is None else state.calib.apply(key, v)] for t, v in h["points"]]
+                return h
+        return donnees.history(db_path, trip, key, from_ms, to_ms)
 
     class Handler(BaseHTTPRequestHandler):
         def _send(self, code, body, ctype):
@@ -71,7 +94,7 @@ def make_handler(state, current_db):
                     if path == "/api/trips":
                         body = donnees.trips(db_path, num("limit") or 200)
                     else:
-                        body = donnees.history(db_path, q.get("trip") or None, q.get("key", ""), num("from"), num("to"))
+                        body = history(db_path, q.get("trip") or None, q.get("key", ""), num("from"), num("to"))
                 except ValueError:
                     self._send(400, b"parametre invalide", "text/plain")
                     return
@@ -82,6 +105,8 @@ def make_handler(state, current_db):
                 self._send(200, json.dumps(state.meta()).encode(), "application/json")
             elif path == "/api/settings":
                 self._send(200, json.dumps(state.get_settings()).encode(), "application/json")
+            elif path == "/api/calib":
+                self._send(200, json.dumps(calib_info()).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -97,6 +122,15 @@ def make_handler(state, current_db):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps(saved).encode(), "application/json")
+            elif self.path == "/api/calib":
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    state.calib.save(str(body["key"]), body)
+                except (ValueError, TypeError, KeyError, AttributeError) as e:
+                    self._send(400, f"étalonnage invalide : {e}".encode(), "text/plain; charset=utf-8")
+                    return
+                state.calib_changed()
+                self._send(200, json.dumps(calib_info()).encode(), "application/json")
             elif self.path == "/api/trips/note" and current_db():
                 try:
                     db_path = current_db()

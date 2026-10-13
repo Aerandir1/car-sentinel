@@ -15,6 +15,9 @@ BARO = 101.3
 AMBIENT = 16.0
 IDLE_RPM = 820
 VIN = "VF1DEMO0000000000"   # faux numéro de série, reconnaissable
+# Valeurs brutes des mesures Renault à étalonner (onglet Étalonnage) : brut = (valeur - décalage) / gain,
+# avec une échelle volontairement différente de celle par défaut (renault.FALLBACK) pour avoir à la corriger
+RAW = {"fuel": (0.0042, 0.0), "egr": (0.0125, -409.6), "baro": (0.1, 0.0)}
 # km/h → tr/min sur chaque rapport (boîte 5 vitesses du K9K : 100 km/h ≈ 2300 tr/min en 5e)
 GEARS = [120, 65, 42, 30, 23]
 # Le trajet : (durée en s, pédale en %, freinage en km/h par s)
@@ -41,7 +44,9 @@ def run(state, still_on):
     speed, coolant, oil, step, t_step, gear = 0.0, 45.0, 40.0, 0, 0.0, 0
     state.supported, state.unsupported = [k for k, *_ in METRICS], []
     state.sources = {k: {"kind": "demo", "cmd": None} for k in state.supported}
-    state.start_session("démo · valeurs simulées", VIN, state.supported + ["boost"])
+    state.raw_keys = list(RAW)
+    state.start_session("démo · valeurs simulées", VIN,
+                        state.supported + ["boost"] + [f"brut.{k}" for k in RAW])
     state.status = "connecté (démo, valeurs simulées)"
     dt = 1 / HZ
     while still_on():
@@ -92,6 +97,8 @@ def run(state, still_on):
         }
         for key, v in values.items():
             state.update(key, round(v, 2))
+        for key, (gain, offset) in RAW.items():
+            state.update(f"brut.{key}", round((values[key] - offset) / gain))
         state.derive()
         time.sleep(max(0.0, dt - (time.time() - t0)))
         state.hz = 1.0 / max(time.time() - t0, 1e-3)

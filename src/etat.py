@@ -62,12 +62,16 @@ class State:
         self.supported = []
         self.unsupported = []
         self.sources = {}     # clé → requête qui donne la mesure : {"kind": "obd" | "renault", "cmd": "01 5C"}
+        self.calib = None     # etalonnage.Store : gain et décalage des mesures Renault
+        self.raw_keys = []    # mesures Renault qui répondent : valeur brute dans « brut.<clé> » (onglet Étalonnage)
+        self.meta_rev = 0     # change quand la liste des tuiles change sans reconnexion (mesure validée)
         self.status = "démarrage"
         self.source = ""
         self.vin = None
         self.adapter = "absent"   # ELM327 : "absent", "elm" (branché, calculateur muet), "car" (calculateur répond)
         # Témoins du dashboard, plus détaillés (adapter, lui, part tel quel au serveur) :
-        #   elm : "recherche", "ok", "absent" (aucun ELM327), "refuse" (port interdit), "ko" (ne répond pas bien), "demo"
+        #   elm : "recherche", "ok", "absent" (aucun ELM327), "refuse" (port interdit),
+        #         "occupe" (réservé par un autre programme, un scan par exemple), "ko" (ne répond pas bien), "demo"
         #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé ?), "demo"
         self.elm, self.ecu = "recherche", "off"
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
@@ -105,6 +109,25 @@ class State:
                 return
             self.mins[key] = min(self.mins.get(key, value), value)
             self.maxs[key] = max(self.maxs.get(key, value), value)
+
+    def update_raw(self, key, raw):
+        """Valeur brute d'une mesure Renault : enregistrée telle quelle, et étalonnée si la mesure est validée."""
+        self.update("brut." + key, raw)
+        if self.calib is None:
+            return
+        if self.calib.get(key)[2]:
+            self.update(key, None if raw is None else self.calib.apply(key, raw))
+
+    def calib_changed(self):
+        with self.lock:
+            self.meta_rev += 1
+
+    def shown(self, key):
+        """Tuile affichée : mesure lue, et validée si c'est une mesure Renault."""
+        if key not in self.supported:
+            return False
+        src = self.sources.get(key) or {}
+        return src.get("kind") != "renault" or self.calib is None or self.calib.get(key)[2]
 
     def derive(self):
         with self.lock:
@@ -146,6 +169,7 @@ class State:
                 "values": dict(self.values),
                 "ts": dict(self.times),
                 "trip": self.trip,
+                "meta_rev": self.meta_rev,
                 "sync": self.sync,
                 "link": {"elm": self.elm, "ecu": self.ecu, "name": self.elm_name, "port": self.port,
                          "protocol": self.protocol, "vin": self.vin},
@@ -154,12 +178,13 @@ class State:
             }
 
     def meta(self):
+        shown = [k for k, *_ in METRICS if self.shown(k)]
         with self.lock:
             metrics = [
                 {"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold,
                  "source": self.sources.get(k)}
                 for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS
-                if k in self.supported
+                if k in shown
             ]
             if "map" in self.supported:
                 metrics.append({**DERIVED, "warn": None, "cold": None, "source": {"kind": "calc", "cmd": None}})
@@ -168,6 +193,8 @@ class State:
                 "vin": self.vin,
                 "metrics": metrics,
                 "unsupported": [lbl for k, lbl, *_ in METRICS if k in self.unsupported],
+                # Mesures Renault qui répondent mais pas encore validées (onglet Étalonnage)
+                "to_calibrate": [lbl for k, lbl, *_ in METRICS if k in self.raw_keys and k not in shown],
             }
 
 

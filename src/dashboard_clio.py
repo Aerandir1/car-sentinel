@@ -19,6 +19,7 @@ from pathlib import Path
 
 import config
 import donnees
+import etalonnage
 import synchro
 import trajets
 from acquisition import obd_loop
@@ -117,6 +118,10 @@ def main():
             bases = [(db_path, args.server_name), (demo_path, f"{args.server_name} · démo")]
             threading.Thread(target=synchro.sync_loop, args=(state, bases, client, version()), daemon=True).start()
             print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
+    # Étalonnage des mesures Renault : à côté de la base (data/ par défaut)
+    calib_dir = db_path.parent if db_path else DATA
+    calib_dir.mkdir(parents=True, exist_ok=True)
+    state.calib = etalonnage.Store(calib_dir / "etalonnage.json")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,
                         "demo": args.demo})
