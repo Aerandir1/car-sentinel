@@ -84,6 +84,21 @@ def denied_message(port, in_docker):
             " puis se déconnecter / reconnecter (ou redémarrer)")
 
 
+def read_vin(obd, conn):
+    """Numéro de série de la voiture (mode 09), ou None si le calculateur ne le donne pas."""
+    try:
+        r = conn.query(obd.commands.VIN, force=True)
+    except Exception:
+        return None
+    if r.is_null():
+        return None
+    v = r.value
+    if isinstance(v, (bytes, bytearray)):
+        v = v.decode("ascii", "ignore")
+    v = "".join(c for c in str(v) if c.isalnum())
+    return v or None
+
+
 def obd_loop(state, args, logger_factory):
     """Lit l'ECU sans fin ; une erreur imprévue est notée au journal et la connexion reprend."""
     while True:
