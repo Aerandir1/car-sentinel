@@ -121,14 +121,24 @@ Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la sec
 **3. L'adaptateur**, dans `clio.conf` :
 
 - **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) : `ADAPTATEUR=socket://192.168.0.10:35000` et `DEBIT=38400`.
-- **USB** : laisser `ADAPTATEUR` vide (ou `/dev/ttyACM0`) et passer la clé à WSL2 avec
-  [usbipd-win](https://github.com/dorssel/usbipd-win), en PowerShell admin :
+- **USB** : laisser `ADAPTATEUR` vide. Docker Desktop ne voit la clé que si elle est passée à WSL2 par
+  [usbipd-win](https://github.com/dorssel/usbipd-win). Le script `windows-usb.ps1` s'en charge, une seule fois
+  (clé branchée, Docker Desktop démarré) :
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1
+  ```
+  Il installe usbipd, repère la clé, la partage, crée une tâche planifiée qui la rattache à WSL2 à chaque
+  ouverture de session et à chaque branchement, puis vérifie que le conteneur la voit (et corrige `OBD_GID`).
+  `-Supprimer` retire la tâche et le partage. À la main, en PowerShell admin :
   ```powershell
   winget install usbipd
-  usbipd list                                        # repérer le BUSID de l'ELM327 (CH340, FTDI…)
+  usbipd list                                        # BUSID de l'ELM327 : CH340, FTDI, « Périphérique série USB (COMx) »…
   usbipd bind --busid 2-3                            # une seule fois
   usbipd attach --wsl --busid 2-3 --auto-attach      # laisse la fenêtre ouverte : rattache la clé à chaque branchement
   ```
+  Sans cette étape, le conteneur ne voit pas la clé (le journal le rappelle). Une fois attachée, il la trouve
+  tout seul, sans redémarrer : `docker compose logs` affiche « Adaptateur trouvé : ELM327… ». S'il dit « pas le
+  droit d'ouvrir », mettre dans `clio.conf` l'`OBD_GID` qu'il donne et relancer.
 - **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
   exemples de pyserial), puis `ADAPTATEUR=rfc2217://host.docker.internal:2217`.
 

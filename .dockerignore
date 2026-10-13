@@ -9,3 +9,5 @@ lancer.sh
 Dockerfile
 docker-compose*.yml
 clio.conf
+windows-usb.ps1
+windows-usb.id

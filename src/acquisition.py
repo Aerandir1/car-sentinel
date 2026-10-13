@@ -4,6 +4,7 @@ import glob
 import os
 import time
 import traceback
+from pathlib import Path
 
 import demo
 from etat import METRICS
@@ -41,6 +42,14 @@ def probe(port):
             name = next((x for x in lines if "ELM" in x), "") or next((x for x in lines if x and x != "ATI"), "ELM327")
             return baud, name
     return None
+
+
+def on_windows():
+    """Conteneur de Docker Desktop sous Windows : son noyau est celui de WSL2."""
+    try:
+        return "microsoft" in Path("/proc/version").read_text().lower()
+    except OSError:
+        return False
 
 
 def group_of(path):
@@ -129,6 +138,9 @@ def _obd_loop(state, args, logger_factory):
                 if seen != "absent":
                     print(f"En attente de l'adaptateur : aucun ELM327 ne répond dans {args.dev}"
                           " (ttyUSB, ttyACM, rfcomm). Brancher la clé, ou ADAPTATEUR=… dans clio.conf.")
+                    if args.dev != "/dev" and on_windows():
+                        print("Docker Desktop (Windows) ne voit pas les ports COM : passer la clé USB à WSL2 avec"
+                              r" powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1 (README, « Docker sous Windows »).")
                     seen = "absent"
                 _pause(state, 5)
                 continue

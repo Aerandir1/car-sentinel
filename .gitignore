@@ -12,3 +12,4 @@ data/*
 !data/.gitkeep
 # Réglages de cette machine (modèle : clio.conf.exemple)
 clio.conf
+windows-usb.id
