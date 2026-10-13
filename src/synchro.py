@@ -275,10 +275,10 @@ def sync_loop(state, bases, client, version):
 
 
 def add_arguments(p):
-    p.add_argument("--server", metavar="URL[,URL…]", default=os.environ.get("CLIO_SERVER"),
+    p.add_argument("--server", metavar="URL[,URL…]", default=os.environ.get("FIESTA_SERVER"),
                    help="clio-sentinel-server où envoyer la base, une ou plusieurs adresses séparées par des virgules,"
-                        " ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (ou CLIO_SERVER)")
-    p.add_argument("--server-name", default=os.environ.get("CLIO_SERVER_NAME") or socket.gethostname(),
+                        " ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (ou FIESTA_SERVER)")
+    p.add_argument("--server-name", default=os.environ.get("FIESTA_SERVER_NAME") or socket.gethostname(),
                    help="nom de ce PC sur la page du serveur (défaut : nom de la machine)")
 
 
@@ -289,12 +289,12 @@ def make_client(args):
 def main():
     here = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--db", default=here / "data" / "clio.db", help="base SQLite (défaut data/clio.db)")
+    p.add_argument("--db", default=here / "data" / "fiesta.db", help="base SQLite (défaut data/fiesta.db)")
     add_arguments(p)
     args = p.parse_args()
     if not args.server:
         p.error("--server manquant")
-    from dashboard_clio import version
+    from dashboard_fiesta import version
     try:
         client = make_client(args)
         n = sync_once(args.db, client, args.server_name, version())

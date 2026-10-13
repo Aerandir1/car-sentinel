@@ -7,7 +7,7 @@ Calculé à partir du brut, recalculable (voir trajets.py) :
   trips     les trajets (et les périodes moteur allumé sans rouler), avec leur fiche et une note libre
   events    démarrages, arrêts moteur, alertes
 
-    sqlite3 data/clio.db "SELECT datetime(t_ms / 1000, 'unixepoch', 'localtime'), key, value
+    sqlite3 data/fiesta.db "SELECT datetime(t_ms / 1000, 'unixepoch', 'localtime'), key, value
                           FROM samples ORDER BY t_ms DESC LIMIT 20"
 """
 

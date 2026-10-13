@@ -5,7 +5,7 @@
 #   1. installe usbipd si besoin,
 #   2. repère la clé (CH340, FTDI, CP210x, Prolific, port série USB…) et la partage (usbipd bind),
 #   3. crée une tâche planifiée qui la rattache à WSL2 à chaque ouverture de session et à chaque branchement,
-#   4. vérifie que le conteneur la voit, et corrige OBD_GID dans clio.conf si besoin.
+#   4. vérifie que le conteneur la voit, et corrige OBD_GID dans fiesta.conf si besoin.
 #
 #   powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1            # installation
 #   powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1 -Supprimer # retire la tâche et le partage
@@ -14,7 +14,7 @@ param([switch]$Supprimer)
 
 $ErrorActionPreference = "Continue"   # erreurs des programmes vérifiées par $LASTEXITCODE (Stop casse sur leur stderr)
 [Console]::OutputEncoding = [Text.Encoding]::UTF8   # accents des messages de usbipd et du conteneur
-$Tache = "Clio Sentinel - adaptateur USB"
+$Tache = "Fiesta Sentinel - adaptateur USB"
 Set-Location $PSScriptRoot
 
 # usbipd bind et la tâche planifiée demandent les droits administrateur : on se relance en admin.
@@ -140,33 +140,33 @@ Write-Host "✓ Clé attachée à WSL2" -ForegroundColor Green
 
 # --- 4. Le conteneur la voit-il ? ---
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) { exit }
-if (-not (Test-Path clio.conf)) { Copy-Item clio.conf.exemple clio.conf }
-if (-not (docker compose ps -q clio 2>$null)) {
+if (-not (Test-Path fiesta.conf)) { Copy-Item fiesta.conf.exemple fiesta.conf }
+if (-not (docker compose ps -q fiesta 2>$null)) {
     Etape "Lancement du conteneur"
-    docker compose --env-file clio.conf up -d --build
+    docker compose --env-file fiesta.conf up -d --build
 }
 Etape "Recherche de l'adaptateur par le conteneur (jusqu'à 40 s)"
 $depart = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-docker compose restart clio | Out-Null
+docker compose restart fiesta | Out-Null
 for ($i = 0; $i -lt 40; $i++) {
     Start-Sleep 1
-    $journal = docker compose logs --no-log-prefix --since $depart clio 2>$null | Out-String
+    $journal = docker compose logs --no-log-prefix --since $depart fiesta 2>$null | Out-String
     if ($journal -match "Adaptateur trouv[^\r\n]*") {
         Write-Host "✓ $($Matches[0])" -ForegroundColor Green
         exit
     }
     if ($journal -match "OBD_GID=(\d+)") {
         $gid = $Matches[1]
-        Etape "Droit d'ouvrir le port : OBD_GID=$gid dans clio.conf, relance du conteneur"
-        $conf = Get-Content clio.conf
+        Etape "Droit d'ouvrir le port : OBD_GID=$gid dans fiesta.conf, relance du conteneur"
+        $conf = Get-Content fiesta.conf
         if ($conf -match "^\s*OBD_GID\s*=") { $conf = $conf -replace "^\s*OBD_GID\s*=.*", "OBD_GID=$gid" }
         else { $conf += "OBD_GID=$gid" }
-        Set-Content clio.conf $conf
-        docker compose --env-file clio.conf up -d | Out-Null
+        Set-Content fiesta.conf $conf
+        docker compose --env-file fiesta.conf up -d | Out-Null
         $depart = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     }
 }
 Write-Host "Le conteneur ne trouve pas l'adaptateur. Ports vus par le conteneur :"
-docker compose exec -T clio sh -c "ls -l /hostdev/ | grep -E 'ttyUSB|ttyACM' || echo '   aucun'"
+docker compose exec -T fiesta sh -c "ls -l /hostdev/ | grep -E 'ttyUSB|ttyACM' || echo '   aucun'"
 Write-Host "Journal : docker compose logs --tail 30"
 exit 1

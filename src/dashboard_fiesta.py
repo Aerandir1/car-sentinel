@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Dashboard OBD-II temps réel pour Clio 4 (ELM327 + python-obd).
+"""Dashboard OBD-II temps réel pour Ford Fiesta 1.0 EcoBoost FlexiFuel (ELM327 + python-obd).
 
 Lit l'ECU en boucle dans un thread et sert dashboard.html + une API JSON
-sur http://clio-sentinel.localhost:8080. Aucune dépendance web : tout marche hors ligne.
-Réglages dans clio.conf (voir clio.conf.exemple) ; les options ci-dessous passent devant.
+sur http://fiesta-sentinel.localhost:8082. Aucune dépendance web : tout marche hors ligne.
+Réglages dans fiesta.conf (voir fiesta.conf.exemple) ; les options ci-dessous passent devant.
 
-    python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv
+    python src/dashboard_fiesta.py --port /dev/ttyUSB0 --log trajet.csv
 """
 
 import argparse
@@ -19,6 +19,7 @@ from pathlib import Path
 
 import config
 import donnees
+import etalonnage
 import synchro
 import trajets
 from acquisition import obd_loop
@@ -32,7 +33,7 @@ TRIPS_EVERY_S = 10     # mise à jour des trajets
 
 
 def version():
-    """Commit git du script, enregistré avec chaque session (CLIO_VERSION dans un conteneur sans .git)."""
+    """Commit git du script, enregistré avec chaque session (FIESTA_VERSION dans un conteneur sans .git)."""
     try:
         out = subprocess.run(["git", "-C", str(HERE), "describe", "--always", "--dirty"],
                              capture_output=True, text=True, timeout=5)
@@ -40,7 +41,7 @@ def version():
             return out.stdout.strip()
     except (OSError, subprocess.SubprocessError):
         pass
-    return os.environ.get("CLIO_VERSION")
+    return os.environ.get("FIESTA_VERSION")
 
 
 def trips_loop(state, db_path, demo_path):
@@ -60,7 +61,7 @@ def main():
     p.add_argument("--port", help="port série de l'ELM327 (auto-détection si absent)")
     p.add_argument("--baud", type=int, default=None, help="débit série (auto si absent)")
     p.add_argument("--db", metavar="FICHIER.db",
-                   help="base SQLite des mesures horodatées (défaut data/clio.db)")
+                   help="base SQLite des mesures horodatées (défaut data/fiesta.db)")
     p.add_argument("--no-db", action="store_true", help="n'enregistre pas les mesures")
     p.add_argument("--log", metavar="FICHIER.csv", help="enregistre les mesures en CSV")
     p.add_argument("--log-hz", type=float, default=5.0, help="fréquence du CSV (défaut 5 Hz)")
@@ -68,7 +69,7 @@ def main():
     p.add_argument("--max-hz", type=float, default=20.0, help="fréquence max d'acquisition (défaut 20)")
     p.add_argument("--fast", action="store_true", help="mode rapide python-obd (requêtes plus courtes)")
     p.add_argument("--demo", action="store_true", help="démarre en mode démo (trajet simulé, base à part)")
-    p.add_argument("--http", type=int, default=8080, help="port local de la page web (défaut 8080)")
+    p.add_argument("--http", type=int, default=8082, help="port local de la page web (défaut 8082)")
     p.add_argument("--bind", default="127.0.0.1",
                    help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
     p.add_argument("--lan", action="store_true",
@@ -85,10 +86,10 @@ def main():
         args.dev = "/hostdev"
         if args.port and args.port.startswith("/dev/"):
             args.port = "/hostdev/" + args.port[5:]
-        if args.lan and os.environ.get("CLIO_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
+        if args.lan and os.environ.get("FIESTA_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
             on_lan = False   # la page n'est publiée que sur ce PC
             print("Attention : RESEAU=oui, mais le port n'est publié que sur ce PC. Mettre DOCKER_ECOUTE=0.0.0.0\n"
-                  "dans clio.conf et relancer avec : docker compose --env-file clio.conf up -d")
+                  "dans fiesta.conf et relancer avec : docker compose --env-file fiesta.conf up -d")
     # Une synchro mal réglée ne doit pas empêcher le dashboard de tourner : on prévient et on continue sans
     client = None
     if args.server and args.no_db:
@@ -97,7 +98,7 @@ def main():
         try:
             client = synchro.make_client(args)
         except synchro.SyncError as e:
-            print(f"Attention : {e} : synchro désactivée (SERVEUR dans clio.conf)")
+            print(f"Attention : {e} : synchro désactivée (SERVEUR dans fiesta.conf)")
 
     def logger_factory(keys):
         return CsvLogger(args.log, keys) if args.log else None
@@ -105,7 +106,7 @@ def main():
     state = State()
     db_path = demo_path = None
     if not args.no_db:
-        db_path = Path(args.db) if args.db else DATA / "clio.db"
+        db_path = Path(args.db) if args.db else DATA / "fiesta.db"
         demo_path = db_path.with_name(db_path.stem + "-demo.db")   # mode démo : base à part, jamais mêlée
         db_path.parent.mkdir(parents=True, exist_ok=True)
         state.recorder = donnees.Recorder(db_path, version())
@@ -117,6 +118,10 @@ def main():
             bases = [(db_path, args.server_name), (demo_path, f"{args.server_name} · démo")]
             threading.Thread(target=synchro.sync_loop, args=(state, bases, client, version()), daemon=True).start()
             print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
+    # Étalonnage des mesures Ford : à côté de la base (data/ par défaut)
+    calib_dir = db_path.parent if db_path else DATA
+    calib_dir.mkdir(parents=True, exist_ok=True)
+    state.calib = etalonnage.Store(calib_dir / "etalonnage.json")
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,
                         "demo": args.demo})
@@ -127,7 +132,7 @@ def main():
             state, lambda: demo_path if state.get_settings().get("demo") else db_path))
     except OSError as e:
         sys.exit(f"Erreur : impossible d'ouvrir le port {args.http} ({e.strerror}). Le dashboard tourne déjà"
-                 f" (./service.sh status) ? Sinon changer PORT_PAGE dans clio.conf.")
+                 f" (./service.sh status) ? Sinon changer PORT_PAGE dans fiesta.conf.")
     print(f"Dashboard : http://{HOST}:{args.http}  (Ctrl+C pour quitter)")
     for n in lan_names() if on_lan else []:
         print(f"  sur le réseau : http://{n}:{args.http}")

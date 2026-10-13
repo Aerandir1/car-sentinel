@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 # Nom de la page : les navigateurs envoient tout nom en .localhost vers la machine elle-même (pas de /etc/hosts)
-HOST = "clio-sentinel.localhost"
+HOST = "fiesta-sentinel.localhost"
 VIRTUAL_IFACES = ("docker", "br-", "veth", "virbr")   # réseaux internes de Docker / libvirt : injoignables du réseau
 
 

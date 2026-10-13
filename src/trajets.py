@@ -168,7 +168,7 @@ def update(path, rebuild=False):
 def main():
     here = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--db", default=here / "data" / "clio.db", help="base SQLite (défaut data/clio.db)")
+    p.add_argument("--db", default=here / "data" / "fiesta.db", help="base SQLite (défaut data/fiesta.db)")
     p.add_argument("--rebuild", action="store_true", help="recalcule tous les trajets depuis le début")
     args = p.parse_args()
     donnees.init(args.db)

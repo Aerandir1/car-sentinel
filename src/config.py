@@ -1,4 +1,4 @@
-"""Réglages de clio.conf (modèle : clio.conf.exemple), traduits en options du script.
+"""Réglages de fiesta.conf (modèle : fiesta.conf.exemple), traduits en options du script.
 
 Le fichier est créé depuis le modèle au premier lancement. Dans Docker, il n'est pas dans l'image :
 les réglages arrivent en variables d'environnement (env_file du docker-compose.yml), qui passent avant le fichier.
@@ -10,8 +10,8 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
-CONF = HERE / "clio.conf"
-EXEMPLE = HERE / "clio.conf.exemple"
+CONF = HERE / "fiesta.conf"
+EXEMPLE = HERE / "fiesta.conf.exemple"
 IN_DOCKER = Path("/.dockerenv").exists()
 
 # réglage → option du script
@@ -41,12 +41,12 @@ def _yes(key, value):
     if v in ("oui", "o", "yes", "y", "1", "true", "vrai"):
         return True
     if v not in ("non", "n", "no", "0", "false", "faux"):
-        print(f"Attention : clio.conf : {key}={value} (attendu : oui ou non), compris comme non")
+        print(f"Attention : fiesta.conf : {key}={value} (attendu : oui ou non), compris comme non")
     return False
 
 
 def argv():
-    """Options du script tirées de clio.conf (et de l'environnement dans Docker), à mettre avant celles de la
+    """Options du script tirées de fiesta.conf (et de l'environnement dans Docker), à mettre avant celles de la
     ligne de commande : celles-ci passent devant."""
     if not IN_DOCKER and not CONF.exists() and EXEMPLE.is_file():
         shutil.copyfile(EXEMPLE, CONF)
@@ -65,5 +65,5 @@ def argv():
     try:
         return out + shlex.split(conf.get("AUTRES_OPTIONS", ""))
     except ValueError as e:   # guillemet non fermé…
-        print(f"Attention : clio.conf : AUTRES_OPTIONS illisible ({e}), ignoré")
+        print(f"Attention : fiesta.conf : AUTRES_OPTIONS illisible ({e}), ignoré")
         return out

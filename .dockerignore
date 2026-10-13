@@ -8,6 +8,6 @@ lancer.sh
 .git/
 Dockerfile
 docker-compose*.yml
-clio.conf
+fiesta.conf
 windows-usb.ps1
 windows-usb.id

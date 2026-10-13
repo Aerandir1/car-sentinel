@@ -7,7 +7,12 @@ import traceback
 from pathlib import Path
 
 import demo
-import renault
+import ford
+
+try:
+    import fcntl   # verrou du port série (Linux, Docker) ; absent sous Windows
+except ImportError:
+    fcntl = None
 from etat import METRICS
 
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
@@ -63,24 +68,52 @@ def group_of(path):
         return gid, None
 
 
+def lock_port(port):
+    """Réserve le port (verrou flock, comme pyserial exclusive=True) : un scan (uds_scan.py, obd_scan.py)
+    et le dashboard ne parlent jamais à l'ELM327 en même temps. Renvoie le descripteur à garder, None si
+    un autre programme a déjà réservé le port, -1 si le verrou est impossible ici (Windows, socket://…)."""
+    if fcntl is None or not port.startswith("/"):
+        return -1
+    try:
+        fd = os.open(port, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+    except OSError:
+        return -1   # absent ou interdit : l'erreur viendra plus loin, avec son vrai message
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    except OSError:
+        os.close(fd)
+        return None
+
+
+def release(fd):
+    if fd is not None and fd >= 0:
+        os.close(fd)
+
+
 def find_adapter(dev):
-    """Cherche l'ELM327 : (port, débit, nom) s'il répond, sinon (None, ports interdits, None)."""
-    denied = []
+    """Cherche l'ELM327 : (port, débit, nom, verrou) s'il répond, sinon (None, ports interdits, ports occupés, None)."""
+    denied, busy = [], []
     for port in candidates(dev):
         if not os.access(port, os.R_OK | os.W_OK):
             denied.append(port)
             continue
+        fd = lock_port(port)
+        if fd is None:
+            busy.append(port)
+            continue
         found = probe(port)
         if found:
-            return port, found[0], found[1]
-    return None, denied, None
+            return port, found[0], found[1], fd
+        release(fd)
+    return None, denied, busy, None
 
 
 def denied_message(port, in_docker):
     gid, name = group_of(port)
     if in_docker:
-        return (f"Attention : pas le droit d'ouvrir {port} (groupe {gid} sur l'hôte) : OBD_GID={gid} dans clio.conf,"
-                " puis docker compose --env-file clio.conf up -d")
+        return (f"Attention : pas le droit d'ouvrir {port} (groupe {gid} sur l'hôte) : OBD_GID={gid} dans fiesta.conf,"
+                " puis docker compose --env-file fiesta.conf up -d")
     return (f"Attention : pas le droit d'ouvrir {port} : sudo usermod -aG {name or gid} $USER,"
             " puis se déconnecter / reconnecter (ou redémarrer)")
 
@@ -125,10 +158,21 @@ def _pause(state, seconds):
 
 
 def _obd_loop(state, args, logger_factory):
+    held = []   # verrou du port tenu pendant l'essai en cours (relâché à chaque tour, et en cas d'erreur)
+    try:
+        _obd_loop_locked(state, args, logger_factory, held)
+    finally:
+        for fd in held:
+            release(fd)
+
+
+def _obd_loop_locked(state, args, logger_factory, held):
     import obd
 
     seen = None   # dernier message d'adaptateur écrit au journal (pas de répétition toutes les 5 s)
     while True:
+        while held:
+            release(held.pop())
         if _demo_on(state):   # mode démo (onglet Paramètres) : l'ELM327 est laissé de côté
             state.adapter = "absent"
             state.elm, state.ecu, state.protocol = "demo", "demo", None
@@ -137,28 +181,29 @@ def _obd_loop(state, args, logger_factory):
             state.clear_live()
             state.elm, state.ecu = "recherche", "off"
             continue
-        port, baud = args.port, args.baud
+        port, baud, busy = args.port, args.baud, []
         if port and os.path.exists(port) and not os.access(port, os.R_OK | os.W_OK):
             # Port série présent mais interdit : python-obd dirait juste « Not Connected »
             denied = [port]
         elif not port and os.path.isdir(args.dev):
             # Détection automatique (Linux, Docker) : ttyUSB, ttyACM, rfcomm, dont l'ELM327 répond à ATI
-            port, found, name = find_adapter(args.dev)
-            denied = [] if port else found
+            port, found, name, fd = find_adapter(args.dev)
+            denied, busy = ([], []) if port else (found, name)
             if port:
+                held.append(fd)
                 baud = baud or found
                 state.elm, state.elm_name, state.port = "ok", name, port
                 if (port, name) != seen:
                     print(f"Adaptateur trouvé : {name} sur {port}")
                     seen = (port, name)
-            elif not denied:
+            elif not denied and not busy:
                 state.source = "auto"
                 state.status = f"adaptateur introuvable (aucun ELM327 dans {args.dev}), nouvel essai dans 5 s"
                 state.adapter = "absent"
                 state.elm, state.ecu, state.port, state.elm_name = "absent", "off", None, None
                 if seen != "absent":
                     print(f"En attente de l'adaptateur : aucun ELM327 ne répond dans {args.dev}"
-                          " (ttyUSB, ttyACM, rfcomm). Brancher la clé, ou ADAPTATEUR=… dans clio.conf.")
+                          " (ttyUSB, ttyACM, rfcomm). Brancher la clé, ou ADAPTATEUR=… dans fiesta.conf.")
                     if args.dev != "/dev" and on_windows():
                         print("Docker Desktop (Windows) ne voit pas les ports COM : passer la clé USB à WSL2 avec"
                               r" powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1 (README, « Docker sous Windows »).")
@@ -167,6 +212,22 @@ def _obd_loop(state, args, logger_factory):
                 continue
         else:
             denied = []
+            fd = lock_port(port) if port else -1
+            if fd is None:
+                busy = [port]
+            else:
+                held.append(fd)
+        if busy and not denied:
+            state.source = busy[0]
+            state.status = f"{busy[0]} utilisé par un autre programme, nouvel essai dans 5 s"
+            state.adapter = "absent"
+            state.elm, state.ecu, state.port = "occupe", "off", busy[0]
+            msg = f"Adaptateur {busy[0]} réservé par un autre programme (scan ?) : en attente qu'il le libère"
+            if msg != seen:
+                print(msg)
+                seen = msg
+            _pause(state, 5)
+            continue
         if denied:
             state.source = denied[0]
             state.status = f"pas le droit d'ouvrir {denied[0]}"
@@ -188,7 +249,7 @@ def _obd_loop(state, args, logger_factory):
         state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
                          obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
         if state.adapter == "absent":
-            # Port trouvé par ATI mais l'initialisation a échoué ; port donné dans clio.conf : rien à cet endroit
+            # Port trouvé par ATI mais l'initialisation a échoué ; port donné dans fiesta.conf : rien à cet endroit
             state.elm, state.ecu = ("ko" if state.elm_name else "absent"), "off"
         else:
             state.elm = "ok"
@@ -200,29 +261,31 @@ def _obd_loop(state, args, logger_factory):
             _pause(state, 5)
             continue
 
-        # Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Renault s'il répond
+        # Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Ford s'il répond
         cmds = []   # (clé, commande, conversion, lecture espacée ou None pour l'OBD standard)
-        state.supported, state.unsupported, state.sources = [], [], {}
+        state.supported, state.unsupported, state.sources, state.raw_keys = [], [], {}, []
         extra = []
         spaced = lambda c: " ".join(c[i:i + 2] for i in range(0, len(c), 2))   # b"015C" → "01 5C"
         for key, _lbl, _u, name, conv, *_ in METRICS:
-            cmd = getattr(obd.commands, name, None)
+            cmd = getattr(obd.commands, name, None) if name else None   # None : mesure Ford seulement
             if cmd is not None and conn.supports(cmd):
                 cmds.append((key, cmd, conv, None))
                 state.supported.append(key)
                 state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
                 continue
-            rcmd = renault.command(obd, key)
-            if rcmd is not None and renault.probe(conn, rcmd):
-                cmds.append((key, rcmd, None, renault.Slow(renault.FALLBACK[key][-1])))
+            rcmd = ford.command(obd, key)
+            if rcmd is not None and ford.probe(conn, rcmd):
+                cmds.append((key, rcmd, None, ford.Slow(ford.FALLBACK[key][4])))
                 state.supported.append(key)
-                state.sources[key] = {"kind": "renault", "cmd": f"22 {renault.FALLBACK[key][0]}"}
-                extra.append(f"{key} (22 {renault.FALLBACK[key][0]})")
+                state.sources[key] = {"kind": "ford", "cmd": f"22 {ford.FALLBACK[key][0]}"}
+                state.raw_keys.append(key)
+                validated = state.calib is None or state.calib.get(key)[2]
+                extra.append(f"{key} (22 {ford.FALLBACK[key][0]}{'' if validated else ', à étalonner'})")
             else:
                 state.unsupported.append(key)
         if extra:
-            print("Mesures Renault lues en plus de l'OBD standard : " + ", ".join(extra))
-        keys = state.supported + (["boost"] if "map" in state.supported else [])
+            print("Mesures Ford lues en plus de l'OBD standard : " + ", ".join(extra))
+        keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys]
         state.protocol = conn.protocol_name()
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
         state.status = "connecté (rapide)" if fast else "connecté"
@@ -237,8 +300,15 @@ def _obd_loop(state, args, logger_factory):
                 delay = state.get_settings()["delay"]
                 for key, cmd, conv, slow in cmds:
                     if slow is not None and not slow.due():
-                        continue   # mesure Renault lente : lue moins souvent
+                        continue   # mesure Ford lente : lue moins souvent
                     r = conn.query(cmd, force=slow is not None)
+                    if slow is not None:   # mesure Ford : valeur brute, étalonnée par state
+                        state.update_raw(key, None if r.is_null() else r.value)
+                        if not r.is_null() and r.value is not None:
+                            last_ok = time.time()
+                            if delay:
+                                time.sleep(delay)
+                        continue
                     if r.is_null():
                         state.update(key, None)
                         continue

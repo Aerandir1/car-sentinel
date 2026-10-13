@@ -1,26 +1,26 @@
-# Lancement (Linux, Windows) : réglages dans clio.conf (copie de clio.conf.exemple), puis
-#   docker compose --env-file clio.conf up -d --build        puis  http://clio-sentinel.localhost:8080
-# --env-file clio.conf est nécessaire : c'est lui qui donne à Docker le port, l'adresse publiée (DOCKER_ECOUTE),
-# le groupe du port série (OBD_GID) et l'emplacement de la base (CLIO_DATA). Voir la section « Docker » du README.
+# Lancement (Linux, Windows) : réglages dans fiesta.conf (copie de fiesta.conf.exemple), puis
+#   docker compose --env-file fiesta.conf up -d --build        puis  http://fiesta-sentinel.localhost:8082
+# --env-file fiesta.conf est nécessaire : c'est lui qui donne à Docker le port, l'adresse publiée (DOCKER_ECOUTE),
+# le groupe du port série (OBD_GID) et l'emplacement de la base (FIESTA_DATA). Voir la section « Docker » du README.
 #
-# Variables en plus (environnement ou clio.conf) :
-#   CLIO_VERSION  version enregistrée avec chaque session (l'image n'a pas le dossier .git)
+# Variables en plus (environnement ou fiesta.conf) :
+#   FIESTA_VERSION  version enregistrée avec chaque session (l'image n'a pas le dossier .git)
 #   TZ            fuseau horaire des noms de trajets (défaut Europe/Paris)
 services:
-  clio:
+  fiesta:
     build: .
-    image: dashboard-clio
+    image: dashboard-fiesta
     # Tourne sous ton utilisateur (Linux) : logs/ et data/ restent à toi, pas à root
     user: "${UID:-1000}:${GID:-1000}"
     ports:
       # 127.0.0.1 par défaut : la page n'est pas exposée au réseau (pas de mot de passe sur le dashboard).
-      - "${DOCKER_ECOUTE:-127.0.0.1}:${PORT_PAGE:-8080}:${PORT_PAGE:-8080}"
+      - "${DOCKER_ECOUTE:-127.0.0.1}:${PORT_PAGE:-8082}:${PORT_PAGE:-8082}"
     volumes:
       # /dev de l'hôte en lecture seule : le conteneur démarre sans la clé et la voit quand on la branche.
       # Seuls les ports série USB sont autorisés (règles ci-dessous) : disques et autres périphériques restent bloqués.
       - /dev:/hostdev:ro
-      - ./logs:/app/logs     # CSV : AUTRES_OPTIONS=--log logs/trajet.csv dans clio.conf
-      - ${CLIO_DATA:-./data}:/app/data   # base SQLite des mesures
+      - ./logs:/app/logs     # CSV : AUTRES_OPTIONS=--log logs/trajet.csv dans fiesta.conf
+      - ${FIESTA_DATA:-./data}:/app/data   # base SQLite des mesures
     device_cgroup_rules:
       - "c 188:* rmw"        # /dev/ttyUSB* (CH340, FTDI, CP210x…)
       - "c 166:* rmw"        # /dev/ttyACM*
@@ -29,15 +29,15 @@ services:
     group_add:
       - "${OBD_GID:-20}"
     env_file:
-      - path: clio.conf      # réglages du script (RESEAU, SERVEUR, ADAPTATEUR…), comme hors Docker
+      - path: fiesta.conf      # réglages du script (RESEAU, SERVEUR, ADAPTATEUR…), comme hors Docker
         required: false
     environment:
       TZ: ${TZ:-Europe/Paris}
-      CLIO_VERSION: ${CLIO_VERSION:-}
-      CLIO_SERVER_NAME: clio-docker            # nom par défaut sur la page du serveur (NOM_PC de clio.conf passe devant)
-      CLIO_PUBLIE: ${DOCKER_ECOUTE:-127.0.0.1}   # pour avertir si RESEAU=oui mais le port n'est publié que sur ce PC
-      PORT_PAGE: ${PORT_PAGE:-8080}             # le même port que celui publié ci-dessus
+      FIESTA_VERSION: ${FIESTA_VERSION:-}
+      FIESTA_SERVER_NAME: fiesta-docker            # nom par défaut sur la page du serveur (NOM_PC de fiesta.conf passe devant)
+      FIESTA_PUBLIE: ${DOCKER_ECOUTE:-127.0.0.1}   # pour avertir si RESEAU=oui mais le port n'est publié que sur ce PC
+      PORT_PAGE: ${PORT_PAGE:-8082}             # le même port que celui publié ci-dessus
     restart: unless-stopped
 
 volumes:
-  clio-data:                 # utilisé seulement avec CLIO_DATA=clio-data
+  fiesta-data:                 # utilisé seulement avec FIESTA_DATA=fiesta-data
