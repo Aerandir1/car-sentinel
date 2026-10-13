@@ -65,6 +65,13 @@ class State:
         self.source = ""
         self.vin = None
         self.adapter = "absent"   # ELM327 : "absent", "elm" (branché, calculateur muet), "car" (calculateur répond)
+        # Témoins du dashboard, plus détaillés (adapter, lui, part tel quel au serveur) :
+        #   elm : "recherche", "ok", "absent" (aucun ELM327), "refuse" (port interdit), "ko" (ne répond pas bien), "demo"
+        #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé ?), "demo"
+        self.elm, self.ecu = "recherche", "off"
+        self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
+        self.port = None
+        self.protocol = None  # protocole OBD du calculateur, ex. « ISO 15765-4 (CAN 11/500) »
         self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
         self.hz = 0.0
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
@@ -139,6 +146,8 @@ class State:
                 "ts": dict(self.times),
                 "trip": self.trip,
                 "sync": self.sync,
+                "link": {"elm": self.elm, "ecu": self.ecu, "name": self.elm_name, "port": self.port,
+                         "protocol": self.protocol, "vin": self.vin},
                 "min": dict(self.mins),
                 "max": dict(self.maxs),
             }

@@ -93,6 +93,7 @@ def obd_loop(state, args, logger_factory):
             traceback.print_exc()
             state.status = f"erreur ({e}), nouvel essai dans 5 s"
             state.adapter = "absent"
+            state.elm, state.ecu = "ko", "off"
             time.sleep(5)
 
 
@@ -114,9 +115,11 @@ def _obd_loop(state, args, logger_factory):
     while True:
         if _demo_on(state):   # mode démo (onglet Paramètres) : l'ELM327 est laissé de côté
             state.adapter = "absent"
+            state.elm, state.ecu, state.protocol = "demo", "demo", None
             state.clear_live()
             demo.run(state, lambda: _demo_on(state))
             state.clear_live()
+            state.elm, state.ecu = "recherche", "off"
             continue
         port, baud = args.port, args.baud
         if port and os.path.exists(port) and not os.access(port, os.R_OK | os.W_OK):
@@ -128,6 +131,7 @@ def _obd_loop(state, args, logger_factory):
             denied = [] if port else found
             if port:
                 baud = baud or found
+                state.elm, state.elm_name, state.port = "ok", name, port
                 if (port, name) != seen:
                     print(f"Adaptateur trouvé : {name} sur {port}")
                     seen = (port, name)
@@ -135,6 +139,7 @@ def _obd_loop(state, args, logger_factory):
                 state.source = "auto"
                 state.status = f"adaptateur introuvable (aucun ELM327 dans {args.dev}), nouvel essai dans 5 s"
                 state.adapter = "absent"
+                state.elm, state.ecu, state.port, state.elm_name = "absent", "off", None, None
                 if seen != "absent":
                     print(f"En attente de l'adaptateur : aucun ELM327 ne répond dans {args.dev}"
                           " (ttyUSB, ttyACM, rfcomm). Brancher la clé, ou ADAPTATEUR=… dans clio.conf.")
@@ -150,6 +155,7 @@ def _obd_loop(state, args, logger_factory):
             state.source = denied[0]
             state.status = f"pas le droit d'ouvrir {denied[0]}"
             state.adapter = "absent"
+            state.elm, state.ecu, state.port = "refuse", "off", denied[0]
             msg = denied_message(denied[0], args.dev != "/dev")
             if msg != seen:
                 print(msg)
@@ -159,9 +165,19 @@ def _obd_loop(state, args, logger_factory):
         state.source = port or "auto"
         fast = state.get_settings()["fast"]
         state.status = "connexion (mode rapide)…" if fast else "connexion…"
+        state.port = port
+        if state.elm == "ok" and state.ecu in ("off", "ok"):
+            state.ecu = "recherche"   # un calculateur déjà muet le reste jusqu'à sa réponse (pas de clignotement)
         conn = obd.OBD(portstr=port, baudrate=baud, fast=fast, timeout=1)
         state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
                          obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
+        if state.adapter == "absent":
+            # Port trouvé par ATI mais l'initialisation a échoué ; port donné dans clio.conf : rien à cet endroit
+            state.elm, state.ecu = ("ko" if state.elm_name else "absent"), "off"
+        else:
+            state.elm = "ok"
+            state.port = conn.port_name() or port
+            state.ecu = "ok" if state.adapter == "car" else "muet"
         if conn.status() != obd.OBDStatus.CAR_CONNECTED or _demo_on(state):
             state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
             conn.close()
@@ -178,6 +194,7 @@ def _obd_loop(state, args, logger_factory):
             else:
                 state.unsupported.append(key)
         keys = state.supported + (["boost"] if "map" in state.supported else [])
+        state.protocol = conn.protocol_name()
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
         state.status = "connecté (rapide)" if fast else "connecté"
         logger = logger_factory(keys)
@@ -208,6 +225,7 @@ def _obd_loop(state, args, logger_factory):
                 if time.time() - last_ok > MUTE_S:
                     state.status = "calculateur muet (contact coupé ?), attente…"
                     state.adapter = "elm"
+                    state.ecu = "muet"
                     break
                 # Bride la boucle à max_hz (l'ELM327 est souvent plus lent de toute façon)
                 time.sleep(max(0.0, 1.0 / state.get_settings()["max_hz"] - (time.time() - t0)))
@@ -223,4 +241,5 @@ def _obd_loop(state, args, logger_factory):
         if not state.status.startswith("calculateur muet"):
             state.status = "connexion perdue, reconnexion…"
             state.adapter = "absent"
+            state.elm, state.ecu = "recherche", "off"
         time.sleep(2)

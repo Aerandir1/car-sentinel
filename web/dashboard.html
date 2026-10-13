@@ -12,7 +12,7 @@
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px;
+  header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 10px 16px;
            border-bottom: 1px solid var(--line); }
   /* Logos Renault (dossier logo/) : utilisés en masque, ils prennent la couleur du texte (currentColor) */
   .r-mark, .r-lockup { display: inline-block; flex: none; background: currentColor;
@@ -21,15 +21,28 @@
   .r-lockup { --src: url(/logo/Renault_2021_Text.svg); aspect-ratio: 500 / 437.5; }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header .r-mark { height: 26px; color: var(--text); }
-  #status { color: var(--dim); font-size: 13px; }
-  #dot { width: 10px; height: 10px; border-radius: 50%; background: var(--dim); }
-  /* Témoin clio-sentinel-server (--server) : vert joignable, rouge injoignable, gris premier essai en cours */
-  #srv { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim);
-         border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
-  #srv[hidden] { display: none; }
-  #srv i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-  #srv.ok { color: var(--ok); border-color: var(--ok); }
-  #srv.ko { color: var(--hot); border-color: var(--hot); }
+  /* Témoins ELM327 → calculateur, et clio-sentinel-server (--server). Détail au survol.
+     data-st : ok vert, wait gris qui pulse (recherche), warn jaune (calculateur muet), ko rouge, demo bleu, off gris */
+  #link { display: flex; align-items: center; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim);
+          border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; white-space: nowrap; cursor: default;
+          transition: color .3s, border-color .3s; }
+  .chip[hidden] { display: none; }
+  .chip i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+  .chip b { font-weight: 600; }
+  .chip small { font-size: inherit; opacity: .75; font-variant-numeric: tabular-nums; }
+  .chip[data-st="ok"] { color: var(--ok); border-color: var(--ok); }
+  .chip[data-st="warn"] { color: var(--accent); border-color: var(--accent); }
+  .chip[data-st="ko"] { color: var(--hot); border-color: var(--hot); }
+  .chip[data-st="demo"] { color: var(--cold); border-color: var(--cold); }
+  .chip[data-st="ok"] i { box-shadow: 0 0 6px currentColor; }
+  .chip[data-st="wait"] i { animation: chip-pulse 1.2s ease-in-out infinite; }
+  @keyframes chip-pulse { 50% { opacity: .25; } }
+  /* Fil entre l'adaptateur et le calculateur : plein et vert quand les deux répondent */
+  .wire { width: 18px; border-top: 1px dashed var(--line); }
+  #link[data-wire="ok"] .wire { border-top: 1px solid var(--ok); }
+  #link[data-wire="demo"] .wire { border-top: 1px solid var(--cold); }
+  @media (prefers-reduced-motion: reduce) { .chip[data-st="wait"] i { animation: none; opacity: .5; } }
   nav { display: flex; gap: 4px; margin-left: auto; }
   nav button.on { border-color: var(--accent); color: var(--accent); }
   header button { background: var(--panel); color: var(--text);
@@ -184,7 +197,7 @@
   [data-look="glass"] .tile:hover { border-color: rgba(255, 255, 255, .3); transform: translateY(-1px); }
   [data-look="glass"] .tile.hot { background: linear-gradient(140deg, rgba(248, 81, 73, .32), rgba(248, 81, 73, .1));
                                   border-color: rgba(248, 81, 73, .7); }
-  [data-look="glass"] :is(header button, .seg, .badge, #srv) { border-radius: 999px; }
+  [data-look="glass"] :is(header button, .seg, .badge, .chip) { border-radius: 999px; }
   [data-look="glass"] header button, [data-look="glass"] :is(.lay-item, .t-note, .t-actions button, .d-filters select) {
     background: rgba(255, 255, 255, .08); border-color: var(--line);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18);
@@ -234,10 +247,10 @@
   [data-look="renault"] header .r-mark { height: 34px; }
   [data-look="renault"] header h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .14em;
                                     padding-left: 18px; border-left: 1px solid var(--line); }
-  [data-look="renault"] #dot { border-radius: 0; width: 8px; height: 8px; flex: none; }
-  [data-look="renault"] #srv, [data-look="renault"] .badge { border-radius: 0; text-transform: uppercase;
-                                                             letter-spacing: .08em; font-size: 10.5px; }
-  [data-look="renault"] #srv i { border-radius: 0; }
+  [data-look="renault"] .chip, [data-look="renault"] .badge { border-radius: 0; text-transform: uppercase;
+                                                              letter-spacing: .08em; font-size: 10.5px; }
+  [data-look="renault"] .chip i { border-radius: 0; }
+  [data-look="renault"] .chip small { text-transform: none; letter-spacing: .02em; }   /* nom du port tel quel */
   /* Onglets : texte en capitales, l'onglet actif est souligné en jaune */
   [data-look="renault"] nav { gap: 2px; }
   [data-look="renault"] header button { background: none; border: 0; border-radius: 0; color: var(--dim);
@@ -309,10 +322,13 @@
 </div>
 <header>
   <span class="r-mark" role="img" aria-label="Renault"></span>
-  <div id="dot"></div>
   <h1>Clio 4 dCi 90 · OBD</h1>
-  <span id="status">chargement…</span>
-  <span id="srv" hidden><i></i><span id="srv-txt"></span></span>
+  <div id="link">
+    <span id="c-elm" class="chip" data-st="wait"><i></i><b>ELM327</b><small>chargement…</small></span>
+    <span class="wire" aria-hidden="true"></span>
+    <span id="c-ecu" class="chip" data-st="off"><i></i><b>Calculateur</b><small></small></span>
+  </div>
+  <span id="srv" class="chip" hidden><i></i><span id="srv-txt"></span></span>
   <nav>
     <button id="tab-dash" class="on">Tableau de bord</button>
     <button id="tab-trips">Trajets</button>
@@ -663,7 +679,7 @@ function showSync(sync) {
   if (!sync) return;
   const hour = (t) => new Date(t * 1000).toLocaleTimeString("fr-FR");
   const sent = sync.synced ? `Dernier envoi à ${hour(sync.synced)} (${sync.sent} mesures)` : "Pas encore d'envoi";
-  srv.className = sync.ok === null ? "" : sync.ok ? "ok" : "ko";
+  srv.dataset.st = sync.ok === null ? "wait" : sync.ok ? "ok" : "ko";
   if (sync.ok === null) {
     $("srv-txt").textContent = "serveur…";
     srv.title = "Recherche du serveur";
@@ -676,6 +692,39 @@ function showSync(sync) {
   }
 }
 
+function chip(id, st, label, sub, tip) {
+  const c = $(id);
+  c.dataset.st = st;
+  c.querySelector("b").textContent = label;
+  c.querySelector("small").textContent = sub;
+  c.querySelector("small").hidden = !sub;
+  c.title = tip;
+}
+
+// Témoins ELM327 et calculateur, d'après link (acquisition.py) ; le détail est dans l'infobulle
+function showLink(s) {
+  const l = s.link, port = l.port ? l.port.split("/").pop() : "";
+  const elm = {
+    recherche: ["wait", "ELM327", "recherche…", "Recherche de l'adaptateur"],
+    ok: ["ok", l.name || "ELM327", port, `Adaptateur connecté : ${l.name || "ELM327"}${l.port ? ` sur ${l.port}` : ""}`],
+    absent: ["ko", "ELM327", "absent", "Aucun adaptateur ne répond : brancher la clé (ou ADAPTATEUR=… dans clio.conf)"],
+    refuse: ["ko", "ELM327", "accès refusé", `Pas le droit d'ouvrir ${l.port} : voir le journal du script`],
+    ko: ["ko", l.name || "ELM327", "ne répond pas", "L'adaptateur est là mais son initialisation a échoué"],
+    demo: ["demo", "Démo", "", "Mode démo : l'adaptateur est laissé de côté (onglet Paramètres)"],
+  }[l.elm] || ["off", "ELM327", l.elm, ""];
+  const ecu = {
+    off: ["off", "Calculateur", "", "En attente de l'adaptateur"],
+    recherche: ["wait", "Calculateur", "connexion…", "Essai des protocoles OBD (contact mis ?)"],
+    ok: ["ok", "Calculateur", `${s.hz} Hz`, [`Calculateur connecté · ${s.hz} mesures/s`, l.protocol,
+         l.vin && `VIN ${l.vin}`].filter(Boolean).join("\n")],
+    muet: ["warn", "Calculateur", "muet", "L'adaptateur répond, pas le calculateur : contact coupé, ou prise OBD débranchée"],
+    demo: ["demo", "Valeurs simulées", `${s.hz} Hz`, "Trajet simulé, enregistré dans une base à part"],
+  }[l.ecu] || ["off", "Calculateur", l.ecu, ""];
+  chip("c-elm", elm[0], elm[1], elm[2], `${elm[3]}\n${s.status}`);
+  chip("c-ecu", ecu[0], ecu[1], ecu[2], `${ecu[3]}\n${s.status}`);
+  $("link").dataset.wire = l.ecu === "ok" ? "ok" : l.ecu === "demo" ? "demo" : "";
+}
+
 async function poll() {
   try {
     const s = await (await fetch("/api/state")).json();
@@ -685,14 +734,13 @@ async function poll() {
     }
     last = s;
     for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
-    const live = s.status.startsWith("connecté");
-    $("dot").style.background = live ? css("--ok") : css("--hot");
-    $("status").textContent = `${s.status} · ${meta.source} · ${s.hz} Hz`;
+    showLink(s);
     showSync(s.sync);
     updateTiles(s);
   } catch (e) {
-    $("dot").style.background = css("--hot");
-    $("status").textContent = "script Python injoignable";
+    chip("c-elm", "ko", "Dashboard", "injoignable", "Le script Python ne répond pas (arrêté ?)");
+    chip("c-ecu", "off", "Calculateur", "", "");
+    $("link").dataset.wire = "";
     $("srv").hidden = true;
   }
 }
