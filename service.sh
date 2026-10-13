@@ -53,6 +53,31 @@ check() {
     return 1
 }
 
+# Ports série de l'ELM327 (USB : ttyUSB, ttyACM ; Bluetooth : rfcomm) et groupe qui y donne accès
+serial_ports() { local g; for g in /dev/ttyUSB /dev/ttyACM /dev/rfcomm; do compgen -G "$g[0-9]*" || true; done; }
+serial_group() {
+    local p g
+    p=$(serial_ports | head -n 1)
+    if [[ -n "$p" ]]; then stat -c %G "$p"; return; fi
+    for g in dialout uucp; do getent group "$g" >/dev/null && { echo "$g"; return; }; done
+}
+
+# Le service tourne sous l'utilisateur : il doit pouvoir ouvrir le port série de l'adaptateur.
+check_serial() {
+    local p group
+    group=$(serial_group)
+    for p in $(serial_ports); do
+        if [[ -r "$p" && -w "$p" ]]; then
+            echo "→ Port série $p accessible"
+        else
+            echo "  Attention : pas le droit d'ouvrir $p : sudo usermod -aG $(stat -c %G "$p") $USER, puis se déconnecter / reconnecter"
+        fi
+    done
+    if [[ -z "$(serial_ports)" && -n "$group" ]] && ! id -nG | tr ' ' '\n' | grep -qx "$group"; then
+        echo "  Adaptateur pas branché. Pour qu'il soit accessible une fois branché : sudo usermod -aG $group $USER"
+    fi
+}
+
 need_unit() {
     [[ -f "$UNIT" ]] || { echo "Service pas installé : ./service.sh install"; exit 1; }
 }
@@ -86,6 +111,7 @@ EOF
     systemctl --user restart "$NAME"
     echo "→ Service installé (réglages : $PWD/clio.conf)"
     check || true
+    check_serial
     if [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != yes ]]; then
         echo "  Pour qu'il démarre avec l'ordi même sans ouvrir de session : sudo loginctl enable-linger $USER"
     fi

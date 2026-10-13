@@ -79,10 +79,11 @@ def main():
         args.bind = "0.0.0.0"
     # Dans Docker, le script écoute toujours sur 0.0.0.0 : c'est la publication du port sur l'hôte qui décide
     on_lan = args.lan or (args.bind not in ("127.0.0.1", "localhost", "::1") and not config.IN_DOCKER)
+    args.dev = "/dev"
     if config.IN_DOCKER:
-        # /dev de l'hôte est vu sous /hostdev (docker-compose.yml)
-        args.port = args.port or "/hostdev/ttyUSB0"
-        if args.port.startswith("/dev/"):
+        # /dev de l'hôte est vu sous /hostdev (docker-compose.yml) : c'est là que la détection cherche l'ELM327
+        args.dev = "/hostdev"
+        if args.port and args.port.startswith("/dev/"):
             args.port = "/hostdev/" + args.port[5:]
         if args.lan and os.environ.get("CLIO_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
             on_lan = False   # la page n'est publiée que sur ce PC

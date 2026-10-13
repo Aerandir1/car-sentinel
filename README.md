@@ -37,7 +37,7 @@ Dockerfile, docker-compose.yml
 ## Installation (Arch)
 
 ```bash
-sudo usermod -aG uucp $USER          # accès à /dev/ttyUSB0, puis déconnexion/reconnexion
+sudo usermod -aG uucp $USER          # accès au port de l'ELM327 (dialout sous Debian / Ubuntu), puis déconnexion/reconnexion
 python -m venv ~/.venvs/obd && source ~/.venvs/obd/bin/activate
 pip install -r requirements.txt
 ```
@@ -69,7 +69,9 @@ pour le hub).
 ## Docker sous Linux
 
 ```bash
-cp clio.conf.exemple clio.conf          # si pas encore fait ; y mettre OBD_GID=$(stat -c %g /dev/ttyUSB0)
+[ -f clio.conf ] || cp clio.conf.exemple clio.conf
+# groupe des ports série de l'hôte (dialout sous Debian / Ubuntu, uucp sous Arch) : droit d'ouvrir l'adaptateur
+sed -i "s/^OBD_GID=.*/OBD_GID=$(getent group dialout uucp | head -n 1 | cut -d: -f3)/" clio.conf
 docker compose down                     # si un ancien conteneur tourne encore
 docker compose --env-file clio.conf up -d --build        # puis http://clio-sentinel.localhost:8080
 ```
@@ -78,10 +80,11 @@ docker compose --env-file clio.conf up -d --build        # puis http://clio-sent
 groupe du port série et l'emplacement de la base. Le conteneur reçoit les autres réglages de `clio.conf` tout seul.
 
 Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
-attend que l'ELM327 apparaisse (`/dev/ttyUSB0` par défaut ; clé en `ttyACM0` : `ADAPTATEUR=/dev/ttyACM0`, traduit
-tout seul en `/hostdev/ttyACM0`). Seuls les ports série USB lui sont autorisés, pas les disques ni le reste.
-`OBD_GID` lui donne le droit d'ouvrir le port série (sous Arch il appartient au groupe `uucp` ; par défaut 20 =
-dialout, celui de Debian / Ubuntu / WSL).
+attend que l'ELM327 apparaisse : avec `ADAPTATEUR` vide, il cherche dans `ttyUSB*`, `ttyACM*` et `rfcomm*` celui
+qui répond à `ATI` (`docker compose logs` : « Adaptateur trouvé : ELM327 v1.5 sur /hostdev/ttyACM0 »). Un port
+donné dans `ADAPTATEUR` (`/dev/ttyACM0`) est traduit tout seul en `/hostdev/ttyACM0`. Seuls les ports série USB
+lui sont autorisés, pas les disques ni le reste. `OBD_GID` lui donne le droit d'ouvrir le port série : s'il est
+faux, le journal donne la bonne valeur (« OBD_GID=985 dans clio.conf »).
 
 La base est rangée dans `data/`, les CSV dans `logs/`. Avec `restart: unless-stopped`, le conteneur se
 relance tout seul au démarrage de Docker : c'est l'équivalent de `service.sh`.

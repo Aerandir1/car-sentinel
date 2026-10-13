@@ -10,7 +10,7 @@ RESEAU=non
 # Port de la page : http://clio-sentinel.localhost:8080 sur ce PC, http://<adresse>:8080 depuis le réseau
 PORT_PAGE=8080
 
-# Adaptateur ELM327 : vide = détection automatique ; /dev/ttyUSB0, /dev/ttyACM0 ;
+# Adaptateur ELM327 : vide = détection automatique (ttyUSB*, ttyACM*, rfcomm*) ; sinon /dev/ttyUSB0, /dev/ttyACM0 ;
 # Wi-Fi : socket://192.168.0.10:35000 (avec DEBIT=38400).
 ADAPTATEUR=
 DEBIT=
@@ -27,7 +27,8 @@ AUTRES_OPTIONS=
 # --- Docker seulement ---
 # Adresse où le port est publié sur l'hôte : 127.0.0.1 (ce PC) ; 0.0.0.0 avec RESEAU=oui.
 DOCKER_ECOUTE=127.0.0.1
-# Groupe du port série sur l'hôte : stat -c %g /dev/ttyUSB0 (Arch : groupe uucp ; 20 = dialout, Debian / Ubuntu / WSL)
+# Groupe du port série sur l'hôte : getent group dialout uucp (Arch : uucp ; 20 = dialout, Debian / Ubuntu / WSL).
+# S'il est faux, docker compose logs donne la bonne valeur.
 OBD_GID=20
 # Base : ./data (défaut) ou clio-data (volume Docker, conseillé sous Windows)
 CLIO_DATA=./data
