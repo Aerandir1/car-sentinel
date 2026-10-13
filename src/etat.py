@@ -61,6 +61,7 @@ class State:
         self.maxs = {}
         self.supported = []
         self.unsupported = []
+        self.sources = {}     # clé → requête qui donne la mesure : {"kind": "obd" | "renault", "cmd": "01 5C"}
         self.status = "démarrage"
         self.source = ""
         self.vin = None
@@ -155,12 +156,13 @@ class State:
     def meta(self):
         with self.lock:
             metrics = [
-                {"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold}
+                {"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold,
+                 "source": self.sources.get(k)}
                 for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS
                 if k in self.supported
             ]
             if "map" in self.supported:
-                metrics.append({**DERIVED, "warn": None, "cold": None})
+                metrics.append({**DERIVED, "warn": None, "cold": None, "source": {"kind": "calc", "cmd": None}})
             return {
                 "source": self.source,
                 "vin": self.vin,

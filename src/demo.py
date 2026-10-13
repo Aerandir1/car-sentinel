@@ -40,6 +40,7 @@ def run(state, still_on):
     noise = lambda x, r: x + rnd.uniform(-r, r)
     speed, coolant, oil, step, t_step, gear = 0.0, 45.0, 40.0, 0, 0.0, 0
     state.supported, state.unsupported = [k for k, *_ in METRICS], []
+    state.sources = {k: {"kind": "demo", "cmd": None} for k in state.supported}
     state.start_session("démo · valeurs simulées", VIN, state.supported + ["boost"])
     state.status = "connecté (démo, valeurs simulées)"
     dt = 1 / HZ

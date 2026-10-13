@@ -7,6 +7,7 @@ import traceback
 from pathlib import Path
 
 import demo
+import renault
 from etat import METRICS
 
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
@@ -199,15 +200,28 @@ def _obd_loop(state, args, logger_factory):
             _pause(state, 5)
             continue
 
-        cmds = []
-        state.supported, state.unsupported = [], []
+        # Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Renault s'il répond
+        cmds = []   # (clé, commande, conversion, lecture espacée ou None pour l'OBD standard)
+        state.supported, state.unsupported, state.sources = [], [], {}
+        extra = []
+        spaced = lambda c: " ".join(c[i:i + 2] for i in range(0, len(c), 2))   # b"015C" → "01 5C"
         for key, _lbl, _u, name, conv, *_ in METRICS:
             cmd = getattr(obd.commands, name, None)
             if cmd is not None and conn.supports(cmd):
-                cmds.append((key, cmd, conv))
+                cmds.append((key, cmd, conv, None))
                 state.supported.append(key)
+                state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
+                continue
+            rcmd = renault.command(obd, key)
+            if rcmd is not None and renault.probe(conn, rcmd):
+                cmds.append((key, rcmd, None, renault.Slow(renault.FALLBACK[key][-1])))
+                state.supported.append(key)
+                state.sources[key] = {"kind": "renault", "cmd": f"22 {renault.FALLBACK[key][0]}"}
+                extra.append(f"{key} (22 {renault.FALLBACK[key][0]})")
             else:
                 state.unsupported.append(key)
+        if extra:
+            print("Mesures Renault lues en plus de l'OBD standard : " + ", ".join(extra))
         keys = state.supported + (["boost"] if "map" in state.supported else [])
         state.protocol = conn.protocol_name()
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
@@ -221,8 +235,10 @@ def _obd_loop(state, args, logger_factory):
                     break  # mode rapide basculé (reconnexion avec le nouveau réglage) ou mode démo
                 t0 = time.time()
                 delay = state.get_settings()["delay"]
-                for key, cmd, conv in cmds:
-                    r = conn.query(cmd)
+                for key, cmd, conv, slow in cmds:
+                    if slow is not None and not slow.due():
+                        continue   # mesure Renault lente : lue moins souvent
+                    r = conn.query(cmd, force=slow is not None)
                     if r.is_null():
                         state.update(key, None)
                         continue

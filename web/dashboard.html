@@ -66,7 +66,13 @@
   .tile:hover { border-color: #3a434f; }
   .tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .spark { height: 34px; margin: 4px 0 2px; }
-  .tile .lbl { color: var(--dim); font-size: 12px; }
+  .tile .lbl { color: var(--dim); font-size: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 3px 6px; }
+  /* Origine de la mesure : rien pour l'OBD standard, étiquette pour le constructeur (UDS) et le calculé */
+  .src { font-size: 9.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; line-height: 1;
+         padding: 2px 5px; border-radius: 4px; border: 1px solid currentColor; white-space: nowrap; }
+  .src.renault { color: var(--cold); }
+  .src.calc { color: var(--dim); border-style: dashed; }
+  .d-head h2 .src { margin-left: 8px; vertical-align: 2px; }
   .tile .val { font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .tile .val small { font-size: 13px; color: var(--dim); font-weight: 400; margin-left: 4px; }
   .tile .mm { color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -110,7 +116,8 @@
   .row input { width: 100%; accent-color: var(--accent); }
   .row output { text-align: right; font-variant-numeric: tabular-nums; }
   #saved { color: var(--ok); font-size: 12px; margin-left: 8px; opacity: 0; transition: opacity .3s; }
-  footer { padding: 0 16px 16px; color: var(--dim); font-size: 12px; }
+  footer { padding: 0 16px 16px; color: var(--dim); font-size: 12px; line-height: 1.9; }
+  footer .src { margin-right: 4px; }
 
   /* Onglet Trajets */
   #trips { display: grid; gap: 12px; max-width: 900px; }
@@ -250,6 +257,7 @@
   [data-look="renault"] .chip, [data-look="renault"] .badge { border-radius: 0; text-transform: uppercase;
                                                               letter-spacing: .08em; font-size: 10.5px; }
   [data-look="renault"] .chip i { border-radius: 0; }
+  [data-look="renault"] .src { border-radius: 0; }
   [data-look="renault"] .chip small { text-transform: none; letter-spacing: .02em; }   /* nom du port tel quel */
   /* Onglets : texte en capitales, l'onglet actif est souligné en jaune */
   [data-look="renault"] nav { gap: 2px; }
@@ -506,9 +514,19 @@ function fmt(v, unit) {
   return Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toString();
 }
 
+// Étiquette d'origine : rien pour l'OBD standard (le cas normal), « Renault » pour une requête constructeur
+function srcTag(m) {
+  const s = m.source;
+  if (!s || s.kind === "obd" || s.kind === "demo") return "";
+  if (s.kind === "renault") return `<span class="src renault" title="Mesure constructeur Renault, hors OBD standard (requête UDS ${s.cmd})">Renault</span>`;
+  return `<span class="src calc" title="Calculée à partir d'autres mesures">calculé</span>`;
+}
+const srcTip = (m) => m.source && m.source.kind === "obd" ? ` · OBD standard (${m.source.cmd})`
+  : m.source && m.source.kind === "renault" ? ` · constructeur Renault (UDS ${m.source.cmd})` : "";
+
 const tileHtml = (m) => `
-    <button class="tile" id="t-${m.key}" data-key="${m.key}" title="Voir la courbe">
-      <div class="lbl">${m.label}</div>
+    <button class="tile" id="t-${m.key}" data-key="${m.key}" title="Voir la courbe${srcTip(m)}">
+      <div class="lbl">${m.label}${srcTag(m)}</div>
       <div class="val"><span>—</span><small>${m.unit}</small></div>
       ${NO_SPARK.has(m.key) ? "" : '<canvas class="spark"></canvas>'}
       <div class="mm">min — · max —</div>
@@ -533,9 +551,15 @@ function buildTiles() {
   renderTiles();
   renderLayoutEditor();
   seedSeries();
-  $("foot").textContent = meta.unsupported.length
-    ? "Non supporté par le calculateur : " + meta.unsupported.join(", ")
-    : "";
+  const renault = meta.metrics.filter((m) => m.source && m.source.kind === "renault");
+  $("foot").innerHTML = [
+    meta.metrics.some((m) => m.source && m.source.kind === "obd") && "Sans étiquette : OBD standard (SAE J1979)",
+    renault.length && `<span class="src renault">Renault</span> mesure constructeur (UDS), lue en plus de l'OBD standard : `
+      + renault.map((m) => `${m.label} (${m.source.cmd})`).join(", "),
+    meta.metrics.some((m) => m.source && m.source.kind === "calc")
+      && `<span class="src calc">calculé</span> déduit d'autres mesures (suralimentation = pression admission − pression atmo)`,
+    meta.unsupported.length && "Non supporté par le calculateur : " + meta.unsupported.join(", "),
+  ].filter(Boolean).join("<br>");
 }
 
 function updateTiles(s) {
@@ -1015,7 +1039,7 @@ function showDetailValue() {
 
 async function openDetail(key, trip = null) {
   D.key = key; D.m = meta.metrics.find((m) => m.key === key); D.hover = null; D.trip = trip;
-  $("d-title").textContent = D.m.label;
+  $("d-title").innerHTML = D.m.label + srcTag(D.m);
   for (const b of $("d-range").children) b.classList.toggle("on", +b.dataset.s === D.range_s);
   dlg.showModal();
   showDetailValue();

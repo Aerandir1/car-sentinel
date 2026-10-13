@@ -19,6 +19,7 @@ src/
   dashboard_clio.py   point d'entrée : options, lancement de l'acquisition et du serveur
   etat.py             liste des métriques (METRICS), état partagé, CSV
   acquisition.py      lecture de l'ECU par l'ELM327
+  renault.py          mesures Renault (UDS, lecture seule) quand l'OBD standard ne les donne pas
   serveur.py          serveur HTTP : page, logos, API JSON
   config.py           lecture de clio.conf
   reseau.py           adresses de la page (ce PC et réseau)
@@ -244,6 +245,11 @@ L'onglet **Paramètres** du dashboard règle tout ça à chaud :
   l'ELM327 ; supprimer `data/clio-demo.db` efface la démo locale.
 
 Au démarrage, le script demande au calculateur quels PID il supporte et n'affiche que ceux-là.
+Pour une mesure absente en OBD standard, il essaie l'équivalent Renault (`src/renault.py`) : température d'huile
+(`22 2007`), tension d'alimentation du calculateur (`22 2005`), pédale d'accélérateur (`22 202E`). Ce sont des
+lectures UDS (service 0x22), qui n'écrivent jamais rien dans le calculateur ; chacune n'est gardée que si le
+calculateur répond avec une valeur plausible (journal : « Mesures Renault lues en plus de l'OBD standard »).
+Identifiants tirés de [OBDb](https://github.com/OBDb/Renault-Clio) (CC BY-SA 4.0).
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `src/etat.py`.
 
 ## Courbes
@@ -308,8 +314,9 @@ métrique, et `trip`, l'identifiant du trajet en cours.
 ## Limites
 
 - Avec un ELM327, les PID sont interrogés l'un après l'autre : quelques Hz au total.
-- La température d'huile et la pression de rail sont rarement dispo en OBD standard chez Renault
-  (mesures constructeur en UDS : voir le repo de scan du calculateur).
+- La température d'huile et la tension batterie sont rarement dispo en OBD standard chez Renault : elles sont lues
+  en UDS si le calculateur les donne (voir « Utilisation »). Le reste des mesures constructeur : repo de scan du
+  calculateur.
 
 ## Serveur
 
