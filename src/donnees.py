@@ -205,6 +205,21 @@ def set_note(path, trip_id, note):
     return n > 0
 
 
+def trip_keys(path, trip_id):
+    """Mesures enregistrées sur un trajet : {clé: nombre de valeurs (réponses du calculateur)}."""
+    db = connect(path)
+    try:
+        row = db.execute("SELECT start_ms, end_ms, closed FROM trips WHERE id = ?", (trip_id,)).fetchone()
+        if row is None:
+            raise ValueError("trajet inconnu")
+        hi = row[1] if row[2] else 2**62   # trajet en cours : jusqu'à la dernière mesure
+        rows = db.execute("SELECT key, count(value) FROM samples WHERE t_ms >= ? AND t_ms <= ? GROUP BY key",
+                          (row[0], hi)).fetchall()
+    finally:
+        db.close()
+    return {k: n for k, n in rows if n}
+
+
 def history(path, trip_id, key, from_ms=None, to_ms=None):
     """Points [t_ms, valeur] d'une métrique, sur un trajet et/ou une période, moyennés si plus de MAX_POINTS.
 
