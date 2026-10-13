@@ -291,6 +291,8 @@
 
   @media (max-width: 700px) {
     .gauges { grid-template-columns: 1fr; }
+    #tach { aspect-ratio: 1 / .95; }      /* compte-tours en grand, turbo plus petit en dessous */
+    #boostg { aspect-ratio: 1.5 / 1; }
     header { flex-wrap: wrap; }
     .row { grid-template-columns: 1fr 70px; }
     .row input { grid-column: 1 / -1; grid-row: 2; }
@@ -616,60 +618,133 @@ function setupCanvas(c) {
   return [ctx, r.width, r.height];
 }
 
-// Jauge en arc de 225° ; redline = début de la zone rouge
-function drawGauge(canvas, { value, min, max, redline, ticks, tickLabel, big, small, unit }) {
-  const [ctx, w, h] = setupCanvas(canvas);
-  const cx = w / 2, cy = h * 0.55, R = Math.min(w / 2, h * 0.55) * 0.9;
-  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
-  const ang = (v) => a0 + (a1 - a0) * (Math.min(max, Math.max(min, v)) - min) / (max - min);
+// Jauge façon combiné d'instruments, en arc de 225° : graduations, zone rouge en bordure, aiguille courte
+// sur l'anneau et repère du maximum atteint (remis à zéro par « Réinit. min/max »).
+// majors : graduations chiffrées ; minor : pas des petites graduations ; redline : début de la zone rouge
+const shown = {};   // valeur affichée par jauge, qui rejoint la mesure en douceur (l'ELM327 ne donne que ~10 Hz)
+let lastFrame = performance.now();
 
-  ctx.lineCap = capStyle();
-  ctx.lineWidth = R * (capStyle() === "butt" ? 0.06 : 0.09);
-  ctx.strokeStyle = css("--line");
+function drawGauge(canvas, { value, min, max, redline, majors, minor, tickLabel, title, big, unit, small, peak }) {
+  const [ctx, w, h] = setupCanvas(canvas);
+  const cx = w / 2, cy = h * 0.54, R = Math.min(w / 2, h * 0.54) * 0.88;
+  const a0 = Math.PI * 0.75, a1 = Math.PI * 2.25;
+  const clamp = (v) => Math.min(max, Math.max(min, v));
+  const ang = (v) => a0 + (a1 - a0) * (clamp(v) - min) / (max - min);
+  const square = capStyle() === "butt";
+  const hot = css("--hot"), dim = css("--dim"), line = css("--line"), text = css("--text"), accent = css("--accent");
+  const has = value !== null && value !== undefined;
+  const over = has && redline !== null && value >= redline;
+
+  // Valeur affichée : rattrape la mesure (≈ 120 ms), sans animation si le système demande moins de mouvement
+  const id = canvas.id;
+  if (!has) delete shown[id];
+  else if (shown[id] === undefined || reduceMotion.matches) shown[id] = value;
+  else shown[id] += (value - shown[id]) * Math.min(1, (performance.now() - lastFrame) / 120);
+  const v = shown[id];
+
+  // Anneau, zone rouge à l'extérieur, valeur par-dessus
+  const ring = R * 0.045;
+  ctx.lineCap = "butt";
+  ctx.lineWidth = ring; ctx.strokeStyle = line;
   ctx.beginPath(); ctx.arc(cx, cy, R, a0, a1); ctx.stroke();
   if (redline !== null) {
-    ctx.strokeStyle = css("--redzone");
-    ctx.beginPath(); ctx.arc(cx, cy, R, ang(redline), a1); ctx.stroke();
+    ctx.lineWidth = ring * 0.6; ctx.strokeStyle = hot;
+    ctx.beginPath(); ctx.arc(cx, cy, R + ring * 0.8, ang(redline), a1); ctx.stroke();
   }
-  if (value !== null && value !== undefined) {
-    ctx.strokeStyle = redline !== null && value >= redline ? css("--hot") : css("--accent");
-    ctx.beginPath(); ctx.arc(cx, cy, R, a0, Math.max(a0 + 0.001, ang(value))); ctx.stroke();
+  if (v !== undefined) {
+    ctx.lineCap = square ? "butt" : "round";
+    ctx.lineWidth = ring; ctx.strokeStyle = accent;
+    const zero = clamp(Math.max(min, 0));   // la jauge de turbo part de 0 : dépression vers la gauche, pression vers la droite
+    const [from, to] = v < zero ? [ang(v), ang(zero)] : [ang(zero), ang(v)];
+    const red = redline !== null && v > redline ? ang(redline) : to;   // au-delà de la zone rouge : en rouge
+    ctx.beginPath(); ctx.arc(cx, cy, R, from, Math.max(from + 0.001, red)); ctx.stroke();
+    if (red < to) {
+      ctx.strokeStyle = hot;
+      ctx.beginPath(); ctx.arc(cx, cy, R, red, to); ctx.stroke();
+    }
   }
 
-  ctx.fillStyle = css("--dim");
-  ctx.font = `${Math.max(10, R * 0.09)}px system-ui`;
+  // Graduations vers l'intérieur : longues et chiffrées (majors), courtes entre (minor)
+  ctx.lineCap = "butt";
+  const n = Math.round((max - min) / minor);
+  for (let i = 0; i <= n; i++) {
+    const t = +(min + i * minor).toFixed(6), a = ang(t);
+    const major = majors.some((m) => Math.abs(m - t) < minor / 2);
+    const r0 = R - ring * 0.9, r1 = r0 - R * (major ? 0.11 : 0.05);
+    ctx.lineWidth = major ? 2 : 1;
+    ctx.strokeStyle = redline !== null && t >= redline ? hot : major ? text : dim;
+    ctx.globalAlpha = major ? 0.9 : 0.6;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+    ctx.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const t of ticks) {
-    const a = ang(t);
-    ctx.fillText(tickLabel(t), cx + Math.cos(a) * R * 0.78, cy + Math.sin(a) * R * 0.78);
+  ctx.font = `500 ${Math.max(10, R * 0.1)}px system-ui`;
+  for (const t of majors) {
+    const a = ang(t), r = R - ring - R * 0.24;
+    ctx.fillStyle = redline !== null && t >= redline ? hot : dim;
+    ctx.fillText(tickLabel(t), cx + Math.cos(a) * r, cy + Math.sin(a) * r);
   }
 
-  ctx.fillStyle = css("--text");
-  ctx.font = `600 ${R * 0.36}px system-ui`;
-  ctx.fillText(big, cx, cy - R * 0.02);
-  ctx.fillStyle = css("--dim");
-  ctx.font = `${R * 0.11}px system-ui`;
-  ctx.fillText(unit, cx, cy + R * 0.24);
+  // Repère du maximum : petit triangle à l'extérieur de l'anneau
+  if (peak !== null && peak !== undefined && peak > min) {
+    const a = ang(peak), r = R + ring * 1.4, s = R * 0.045;
+    ctx.fillStyle = redline !== null && peak >= redline ? hot : dim;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    ctx.lineTo(cx + Math.cos(a) * (r + s * 1.6) - Math.sin(a) * s, cy + Math.sin(a) * (r + s * 1.6) + Math.cos(a) * s);
+    ctx.lineTo(cx + Math.cos(a) * (r + s * 1.6) + Math.sin(a) * s, cy + Math.sin(a) * (r + s * 1.6) - Math.cos(a) * s);
+    ctx.closePath(); ctx.fill();
+  }
+
+  // Aiguille : trait court qui traverse l'anneau (le centre reste libre pour les chiffres)
+  if (v !== undefined) {
+    const a = ang(v);
+    ctx.lineCap = square ? "butt" : "round";
+    ctx.lineWidth = Math.max(2.5, R * 0.022); ctx.strokeStyle = over ? hot : text;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * (R - R * 0.2), cy + Math.sin(a) * (R - R * 0.2));
+    ctx.lineTo(cx + Math.cos(a) * (R + ring * 1.2), cy + Math.sin(a) * (R + ring * 1.2));
+    ctx.stroke();
+  }
+
+  // Centre : grande valeur, unité ; en bas, dans l'ouverture de l'arc : titre et lecture secondaire
+  ctx.fillStyle = has ? text : dim;
+  ctx.font = `600 ${R * 0.34}px system-ui`;
+  ctx.fillText(big, cx, cy - R * 0.04);
+  ctx.fillStyle = dim;
+  ctx.font = `${R * 0.1}px system-ui`;
+  ctx.fillText(unit, cx, cy + R * 0.22);
+  ctx.font = `600 ${Math.max(10, R * 0.085)}px system-ui`;
+  ctx.fillText(title, cx, cy + R * 0.66);
   if (small) {
-    ctx.font = `${R * 0.13}px system-ui`;
-    ctx.fillText(small, cx, cy + R * 0.62);
+    ctx.fillStyle = over ? hot : text;
+    ctx.font = `${Math.max(11, R * 0.12)}px system-ui`;
+    ctx.fillText(small, cx, cy + R * 0.84);
   }
 }
 
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
 function drawGauges(s) {
-  const v = s ? s.values : {};
+  const v = s ? s.values : {}, mx = s ? s.max : {};
   drawGauge($("tach"), {
     value: v.rpm, min: 0, max: 5000, redline: 4500,
-    ticks: [0, 1000, 2000, 3000, 4000, 5000], tickLabel: (t) => t / 1000,
+    majors: [0, 1000, 2000, 3000, 4000, 5000], minor: 250, tickLabel: (t) => t / 1000,
+    title: "×1000 tr/min", peak: mx.rpm,
     big: v.speed != null ? Math.round(v.speed) : "—", unit: "km/h",
     small: v.rpm != null ? `${Math.round(v.rpm)} tr/min` : "",
   });
   drawGauge($("boostg"), {
     value: v.boost, min: -0.2, max: 1.6, redline: 1.35,
-    ticks: [0, 0.4, 0.8, 1.2, 1.6], tickLabel: (t) => t,
-    big: fmt(v.boost, "bar"), unit: "bar (turbo)",
-    small: s && s.max.boost != null ? `max ${s.max.boost.toFixed(2)}` : "",
+    majors: [0, 0.4, 0.8, 1.2, 1.6], minor: 0.1, tickLabel: (t) => (t ? t.toFixed(1) : "0"),
+    title: "Turbo", peak: mx.boost,
+    big: fmt(v.boost, "bar"), unit: "bar",
+    small: mx.boost != null ? `max ${mx.boost.toFixed(2)} bar` : "",
   });
+  lastFrame = performance.now();
 }
 
 // Témoin de clio-sentinel-server, d'après le dernier essai de synchro (caché sans --server)
