@@ -425,6 +425,7 @@
       <button data-s="900">15 min</button>
       <button data-s="0">Trajet entier</button>
     </div>
+    <select id="d-key" aria-label="Mesure"></select>
     <select id="d-trip" aria-label="Trajet"></select>
   </div>
   <div class="d-plot">
@@ -1009,7 +1010,8 @@ function frame() { drawGauges(last); requestAnimationFrame(frame); }
 $("reset").onclick = () => fetch("/api/reset", { method: "POST" });
 
 // ---------- Courbe détaillée (clic sur une tuile) ----------
-const D = { key: null, m: null, range_s: 300, trip: null, pts: [], step: null, x0: 0, x1: 0, hover: null, timer: null };
+const D = { key: null, m: null, range_s: 300, trip: null, pts: [], step: null, x0: 0, x1: 0, hover: null, timer: null,
+            metrics: [] };   // metrics : mesures enregistrées sur le trajet choisi (/api/trips/keys)
 const dlg = $("detail");
 
 // Graduations « rondes » : pas de 1, 2 ou 5 × 10^n, environ n graduations
@@ -1077,7 +1079,7 @@ async function loadDetail() {
 }
 
 function drawDetail() {
-  if (!dlg.open) return;
+  if (!dlg.open || !D.m) return;
   const canvas = $("d-chart"), m = D.m;
   const [ctx, w, h] = setupCanvas(canvas);
   const L = 56, R = 14, T = 10, B = 26, pw = w - L - R, ph = h - T - B;
@@ -1185,7 +1187,7 @@ $("d-chart").addEventListener("pointerdown", (e) => hoverAt(e.clientX));
 $("d-chart").addEventListener("pointerleave", hoverOff);
 
 function showDetailValue() {
-  if (!dlg.open || !last) return;
+  if (!dlg.open || !last || !D.m) return;
   const u = document.createElement("small");
   if (isLive()) {
     u.textContent = D.m.unit;
@@ -1197,16 +1199,54 @@ function showDetailValue() {
   }
 }
 
+// Mesures enregistrées sur le trajet choisi : liste « Mesure » de la fenêtre, rangée par catégorie. Lue dans la
+// base, elle marche aussi sans la voiture ; une mesure absente du trajet est remplacée par la vitesse (ou la 1re).
+async function loadKeys() {
+  D.metrics = [];
+  if (D.trip != null) {
+    try {
+      const r = await fetch(`/api/trips/keys?trip=${encodeURIComponent(D.trip)}`);
+      if (r.ok) D.metrics = await r.json();
+    } catch (e) {}
+  }
+  if (!D.metrics.length && meta) D.metrics = meta.metrics;   // pas de base ou trajet vide : mesures en direct
+  const sel = $("d-key"), byGroup = new Map();
+  for (const m of D.metrics) {
+    const g = defaultGroup(m.key);
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push(m);
+  }
+  sel.replaceChildren(...GROUPS.filter((g) => byGroup.has(g.id)).map((g) => {
+    const og = document.createElement("optgroup");
+    og.label = g.label;
+    og.append(...byGroup.get(g.id).map((m) => Object.assign(document.createElement("option"),
+      { value: m.key, textContent: m.unit ? `${m.label} (${m.unit})` : m.label })));
+    return og;
+  }));
+  sel.hidden = !D.metrics.length;
+  if (!D.metrics.some((m) => m.key === D.key))
+    D.key = (D.metrics.find((m) => m.key === "speed") || D.metrics[0])?.key ?? null;
+  setDetailKey(D.key);
+}
+function setDetailKey(key) {
+  D.key = key;
+  D.m = D.metrics.find((m) => m.key === key) || meta?.metrics.find((m) => m.key === key) || null;
+  $("d-key").value = key ?? "";
+  $("d-title").innerHTML = D.m ? D.m.label + srcTag(D.m) : "Aucune mesure enregistrée sur ce trajet";
+}
+
 async function openDetail(key, trip = null) {
-  D.key = key; D.m = meta.metrics.find((m) => m.key === key); D.hover = null; D.trip = trip;
-  $("d-title").innerHTML = D.m.label + srcTag(D.m);
+  D.key = key; D.hover = null; D.trip = trip;
+  setDetailKey(key);
   for (const b of $("d-range").children) b.classList.toggle("on", +b.dataset.s === D.range_s);
   dlg.showModal();
   showDetailValue();
   await loadTrips();
-  await loadDetail();
+  await loadKeys();
+  showDetailValue();
+  if (D.m) await loadDetail();
   clearInterval(D.timer);
-  D.timer = setInterval(() => { showDetailValue(); if (isLive()) loadDetail(); }, 1000);
+  D.timer = setInterval(() => { showDetailValue(); if (isLive() && D.m) loadDetail(); }, 1000);
 }
 for (const b of $("d-range").children) {
   b.onclick = () => {
@@ -1216,7 +1256,13 @@ for (const b of $("d-range").children) {
     loadDetail();
   };
 }
-$("d-trip").onchange = (e) => { D.trip = e.target.value; hoverOff(); showDetailValue(); loadDetail(); };
+$("d-trip").onchange = async (e) => {
+  D.trip = e.target.value; hoverOff();
+  await loadKeys();
+  showDetailValue();
+  if (D.m) loadDetail();
+};
+$("d-key").onchange = (e) => { setDetailKey(e.target.value); hoverOff(); showDetailValue(); loadDetail(); };
 $("d-close").onclick = () => dlg.close();
 dlg.addEventListener("click", (e) => {   // clic à côté de la fenêtre (sur le fond assombri)
   const r = dlg.getBoundingClientRect();
@@ -1294,12 +1340,9 @@ function tripCard(t) {
   };
   note.onkeydown = (e) => { if (e.key === "Enter") note.blur(); };
   act.append(note, saved);
-  const key = ["speed", "rpm"].find((k) => meta?.metrics.some((m) => m.key === k));
-  if (key) {
-    const b = el("button", null, "Voir les courbes");
-    b.onclick = () => { D.range_s = 0; openDetail(key, t.id); };
-    act.append(b);
-  }
+  const b = el("button", null, "Voir les courbes");   // toutes les mesures du trajet, au choix dans la fenêtre
+  b.onclick = () => { D.range_s = 0; openDetail(null, t.id); };
+  act.append(b);
   card.append(act);
   return card;
 }

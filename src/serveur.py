@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import donnees
 import renault
-from etat import METRICS
+from etat import DERIVED, METRICS
 from reseau import HOST
 
 WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
@@ -35,6 +35,23 @@ def make_handler(state, current_db):
         for key, c in out.items():
             c["label"], c["unit"] = labels[key]
             c["available"] = key in state.raw_keys
+        return out
+
+    def trip_metrics(db_path, trip):
+        """Mesures d'un trajet, dans l'ordre de METRICS, avec de quoi les tracer (libellé, unité, échelle, seuils).
+        Lu dans la base : marche aussi sans la voiture. Une mesure Renault validée compte si sa valeur brute est là
+        (elle est recalculée avec l'étalonnage actuel, voir history)."""
+        counts = donnees.trip_keys(db_path, trip)
+        out = []
+        for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS + [
+                (DERIVED["key"], DERIVED["label"], DERIVED["unit"], None, None, DERIVED["range"], None, None)]:
+            n = counts.get(k, 0)
+            if k in renault.FALLBACK and state.calib.get(k)[2]:
+                n = max(n, counts.get("brut." + k, 0))
+            if n:
+                src = state.sources.get(k) or ({"kind": "calc", "cmd": None} if k == DERIVED["key"] else None)
+                out.append({"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold,
+                            "source": src, "n": n})
         return out
 
     def history(db_path, trip, key, from_ms, to_ms):
@@ -83,7 +100,7 @@ def make_handler(state, current_db):
                     self._send(200, f.read_bytes(), "image/svg+xml")
                 else:
                     self._send(404, b"not found", "text/plain")
-            elif path in ("/api/trips", "/api/history"):
+            elif path in ("/api/trips", "/api/history", "/api/trips/keys"):
                 db_path = current_db()
                 if not db_path:
                     self._send(404, b"enregistrement desactive (--no-db)", "text/plain")
@@ -93,6 +110,8 @@ def make_handler(state, current_db):
                     num = lambda k: int(q[k]) if q.get(k) else None
                     if path == "/api/trips":
                         body = donnees.trips(db_path, num("limit") or 200)
+                    elif path == "/api/trips/keys":
+                        body = trip_metrics(db_path, q.get("trip", ""))
                     else:
                         body = history(db_path, q.get("trip") or None, q.get("key", ""), num("from"), num("to"))
                 except ValueError:
