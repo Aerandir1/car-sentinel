@@ -5,6 +5,10 @@ reçue : chaque envoi reprend de là, par paquets, et un envoi coupé (réseau p
 refait au suivant. Les trajets et événements partent en bloc quand ils ont changé. Rien n'est jamais
 modifié ni effacé dans la base locale.
 
+Vérification (au lancement puis toutes les VERIFY_S secondes) : les mesures déjà envoyées sont comparées par
+empreinte, session par session et métrique par métrique ; un groupe corrigé après coup dans la base locale
+(échelle d'une mesure rectifiée, par ex.) est renvoyé et remplace celui du serveur.
+
     python src/synchro.py --server http://192.168.1.13:8207,http://10.100.0.1:8207
 
 Plusieurs adresses (séparées par des virgules) : la première qui répond est prise, et essayée en premier la
@@ -29,6 +33,7 @@ from etat import DERIVED, METRICS
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
+VERIFY_S = 3600       # entre deux vérifications des mesures déjà envoyées
 PING_S = 3            # entre deux présences envoyées au serveur (témoins du dashboard et du serveur)
 TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
@@ -184,13 +189,61 @@ def sync_once(db_path, client, name=None, version=None):
         db.close()
 
 
+def digest_rows(rows):
+    """Empreinte de chaque groupe (session, métrique) de lignes (session_id, key, t_ms, value) triées dans cet ordre.
+    Même calcul que dans clio-sentinel-server (base.py) : les deux doivent rester identiques."""
+    out, cur = {}, None
+    for sid, key, t, v in rows:
+        if (sid, key) != cur:
+            cur = (sid, key)
+            h = out[f"{sid}|{key}"] = hashlib.sha256()
+        h.update(f"{t}:{v!r};".encode())
+    return {k: h.hexdigest()[:16] for k, h in out.items()}
+
+
+def verify_once(db_path, client):
+    """Renvoie les groupes (session, métrique) déjà envoyés mais modifiés depuis dans la base locale.
+    Renvoie le nombre de groupes corrigés sur le serveur (0 avec un serveur d'avant la vérification)."""
+    db = donnees.connect(db_path)
+    try:
+        origin = fingerprint(db)
+        if origin is None:
+            return 0
+        code, st = client.request("GET", "/api/sync/digest", query={"origin": origin})
+        if code == 404:
+            return 0
+        if code != 200:
+            raise SyncError(f"le serveur a répondu {code} : {st}")
+        # Seulement ce que le serveur a reçu : les mesures après son curseur partiront avec la synchro normale
+        cursor = st["last_rowid"]
+        mine = digest_rows(db.execute("SELECT session_id, key, t_ms, value FROM samples WHERE rowid <= ?"
+                                      " ORDER BY 1, 2, 3, 4", (cursor,)))
+        theirs, fixed = st["digests"], 0
+        for k in sorted(set(mine) | set(theirs)):
+            if mine.get(k) == theirs.get(k):
+                continue
+            sid, key = k.split("|", 1)
+            rows = db.execute("SELECT t_ms, value FROM samples WHERE rowid <= ? AND session_id = ? AND key = ?"
+                              " ORDER BY t_ms, value", (cursor, sid, key)).fetchall()
+            code, r = client.request("POST", "/api/sync/fix", {"origin": origin, "after": cursor, "session_id": sid,
+                                                               "key": key, "samples": [list(x) for x in rows]})
+            if code == 409:   # le serveur a reçu d'autres mesures entre-temps : reprise à la prochaine vérification
+                break
+            if code != 200:
+                raise SyncError(f"le serveur a refusé la correction ({code}) : {r}")
+            fixed += 1
+        return fixed
+    finally:
+        db.close()
+
+
 def sync_loop(state, bases, client, version):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
     state.sync (témoin du dashboard) : ok, t (dernier contact ou essai), url, error, et du dernier envoi
     réussi : synced (heure) et sent (mesures envoyées)."""
-    was_ok, next_sync, last = None, 0.0, {}
+    was_ok, next_sync, next_verify, last = None, 0.0, 0.0, {}
     while True:
         try:
             hello(client, state, bases[0][1], version)   # présence sous le nom de la vraie base
@@ -202,6 +255,11 @@ def sync_loop(state, bases, client, version):
                 if n or was_ok is not True:
                     print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
                           if n else f"Synchro serveur ({client.url}) : à jour")
+                if time.time() >= next_verify:
+                    f = sum(verify_once(db_path, client) for db_path, _name in bases)
+                    next_verify = time.time() + VERIFY_S
+                    if f:
+                        print(f"Synchro serveur : {f} groupe{'s' if f > 1 else ''} de mesures corrigé{'s' if f > 1 else ''}")
             state.sync = {"ok": True, "t": time.time(), "url": client.url, **last}
             was_ok = True
         except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
@@ -240,9 +298,11 @@ def main():
     try:
         client = make_client(args)
         n = sync_once(args.db, client, args.server_name, version())
+        f = verify_once(args.db, client)
     except (OSError, http.client.HTTPException, SyncError) as e:
         raise SystemExit(f"Synchro impossible : {e}")
-    print(f"{n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}, serveur à jour ({client.url})")
+    print(f"{n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}, {f} groupe{'s' if f > 1 else ''}"
+          f" de mesures corrigé{'s' if f > 1 else ''}, serveur à jour ({client.url})")
 
 
 if __name__ == "__main__":

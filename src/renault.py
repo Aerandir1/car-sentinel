@@ -29,7 +29,9 @@ def _did(did, scale, offset, lo, hi):
 FALLBACK = {
     "oil":     ("2007", 0.1, -273.0, (-40, 160), 2.0),    # température d'huile (estimée par le calculateur)
     "voltage": ("2005", 0.01, 0.0, (6, 18), 1.0),         # tension d'alimentation du calculateur ≈ batterie
-    "pedal":   ("202E", 1 / 800, 0.0, (0, 100), 0.0),     # position de la pédale d'accélérateur
+    # position de la pédale d'accélérateur, en 0,1 % : brut 1000 = pédale à fond (plafond relevé sur la voiture
+    # à charge 100 %). OBDb donne 1/800, faux sur cette Clio : le max affiché n'était que 1,25 %.
+    "pedal":   ("202E", 0.1, 0.0, (0, 100), 0.0),
 }
 
 
