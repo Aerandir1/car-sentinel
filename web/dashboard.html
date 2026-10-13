@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fiesta 1.0 EcoBoost</title>
+<link rel="icon" type="image/svg+xml" href="/logo/ford-ovale.svg">
 <style>
   :root {
     --bg: #0d1014; --panel: #161b22; --line: #262d36; --text: #e6edf3; --dim: #8b949e;
@@ -14,10 +15,10 @@
          font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   header { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; padding: 10px 16px;
            border-bottom: 1px solid var(--line); }
-  /* Pictogramme (dossier logo/) : utilisé en masque, il prend la couleur du texte (currentColor) */
+  /* Ovale Ford (dossier logo/) : la version monochrome sert de masque et prend la couleur du texte (currentColor) */
   .r-mark { display: inline-block; flex: none; background: currentColor;
                        -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
-  .r-mark { --src: url(/logo/fiesta-mark.svg); aspect-ratio: 1 / 1; }
+  .r-mark { --src: url(/logo/ford-ovale-mono.svg); aspect-ratio: 1000 / 345; }
   header h1 { font-size: 16px; margin: 0; font-weight: 600; }
   header .r-mark { height: 26px; color: var(--text); }
   /* Témoins ELM327 → calculateur, et clio-sentinel-server (--server). Détail au survol.
@@ -259,8 +260,9 @@
   #splash.out { opacity: 0; visibility: hidden; }
   #splash .sp-box { display: grid; justify-items: center; gap: 22px; color: var(--text); }
   #splash svg { width: min(46vw, 260px); height: auto; overflow: visible; }
-  #splash .sp-mark { fill: transparent; stroke: currentColor; stroke-width: 3; stroke-dasharray: 1; stroke-dashoffset: 1;
-                     animation: sp-draw 1.1s cubic-bezier(.6, 0, .3, 1) forwards, sp-fill .5s ease 1s forwards; }
+  #splash .sp-word-box { margin-top: -6px; }
+  #splash .sp-logo { width: min(60vw, 300px); height: auto; clip-path: inset(0 100% 0 0);
+                     animation: sp-wipe 1.1s cubic-bezier(.6, 0, .3, 1) .1s forwards; }
   #splash .sp-word { opacity: 0; transform: translateY(14px); animation: sp-rise .6s ease 1.2s forwards; }
   #splash .sp-sub { font-size: 13px; letter-spacing: .3em; text-transform: uppercase; color: var(--dim);
                     opacity: 0; animation: sp-rise .6s ease 1.45s forwards; }
@@ -268,8 +270,7 @@
                     opacity: 0; animation: sp-rise .4s ease 1.6s forwards; }
   #splash .sp-bar i { display: block; width: 40%; height: 100%; background: var(--accent);
                       animation: sp-slide 1.1s ease-in-out infinite; }
-  @keyframes sp-draw { to { stroke-dashoffset: 0; } }
-  @keyframes sp-fill { to { fill: currentColor; stroke-width: 0; } }
+  @keyframes sp-wipe { to { clip-path: inset(0 0 0 0); } }
   @keyframes sp-rise { to { opacity: 1; transform: none; } }
   @keyframes sp-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
   @media (prefers-reduced-motion: reduce) {
@@ -283,7 +284,8 @@
   }
   [data-look="fiesta"] body { letter-spacing: .01em; }
   [data-look="fiesta"] header { background: #030817; border-bottom: 1px solid var(--line); padding: 12px 20px; gap: 18px; }
-  [data-look="fiesta"] header .r-mark { height: 34px; }
+  [data-look="fiesta"] header .r-mark { height: 34px; aspect-ratio: 1000 / 360; -webkit-mask: none; mask: none;
+                                        background: url(/logo/ford-ovale.svg) center / contain no-repeat; }
   [data-look="fiesta"] header h1 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .14em;
                                     padding-left: 18px; border-left: 1px solid var(--line); }
   [data-look="fiesta"] .chip, [data-look="fiesta"] .badge { border-radius: 0; text-transform: uppercase;
@@ -348,9 +350,9 @@
 <body>
 <div id="splash" role="img" aria-label="Ford Fiesta">
   <div class="sp-box">
-    <svg viewBox="0 0 500 437.5" aria-hidden="true">
-      <path class="sp-mark" pathLength="1" fill-rule="evenodd" d="M250 30a150 150 0 0 0-130 225h24a128 128 0 1 1 212 0h24A150 150 0 0 0 250 30zm-7 64v58h14V94zm-73 33-10 10 41 41 10-10zm160 0-41 41 10 10 41-41zM250 172a24 24 0 1 0 0 48 24 24 0 0 0 0-48zm8 8 72-36 8 12-68 44z"/>
-      <text class="sp-word" x="250" y="420" text-anchor="middle" fill="currentColor"
+    <img class="sp-logo" src="/logo/ford-ovale.svg" alt="">
+    <svg class="sp-word-box" viewBox="0 0 500 90" aria-hidden="true">
+      <text class="sp-word" x="250" y="74" text-anchor="middle" fill="currentColor"
             style="font: 800 74px system-ui, sans-serif; letter-spacing: .18em">FIESTA</text>
     </svg>
     <div class="sp-sub">1.0 EcoBoost 95 · FlexiFuel</div>

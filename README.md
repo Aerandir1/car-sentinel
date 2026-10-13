@@ -40,6 +40,7 @@ src/
   trajets.py          découpage des mesures en trajets, fiche de chaque trajet
   synchro.py          envoi de la base vers clio-sentinel-server
 web/dashboard.html    le dashboard
+web/logo/             ovales Ford : couleurs (style Fiesta, démarrage, icône) et monochrome (en-tête)
 data/                 les bases SQLite (pas dans git)
 fiesta.conf.exemple     modèle des réglages : copié en fiesta.conf (pas dans git) au premier lancement
 lancer.sh             lancement en local (venv + navigateur)
