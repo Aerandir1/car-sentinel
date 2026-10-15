@@ -41,7 +41,7 @@ def probe(port):
                 reply, end = b"", time.time() + 1.0
                 while time.time() < end and not reply.endswith(b">"):
                     reply += s.read(64)
-        except (OSError, serial.SerialException):
+        except Exception:   # OSError, SerialException, termios.error : clé débranchée ou en train de redémarrer
             return None
         if b"ELM" in reply or reply.rstrip().endswith(b">"):
             lines = [x.strip() for x in reply.decode("ascii", "ignore").replace(">", "").splitlines()]
@@ -131,6 +131,18 @@ def read_vin(obd, conn):
         v = v.decode("ascii", "ignore")
     v = "".join(c for c in str(v) if c.isalnum())
     return v or None
+
+
+def close_conn(state, conn):
+    """Ferme la connexion python-obd. Pour un diagnostic, sans son ATZ de fermeture : certaines clés USB
+    redémarrent sur ATZ et se déconnectent (ttyACM qui disparaît, parfois sans revenir avant d'être rebranchées)."""
+    if state.diag_want.is_set():
+        try:
+            conn.interface._ELM327__port.close()   # port série de python-obd, fermé tel quel
+            conn.interface._ELM327__port = None
+        except (AttributeError, OSError):
+            pass
+    conn.close()
 
 
 def obd_loop(state, args, logger_factory):
@@ -265,6 +277,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
         state.port = port
         if state.elm == "ok" and state.ecu in ("off", "ok"):
             state.ecu = "recherche"   # un calculateur déjà muet le reste jusqu'à sa réponse (pas de clignotement)
+        state.baud = baud   # repris par le diagnostic avec le port (diagnostic.py)
         conn = obd.OBD(portstr=port, baudrate=baud, fast=fast, timeout=1)
         state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
                          obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
@@ -277,7 +290,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             state.ecu = "ok" if state.adapter == "car" else "muet"
         if conn.status() != obd.OBDStatus.CAR_CONNECTED or _busy(state):
             state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
-            conn.close()
+            close_conn(state, conn)
             _pause(state, 5)
             continue
 
@@ -356,7 +369,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
         finally:
             if logger:
                 logger.close()
-            conn.close()
+            close_conn(state, conn)
         if state.get_settings()["fast"] != fast or _busy(state):
             continue
         if not state.status.startswith("calculateur muet"):

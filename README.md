@@ -21,7 +21,7 @@ src/
   acquisition.py      lecture de l'ECU par l'ELM327
   renault.py          mesures Renault (UDS, lecture seule) quand l'OBD standard ne les donne pas
   etalonnage.py       gain et décalage des mesures Renault (onglet Étalonnage)
-  diagnostic.py       onglet Diagnostic : codes défaut et scan UDS, lecture seule (liste blanche)
+  diagnostic.py       onglet Diagnostic : codes défaut et scan UDS / KWP, lecture seule (liste blanche)
   serveur.py          serveur HTTP : page, logos, API JSON
   config.py           lecture de clio.conf
   reseau.py           adresses de la page (ce PC et réseau)
@@ -278,6 +278,19 @@ L'onglet **Diagnostic** lit les codes défaut et fouille les identifiants des ca
 écrire ni effacer. Pendant un diagnostic, le dashboard laisse l'ELM327 (témoins « diagnostic ») et
 l'enregistrement est en pause ; il reprend tout seul après.
 
+**Véhicule** : choisi en haut de l'onglet (gardé par le navigateur). Requêtes, calculateurs et session suivent ce
+choix :
+
+- **Renault Clio IV dCi 90 (K9K)** : prise OBD en CAN, requêtes UDS (détail ci-dessous).
+- **Renault Clio II phase 2 (2002) essence** : prise OBD en K-line, sans CAN. Codes défaut OBD 03 / 07, puis
+  KWP 18 02 sur l'injection (adresses 7A Renault et 10 OBD, init 5 bauds ou rapide comme en OBD) ; codes
+  Renault laissés en hexa. Scan des identifiants locaux (KWP 21, 01 à FF), session de diagnostic Renault 10 C0,
+  retour en 10 81. Les autres calculateurs (ABS, airbag, UCH) ne sont pas proposés ; « Autre adresse » permet
+  d'en viser un. Un calculateur seul (sur table) qui ne répond pas en OBD est quand même interrogé en KWP ;
+  chaque diagnostic laisse le journal de ses échanges dans `data/diag/*.log`.
+  Si le protocole détecté ne correspond pas au véhicule choisi, le diagnostic s'arrête avant toute requête
+  constructeur.
+
 - **Codes défaut** : OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis UDS 19 02 sur le moteur
   (7E0) et le tableau de bord (743). Contact mis suffit.
 - **Scan des identifiants** : lecture (UDS 22) de chaque DID d'une plage, sur le moteur, le tableau de bord ou une
@@ -291,9 +304,10 @@ l'enregistrement est en pause ; il reprend tout seul après.
 
 **Liste blanche** (`ALLOWED` dans `src/diagnostic.py`, vérifiée au seul endroit qui écrit sur le port) : seules
 partent vers la voiture les lectures (OBD 01, 03, 07, 09 ; UDS 22, 19 02), l'entrée / sortie de session (10 03,
-10 01) et son maintien (3E). Tout le reste est refusé avant l'envoi, en particulier 10 02 (programmation), 27
+10 01) et son maintien (3E) ; en K-line, les équivalents KWP (21, 1A, 18 02, 10 C0 / 10 81, 3E). Tout le
+reste est refusé avant l'envoi, en particulier 10 02 (programmation), 27
 (déverrouillage), 2E (écriture), 2F (actionneurs), 31 (routines), 11 (redémarrage), 14 / 04 (effacement des
-défauts). Même liste que `obd_scan.py` dans clio-iv-obd-utils. Le dashboard n'a pas de mot de passe : avec
+défauts). Lignes CAN identiques à `obd_scan.py` dans clio-iv-obd-utils. Le dashboard n'a pas de mot de passe : avec
 `RESEAU=oui`, tout appareil du réseau peut lancer un diagnostic (en lecture seule).
 
 ## Courbes

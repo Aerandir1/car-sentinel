@@ -205,7 +205,7 @@
   .c-msg.err { color: var(--hot); }
   .c-msg.ok { color: var(--ok); }
 
-  /* Onglet Diagnostic : codes défaut et scan UDS en lecture seule (diagnostic.py) */
+  /* Onglet Diagnostic : codes défaut et scan des calculateurs en lecture seule (diagnostic.py) */
   #diag { max-width: 1100px; display: grid; gap: 12px; }
   #diag h2 { font-size: 14px; margin: 0 0 4px; }
   #diag h3 { font-size: 13px; margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--line); }
@@ -499,6 +499,11 @@
           2E (écriture), 2F (actionneurs), 31 (routines), 11 (redémarrage), 14 / 04 (effacement des défauts)…</p>
       </details>
     </div>
+    <div class="c-form">
+      <label for="g-veh">Véhicule</label>
+      <select id="g-veh" class="c-in"></select>
+    </div>
+    <p class="note" id="g-veh-note"></p>
     <div class="g-job" id="g-job" hidden>
       <div class="g-bar" id="g-barw"><i id="g-bar"></i></div>
       <span id="g-phase"></span>
@@ -507,19 +512,19 @@
     <p class="c-msg" id="g-msg"></p>
 
     <h3>Codes défaut</h3>
-    <p class="note">OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis UDS 19 02 sur le moteur et le
-      tableau de bord. Contact mis suffit.</p>
+    <p class="note">OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis <span id="g-dtc-svc">UDS 19 02</span>
+      sur <span id="g-dtc-ecus">le moteur et le tableau de bord</span>. Contact mis suffit.</p>
     <div class="c-form"><button class="c-btn primary" id="g-dtc">Lire les codes défaut</button></div>
     <table class="c-refs" id="g-dtc-out"></table>
 
-    <h3>Scan des identifiants (UDS 22)</h3>
+    <h3>Scan des identifiants (<span id="g-read">UDS 22</span>)</h3>
     <p class="note">Chaque identifiant (DID) de la plage est lu ; ceux qui répondent sont enregistrés. Comparer des scans
       faits dans des états différents (contact mis, ralenti, 2500 tr/min) montre ce qui bouge.</p>
     <div class="c-form">
       <select id="g-ecu" class="c-in" aria-label="Calculateur"></select>
       <input id="g-ecu-x" class="c-in" size="5" placeholder="ex. 744" aria-label="Adresse du calculateur" hidden>
       <input id="g-ranges" class="c-in" size="36" aria-label="Plages de DID (hexa)">
-      <label class="g-ext"><input type="checkbox" id="g-ext"> Session étendue (10 03)</label>
+      <label class="g-ext"><input type="checkbox" id="g-ext"> <span>Session étendue (<span id="g-open">10 03</span>)</span></label>
       <button class="c-btn primary" id="g-scan">Lancer le scan</button>
     </div>
     <p class="note" id="g-ext-note">Session étendue : certains identifiants ne répondent qu'en session de diagnostic
@@ -527,7 +532,7 @@
       juste avant ; retour en session normale à la fin, même si le scan est arrêté.</p>
 
     <h3>Scans enregistrés</h3>
-    <p class="note">Rangés dans data/diag/ (format de uds_scan.py). Cocher deux scans ou plus puis « Comparer » : seuls
+    <p class="note">Rangés dans data/diag/ (format de uds_scan.py, plus le véhicule). Cocher deux scans ou plus puis « Comparer » : seuls
       les identifiants dont la valeur change sont listés.</p>
     <div class="g-scroll"><table class="c-refs" id="g-list"></table></div>
     <div class="c-form"><button class="c-btn" id="g-cmp" disabled>Comparer la sélection</button></div>
@@ -1839,7 +1844,7 @@ $("splash").onclick = hideSplash;
 Promise.all([splashMin, poll()]).then(hideSplash);
 requestAnimationFrame(frame);
 // ---------- Diagnostic (diagnostic.py) ----------
-const G = { timer: null, data: null, shown: null, ecus: null };
+const G = { timer: null, data: null, shown: null, vehicles: null };
 const gEsc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const gMsg = (t, cls = "") => { $("g-msg").textContent = t || ""; $("g-msg").className = "c-msg " + cls; };
 const gHex = (h) => h ? h.match(/.{1,2}/g).join(" ") : "—";
@@ -1856,21 +1861,39 @@ async function openDiag() {
 async function refreshDiag() {
   let d;
   try { d = await (await fetch("/api/diag")).json(); } catch (e) { gMsg("Le script Python ne répond pas.", "err"); return; }
-  if (!G.ecus) {   // premier chargement : calculateurs proposés et liste blanche
-    G.ecus = d.ecus;
-    $("g-ecu").innerHTML = Object.entries(d.ecus).map(([k, e]) => `<option value="${k}">${gEsc(e.name)} (${k})</option>`).join("")
-      + `<option value="">Autre adresse…</option>`;
-    $("g-ranges").value = d.ecus[$("g-ecu").value]?.ranges || "";
+  if (!G.vehicles) {   // premier chargement : véhicules proposés et liste blanche
+    G.vehicles = d.vehicles;
+    $("g-veh").innerHTML = Object.entries(d.vehicles).map(([k, v]) => `<option value="${k}">${gEsc(v.name)}</option>`).join("");
+    $("g-veh").value = d.vehicles[ui.diagVehicle] ? ui.diagVehicle : d.default;
+    setVehicle();
     $("g-allow").innerHTML = d.allowed.map((a) => `<li>${gEsc(a)}</li>`).join("");
   }
   G.data = d;
   renderDiagJob(d.job);
   renderDiagList(d.scans);
 }
+// Calculateurs, requêtes et textes du véhicule choisi (gardé dans ce navigateur)
+function setVehicle() {
+  const v = G.vehicles[$("g-veh").value];
+  const kline = v.bus === "kline";
+  $("g-ecu").innerHTML = Object.entries(v.ecus).map(([k, e]) => `<option value="${k}">${gEsc(e.name)} (${k})</option>`).join("")
+    + `<option value="">Autre adresse…</option>`;
+  $("g-ecu-x").hidden = true;
+  $("g-ecu-x").placeholder = kline ? "ex. 7A" : "ex. 744";
+  $("g-ranges").value = Object.values(v.ecus)[0]?.ranges || "";
+  $("g-dtc-svc").textContent = v.dtc;
+  const names = Object.values(v.ecus).map((e) => e.name.toLowerCase());
+  $("g-dtc-ecus").textContent = names.length > 1 ? `le ${names.slice(0, -1).join(", le ")} et le ${names.at(-1)}` : `l'${names[0]}`;
+  $("g-read").textContent = v.read;
+  $("g-open").textContent = v.open;
+  $("g-veh-note").textContent = kline
+    ? "Prise OBD en K-line (pas de CAN) : requêtes KWP2000, identifiants sur 2 chiffres (01 à FF), session de diagnostic Renault 10 C0. L'adaptateur met quelques secondes à réveiller la ligne."
+    : "Prise OBD en CAN : requêtes UDS, identifiants sur 4 chiffres, session étendue 10 03.";
+}
 function renderDiagJob(j) {
   const running = !!j?.running;
   $("g-job").hidden = !running;
-  for (const id of ["g-dtc", "g-scan"]) $(id).disabled = running;
+  for (const id of ["g-dtc", "g-scan", "g-veh"]) $(id).disabled = running;
   if (running) {
     const scan = j.kind === "scan" && j.total;
     $("g-barw").classList.toggle("indet", !scan);
@@ -1881,10 +1904,11 @@ function renderDiagJob(j) {
   }
   if (!j || G.shown === j.started) return;   // résultat déjà affiché
   G.shown = j.started;
-  if (j.error && !j.file) { gMsg(`Diagnostic arrêté : ${j.error}`, "err"); return; }
-  if (j.kind === "dtc" && j.result) renderDtc(j.result);
+  const jr = j.journal ? ` Échanges : data/diag/${j.journal}.` : "";
+  if (j.error && !j.file) { gMsg(`Diagnostic arrêté : ${j.error}.${jr}`, "err"); return; }
+  if (j.kind === "dtc" && j.result) { renderDtc(j.result); $("g-msg").textContent += jr; }
   if (j.kind === "scan" && j.file) {
-    gMsg(`Scan enregistré : ${j.found} identifiant${j.found > 1 ? "s" : ""} sur ${j.total} lus${j.error ? ` (${j.error})` : ""}.`,
+    gMsg(`Scan enregistré : ${j.found} identifiant${j.found > 1 ? "s" : ""} sur ${j.total} lus${j.error ? ` (${j.error})` : ""}.${jr}`,
          j.error ? "err" : "ok");
     showScan(j.file);
   }
@@ -1902,9 +1926,10 @@ function renderDtc(r) {
 function renderDiagList(scans) {
   const checked = new Set([...document.querySelectorAll("#g-list input:checked")].map((i) => i.value));
   $("g-list").innerHTML = scans.length
-    ? "<tr><th></th><th>Date</th><th>Calculateur</th><th>Session</th><th>DID</th><th></th></tr>" + scans.map((x) =>
+    ? "<tr><th></th><th>Date</th><th>Véhicule</th><th>Calculateur</th><th>Session</th><th>DID</th><th></th></tr>" + scans.map((x) =>
         `<tr><td><input type="checkbox" value="${gEsc(x.name)}" ${checked.has(x.name) ? "checked" : ""} aria-label="Sélectionner"></td>
-         <td>${gEsc(x.time)}${x.complete ? "" : " <small>(arrêté)</small>"}</td><td>${gEsc(x.ecu_name || x.ecu)} (${gEsc(x.ecu)})</td>
+         <td>${gEsc(x.time)}${x.complete ? "" : " <small>(arrêté)</small>"}</td><td>${gEsc(x.vehicle)}</td>
+         <td>${gEsc(x.ecu_name || x.ecu)} (${gEsc(x.ecu)})</td>
          <td>${gEsc(x.session)}</td><td>${x.n}</td><td><button data-show="${gEsc(x.name)}">Afficher</button></td></tr>`).join("")
     : `<tr><td class="c-msg">Aucun scan pour l'instant.</td></tr>`;
   $("g-cmp").disabled = document.querySelectorAll("#g-list input:checked").length < 2;
@@ -1942,14 +1967,15 @@ async function startDiag(body) {
   try { renderDiagJob((await gPost("/api/diag/start", body)).job); }
   catch (e) { gMsg(e.message, "err"); }
 }
+$("g-veh").onchange = () => { ui.diagVehicle = $("g-veh").value; saveUi(); setVehicle(); };
 $("g-ecu").onchange = () => {
-  const k = $("g-ecu").value;
+  const k = $("g-ecu").value, v = G.vehicles?.[$("g-veh").value];
   $("g-ecu-x").hidden = !!k;
-  $("g-ranges").value = G.ecus?.[k]?.ranges || "2000-2FFF";
+  $("g-ranges").value = v?.ecus[k]?.ranges || (v?.bus === "kline" ? "01-FF" : "2000-2FFF");
 };
 $("g-ext").onchange = () => $("g-ext-note").classList.toggle("warn", $("g-ext").checked);
-$("g-dtc").onclick = () => startDiag({ job: "dtc" });
-$("g-scan").onclick = () => startDiag({ job: "scan", ecu: $("g-ecu").value || $("g-ecu-x").value.trim(),
+$("g-dtc").onclick = () => startDiag({ job: "dtc", vehicle: $("g-veh").value });
+$("g-scan").onclick = () => startDiag({ job: "scan", vehicle: $("g-veh").value, ecu: $("g-ecu").value || $("g-ecu-x").value.trim(),
                                          ranges: $("g-ranges").value, extended: $("g-ext").checked });
 $("g-stop").onclick = () => gPost("/api/diag/stop").catch((e) => gMsg(e.message, "err"));
 $("g-cmp").onclick = compareScans;
