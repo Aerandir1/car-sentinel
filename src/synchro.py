@@ -29,7 +29,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 import donnees
-from etat import DERIVED, METRICS
+from etat import DERIVED, METRICS, derived_meta
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
@@ -50,7 +50,7 @@ def meta():
     """Libellés et unités des métriques, pour que la page du serveur les affiche comme le dashboard."""
     out = [{"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold}
            for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS]
-    return out + [{**DERIVED, "warn": None, "cold": None}]
+    return out + [derived_meta(d) for d in DERIVED]
 
 
 class Client:

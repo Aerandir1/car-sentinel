@@ -48,9 +48,10 @@ def trips_loop(state, db_path, demo_path):
     """Découpe les mesures en trajets au fil de l'eau (voir trajets.py), dans la vraie base et celle de la démo."""
     while True:
         try:
-            trip = trajets.update(db_path)
-            demo_trip = trajets.update(demo_path)
-            state.trip = demo_trip if state.get_settings().get("demo") else trip
+            settings = state.get_settings()
+            trip = trajets.update(db_path, price=settings.get("fuel_price"))
+            demo_trip = trajets.update(demo_path, price=settings.get("fuel_price"))
+            state.set_trip(demo_trip if state.get_settings().get("demo") else trip)
         except Exception:
             traceback.print_exc()
         time.sleep(TRIPS_EVERY_S)
@@ -104,6 +105,10 @@ def main():
         return CsvLogger(args.log, keys) if args.log else None
 
     state = State()
+    # Prix du carburant (onglet Paramètres), à côté de la base ; lu avant le premier calcul des trajets
+    settings_dir = Path(args.db).parent if args.db and not args.no_db else DATA
+    settings_dir.mkdir(parents=True, exist_ok=True)
+    state.load_settings(settings_dir / "reglages.json")
     db_path = demo_path = None
     if not args.no_db:
         db_path = Path(args.db) if args.db else DATA / "fiesta.db"

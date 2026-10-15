@@ -306,6 +306,21 @@ trajets passés enregistrés dans la base. Le curseur donne la valeur et l'heure
 métrique sont tracés quand ils tombent dans l'échelle. La courbe est coupée là où le calculateur n'a pas répondu.
 Échap ou un clic à côté pour fermer.
 
+La tuile **Conso. instantanée** (L/100 km, étiquette « calculé ») vaut débit de carburant ÷ vitesse × 100, comme
+l'ordinateur de bord : elle est enregistrée avec les autres mesures (sa courbe se revoit sur les trajets passés),
+plafonnée à 99 et vide sous 5 km/h.
+
+## Coût des trajets
+
+Dans les coins du compte-tours : à gauche la conso instantanée et la moyenne du trajet en cours, à droite le
+**coût du trajet**, qui monte en direct (carburant consommé × prix au litre), avec les litres et les kilomètres.
+Le carburant consommé est le débit (L/h, OBD standard) intégré sur le trajet.
+
+Le prix au litre se règle dans **Paramètres → Coût des trajets** (celui du dernier plein : E85 ou SP95). Il est
+gardé par le script dans `data/reglages.json`. Chaque trajet garde le prix réglé pendant qu'il roulait : changer
+le prix au plein suivant ne touche pas les trajets finis. Les trajets d'avant le premier prix réglé prennent
+celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la moyenne en L/100 km et le prix retenu.
+
 ## Trajets
 
 Le principe : **les mesures brutes ne sont jamais modifiées, les trajets sont calculés par-dessus.**
@@ -318,7 +333,8 @@ Le principe : **les mesures brutes ne sont jamais modifiées, les trajets sont c
 
 Un trajet est clos quand le moteur est arrêté depuis 5 min. Il porte un identifiant unique (UUID), un nom lisible
 (`2026-10-06 · trajet 1 · 08:01`, compteur remis à 1 chaque jour), une fiche (durée, distance calculée depuis la
-vitesse, démarrage à froid ou à chaud, maximums, arrêts moteur, part sans réponse, VIN) et une note libre saisie
+vitesse, carburant consommé et prix au litre, démarrage à froid ou à chaud, maximums, arrêts moteur, part sans
+réponse, VIN) et une note libre saisie
 dans l'onglet **Trajets**. Les événements (démarrage, arrêt moteur, passage d'un seuil d'alerte) sont gardés à part.
 
 Les seuils sont en haut de `src/trajets.py`. Après un changement, tout se recalcule depuis le brut, identifiants
@@ -333,16 +349,18 @@ python src/trajets.py --rebuild      # liste aussi les trajets
 Tout est dans une base SQLite, `data/fiesta.db`. L'ELM327 interroge les PID l'un après l'autre : chaque valeur
 porte l'instant exact où le calculateur a répondu, pas l'heure de la boucle. Une non-réponse est gardée (valeur
 vide) : on sait quand un capteur a décroché. La suralimentation calculée prend l'horodatage de la pression
-d'admission. Écriture groupée une fois par seconde, environ 3 Mo par heure de route.
+d'admission, la conso instantanée celui du débit de carburant. Écriture groupée une fois par seconde, environ 3 Mo par heure de route.
 
 | Table | Contenu |
 |---|---|
 | `sessions` | brut : `id` (UUID), `start_ms`, `end_ms`, `source` (adaptateur), `vin`, `version` (commit git), `metrics` |
-| `samples` | brut : `session_id`, `t_ms` (ms depuis 1970, UTC), `key` (`rpm`, `coolant`… comme `METRICS`, plus `boost`), `value` |
+| `samples` | brut : `session_id`, `t_ms` (ms depuis 1970, UTC), `key` (`rpm`, `coolant`… comme `METRICS`, plus `boost` et `l100`), `value` |
 | `trips` | calculé : un trajet, sa fiche et sa note (voir plus haut) |
 | `events` | calculé : `t_ms`, `kind` (`demarrage`, `arret_moteur`, `alerte`), `key`, `value`, `detail` |
 
-Une base à l'ancien format (un trajet par lancement) est convertie toute seule au premier lancement.
+Une base à l'ancien format (un trajet par lancement) est convertie toute seule au premier lancement. Une base
+d'avant le coût des trajets reçoit ses deux colonnes (`fuel_l`, `fuel_price`) et ses trajets sont recalculés
+(identifiants et notes gardés).
 L'heure est celle de l'ordi : il doit être à l'heure. Dans Docker, `FIESTA_VERSION=$(git describe --always)`
 devant `docker compose up` enregistre la version (l'image n'a pas le dossier `.git`).
 
