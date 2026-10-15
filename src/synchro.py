@@ -39,6 +39,7 @@ TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 PING_TIMEOUT_S = 2    # vérification : connexion et réponse
 DEFAULT_PORT = 8207   # port de clio-sentinel-server
+VEHICLE = "clio"      # voiture déclarée au serveur, qui reçoit aussi la Fiesta (il vérifie avec le VIN)
 
 
 class SyncError(Exception):
@@ -124,7 +125,7 @@ def ping(client):
 def hello(client, state, name, version):
     """Présence : ce PC, son adresse et l'état de l'ELM327, affichés sur la page du serveur.
     Serveur d'avant /api/hello (404) : simple vérification qu'il répond."""
-    body = {"name": name, "host": socket.gethostname(), "version": version,
+    body = {"name": name, "host": socket.gethostname(), "version": version, "vehicle": VEHICLE,
             "obd": {"adapter": state.adapter, "status": state.status, "source": state.source, "vin": state.vin}}
     code, _ = client.request("POST", "/api/hello", body, timeout_s=PING_TIMEOUT_S)
     if code == 404:
@@ -162,7 +163,7 @@ def sync_once(db_path, client, name=None, version=None):
         while True:
             rows = db.execute("SELECT rowid, session_id, t_ms, key, value FROM samples WHERE rowid > ?"
                               " ORDER BY rowid LIMIT ?", (cursor, BATCH)).fetchall()
-            body = {"origin": origin, "name": name, "version": version, "after": cursor,
+            body = {"origin": origin, "name": name, "version": version, "vehicle": VEHICLE, "after": cursor,
                     "last": rows[-1][0] if rows else cursor, "samples": [list(r[1:]) for r in rows]}
             sids = sorted({r[1] for r in rows})
             body["sessions"] = [list(s) for s in db.execute(
