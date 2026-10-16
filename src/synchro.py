@@ -249,7 +249,7 @@ def sync_loop(state, bases, client, version):
         try:
             hello(client, state, bases[0][1], version)   # présence sous le nom de la vraie base
             if time.time() >= next_sync:
-                # Chaque base est une origine à part sur le serveur (la démo n'y est pas mêlée aux vrais trajets)
+                # Chaque base est une origine à part sur le serveur
                 n = sum(sync_once(db_path, client, name, version) for db_path, name in bases)
                 next_sync = time.time() + EVERY_S
                 last = {"synced": time.time(), "sent": n}
