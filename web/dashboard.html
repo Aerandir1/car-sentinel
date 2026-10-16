@@ -157,6 +157,29 @@
   .t-actions button { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
                       padding: 6px 12px; cursor: pointer; font: inherit; }
   .t-saved { color: var(--ok); font-size: 12px; opacity: 0; transition: opacity .3s; }
+  /* Éco-conduite : score sur 100 (vert dès 80, jaune dès 60, rouge en dessous) et points perdus par défaut */
+  .t-eco { display: flex; gap: 12px; align-items: center; font-size: 13px; }
+  .score { flex: none; display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%;
+           border: 3px solid var(--lvl, var(--line)); color: var(--lvl, var(--dim)); font-variant-numeric: tabular-nums;
+           font-size: 18px; font-weight: 700; line-height: 1; }
+  .score small { display: block; font-size: 9px; font-weight: 400; color: var(--dim); }
+  [data-lvl="ok"] { --lvl: var(--ok); } [data-lvl="warn"] { --lvl: #f0b429; }   /* ambre même quand l'accent est bleu (style Fiesta) */ [data-lvl="ko"] { --lvl: var(--hot); }
+  .t-eco ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--dim);
+              font-variant-numeric: tabular-nums; }
+  .t-eco li b { color: var(--text); font-weight: 600; }
+  .t-eco li .lost { color: var(--hot); }
+  .t-eco li.good b { color: var(--ok); }
+  /* Bilan en haut de l'onglet Trajets */
+  .eco-sum { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+             display: grid; gap: 12px; }
+  .eco-sum h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--dim); }
+  .eco-kpis { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+  .eco-kpis .score { width: 64px; height: 64px; font-size: 22px; }
+  .kpi { display: grid; font-variant-numeric: tabular-nums; }
+  .kpi b { font-size: 18px; font-weight: 600; }
+  .kpi span { font-size: 12px; color: var(--dim); }
+  .eco-tip { margin: 0; font-size: 13px; }
+  .eco-tip b { color: var(--accent); }
   /* Paramètres : style et disposition des tuiles */
   .seg.look { justify-self: start; }
   .seg.look button { white-space: nowrap; }
@@ -323,7 +346,7 @@
   [data-look="fiesta"] #reset:hover { border-color: var(--text); }
   [data-look="fiesta"] main { padding: 20px; gap: 20px; }
   /* Panneaux et tuiles : aplats noirs, angles droits, filet jaune au survol */
-  [data-look="fiesta"] :is(.panel, .tile, .trip, .lay-item, .lay-list, .seg, .tip, dialog#detail, .price input,
+  [data-look="fiesta"] :is(.panel, .tile, .trip, .eco-sum, .lay-item, .lay-list, .seg, .tip, dialog#detail, .price input,
                              .d-close, .d-filters select, .t-note, .t-actions button, .lay-item select,
                              .lay-item button, .lay-foot button, #s-default, #s-demo, .c-in, .c-btn) { border-radius: 0; }
   [data-look="fiesta"] .tile { position: relative; padding: 12px 14px; }
@@ -1279,7 +1302,39 @@ $("tab-set").onclick = () => showTab("set");
 const fmtKm = (km) => `${(km ?? 0).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`;
 const num = (v, d = 0) => v == null ? "—" : v.toLocaleString("fr-FR", { maximumFractionDigits: d });
 
-function tripCard(t) {
+// ---------- Éco-conduite ----------
+// Points perdus par défaut (trajets.eco_penalties) : libellé, et conseil quand c'est le point faible
+const ECO = {
+  accel: ["accélérations brusques", "démarrer plus doucement : 0 → 20 km/h en 4 à 5 s plutôt qu'en 2"],
+  brake: ["freinages brusques", "anticiper : lever le pied plus tôt, le frein moteur coupe l'injection"],
+  shift: ["rapports montés tard", "passer la vitesse supérieure vers 2000-2500 tr/min, le 1.0 EcoBoost a son couple dès 1500"],
+  pedal: ["pied lourd", "doser la pédale : au-delà des trois quarts, le turbo souffle et la conso s'envole"],
+  idle: ["ralenti prolongé", "couper le moteur à l'arrêt au-delà d'une minute"],
+};
+const ecoLvl = (sc) => sc == null ? "" : sc >= 80 ? "ok" : sc >= 60 ? "warn" : "ko";
+const mmss = (s) => s < 60 ? `${Math.round(s)} s` : `${Math.round(s / 60)} min`;
+function scoreEl(sc) {
+  const d = document.createElement("div");
+  d.className = "score"; d.dataset.lvl = ecoLvl(sc);
+  d.innerHTML = `<span>${sc ?? "—"}<small>/100</small></span>`;
+  return d;
+}
+// Régulateur : temps, km et conso dessous, comparée à celle au-dessus de 50 km/h sans lui (trajets.CRUISE_KMH)
+function cruiseText(s, km, fuel, fastKm, fastFuel) {
+  if (!s) return null;
+  const parts = [mmss(s), fmtKm(km)];
+  if (km >= 1) parts.push(`${num(100 * fuel / km, 1)} L/100 km`
+    + (fastKm >= 1 ? ` (${num(100 * fastFuel / fastKm, 1)} sans, au-dessus de 50 km/h)` : ""));
+  return parts.join(" · ");
+}
+// L/100 km habituel : médiane des trajets d'au moins 3 km (il en faut 3)
+function usualL100(trips) {
+  const v = trips.filter((t) => t.kind === "trajet" && t.fuel_l != null && t.distance_km >= 3)
+    .map((t) => 100 * t.fuel_l / t.distance_km).sort((a, b) => a - b);
+  return v.length >= 3 ? (v[(v.length - 1) >> 1] + v[v.length >> 1]) / 2 : null;
+}
+
+function tripCard(t, usual) {
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const live = t.id === last?.trip;
   const card = el("article", "trip" + (live ? " live" : "") + (t.kind === "arret" ? " idle" : ""));
@@ -1308,8 +1363,16 @@ function tripCard(t) {
     if (t.fuel_price) fuel.push(`à ${num(t.fuel_price, 3)} €/L`);
     else fuel.push("prix du carburant à régler (Paramètres)");
     c.append(fuel.join(" · "));
+    // Par rapport à la conso habituelle : ce que le trajet a coûté en plus (ou en moins)
+    if (usual && t.fuel_price && t.kind === "trajet" && t.distance_km >= 3) {
+      const diff = (t.fuel_l - usual * t.distance_km / 100) * t.fuel_price;
+      if (Math.abs(diff) >= 0.01)
+        c.append(" · ", el("span", null, `${diff > 0 ? "+" : "−"}${euros(Math.abs(diff))} par rapport à d'habitude (${num(usual, 1)} L/100 km)`));
+    }
     card.append(c);
   }
+
+  if (t.kind === "trajet" && t.drive_s != null) card.append(ecoBlock(t, el));
 
   card.append(el("div", "t-max", "max : " + [
     `${num(t.max_rpm)} tr/min`, `${num(t.max_speed)} km/h`, `eau ${num(t.max_coolant)} °C`,
@@ -1342,6 +1405,80 @@ function tripCard(t) {
   return card;
 }
 
+function ecoBlock(t, el) {
+  const box = el("div", "t-eco");
+  box.append(scoreEl(t.eco_score));
+  const ul = el("ul");
+  const item = (cls, label, value, lost) => {
+    const li = el("li", cls);
+    li.append(label + " ", el("b", null, value));
+    if (lost >= 0.5) li.append(" ", el("span", "lost", `−${Math.round(lost)}`));
+    ul.append(li);
+  };
+  const p = t.eco_penalties || {};
+  box.append(ul);
+  if (t.eco_score == null) { ul.append(el("li", null, "trajet trop court pour un score")); return box; }
+  item(null, "accélérations brusques", num(t.hard_accels), p.accel);
+  item(null, "freinages brusques", num(t.hard_brakes), p.brake);
+  item(null, "rapports montés tard", mmss(t.late_shift_s), p.shift);
+  if (t.heavy_s != null) item(null, "pied lourd", mmss(t.heavy_s), p.pedal);
+  const idle = [mmss(t.idle_s)];
+  if (t.idle_fuel_l != null) idle.push(`${num(t.idle_fuel_l, 2)} L`);
+  if (t.idle_fuel_l != null && t.fuel_price) idle.push(euros(t.idle_fuel_l * t.fuel_price));
+  item(null, "à l'arrêt moteur allumé", idle.join(" · "), p.idle);
+  if (t.coast_s != null && t.drive_s)
+    item("good", "frein moteur", `${num(100 * t.coast_s / t.drive_s)} % du temps`);
+  const cr = cruiseText(t.cruise_s, t.cruise_km, t.cruise_fuel_l, t.fast_km, t.fast_fuel_l);
+  if (cr) item(null, "régulateur", cr);
+  return box;
+}
+
+// Bilan des trajets affichés : score moyen (pondéré par les km), coût, et le défaut qui coûte le plus de points
+function ecoSummary(trips) {
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const scored = trips.filter((t) => t.eco_score != null);
+  const drives = trips.filter((t) => t.kind === "trajet");
+  if (!drives.length) return null;
+  const sum = (arr, f) => arr.reduce((a, t) => a + (f(t) || 0), 0);
+  const km = sum(drives, (t) => t.distance_km);
+  const priced = trips.filter((t) => t.fuel_l != null && t.fuel_price);
+  const cost = sum(priced, (t) => t.fuel_l * t.fuel_price);
+  const pricedKm = sum(priced.filter((t) => t.kind === "trajet"), (t) => t.distance_km);
+  const idleCost = sum(priced, (t) => t.idle_fuel_l * t.fuel_price);
+  const idleS = sum(trips, (t) => t.idle_s);
+  const skm = sum(scored, (t) => t.distance_km);
+  const avg = scored.length ? Math.round(sum(scored, (t) => t.eco_score * t.distance_km) / skm) : null;
+
+  const box = el("section", "eco-sum");
+  box.append(el("h2", null, `Éco-conduite · ${drives.length} trajet${drives.length > 1 ? "s" : ""}, ${fmtKm(km)}`));
+  const kpis = el("div", "eco-kpis");
+  const kpi = (v, label) => { const d = el("div", "kpi"); d.append(el("b", null, v), el("span", null, label)); kpis.append(d); };
+  kpis.append(scoreEl(avg));
+  if (priced.length) {
+    kpi(euros(cost), "de carburant");
+    if (pricedKm >= 1) kpi(euros(100 * cost / pricedKm), "aux 100 km");
+    kpi(euros(idleCost), `brûlés à l'arrêt (${mmss(idleS)})`);
+  }
+  kpi(num(sum(scored, (t) => t.hard_accels) + sum(scored, (t) => t.hard_brakes)), "accélérations et freinages brusques");
+  const crS = sum(trips, (t) => t.cruise_s), crKm = sum(trips, (t) => t.cruise_km), fastKm = sum(trips, (t) => t.fast_km);
+  if (crS >= 60 && crKm >= 1) {
+    const l100 = (f, k) => num(100 * sum(trips, f) / k, 1);
+    kpi(`${l100((t) => t.cruise_fuel_l, crKm)} L/100 km`, `au régulateur (${mmss(crS)})`
+      + (fastKm >= 1 ? `, ${l100((t) => t.fast_fuel_l, fastKm)} sans au-dessus de 50 km/h` : ""));
+  }
+  box.append(kpis);
+  // Point faible : le défaut qui a fait perdre le plus de points, pondéré par les km de chaque trajet
+  const lost = {};
+  for (const t of scored) for (const [k, v] of Object.entries(t.eco_penalties || {})) lost[k] = (lost[k] || 0) + v * t.distance_km;
+  const [worst, pts] = Object.entries(lost).sort((a, b) => b[1] - a[1])[0] || [];
+  const tip = el("p", "eco-tip");
+  if (worst && pts / skm >= 2) tip.append("Point faible : ", el("b", null, ECO[worst][0]), ` (−${Math.round(pts / skm)} en moyenne). Conseil : ${ECO[worst][1]}.`);
+  else if (scored.length) tip.append("Rien à redire : conduite souple, rapports passés tôt, peu de ralenti.");
+  else tip.append("Le score arrive avec le premier trajet d'au moins 1 km.");
+  box.append(tip);
+  return box;
+}
+
 async function renderTrips() {
   const box = $("trips");
   if (box.contains(document.activeElement)) return;   // note en cours de saisie : on ne redessine pas
@@ -1354,7 +1491,8 @@ async function renderTrips() {
     box.replaceChildren(Object.assign(document.createElement("p"), { className: "empty", textContent: "Enregistrement désactivé (--no-db)." }));
     return;
   }
-  box.replaceChildren(...(trips.length ? trips.map(tripCard)
+  const usual = usualL100(trips), sum = ecoSummary(trips);
+  box.replaceChildren(...(trips.length ? [sum, ...trips.map((t) => tripCard(t, usual))].filter(Boolean)
     : [Object.assign(document.createElement("p"), { className: "empty",
         textContent: "Pas encore de trajet. Un trajet commence au démarrage du moteur." })]));
 }

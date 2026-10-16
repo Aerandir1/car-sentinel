@@ -319,7 +319,33 @@ Le carburant consommé est le débit (L/h, OBD standard) intégré sur le trajet
 Le prix au litre se règle dans **Paramètres → Coût des trajets** (celui du dernier plein : E85 ou SP95). Il est
 gardé par le script dans `data/reglages.json`. Chaque trajet garde le prix réglé pendant qu'il roulait : changer
 le prix au plein suivant ne touche pas les trajets finis. Les trajets d'avant le premier prix réglé prennent
-celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la moyenne en L/100 km et le prix retenu.
+celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la moyenne en L/100 km et le prix retenu,
+et ce que le trajet a coûté en plus (ou en moins) qu'à la conso habituelle (médiane des trajets d'au moins 3 km).
+
+## Éco-conduite
+
+Chaque trajet d'au moins 1 km reçoit un **score sur 100** : on part de 100 et chaque défaut retire des points
+(plafonnés), affichés à côté de chaque ligne dans l'onglet **Trajets**.
+
+| Défaut | Détecté par | Points perdus |
+|---|---|---|
+| accélération brusque | plus de 2 m/s² sur 2 s (départ à 0 → 20 km/h en 2,5 s) | 5 par tranche de 10 km, max 25 |
+| freinage brusque | moins de -2,5 m/s² sur 2 s | 5 par tranche de 10 km, max 25 |
+| rapports montés tard | au-delà de 2500 tr/min en 4e ou moins (rapport déduit de régime ÷ vitesse) | 10 % du temps : 15, max 20 |
+| pied lourd | pédale à plus de 70 % de sa course (jamais sous régulateur : la pédale reste au repos) | 10 % du temps : 15, max 15 |
+| ralenti prolongé | moteur allumé à l'arrêt plus d'une minute | 20 % du temps moteur : 10, max 10 |
+
+La pédale est donnée en course : 0 au repos, 100 au plancher. Le calculateur, lui, la donne en % de la tension
+du capteur, 15,7 % au repos et 80 % au plancher sur la Fiesta : c'est converti à la lecture (`etat.pedal_travel`),
+et les mesures enregistrées avant ont été converties au passage au format 4 de la base (la vérification de la
+synchro corrige aussi celles du serveur).
+
+S'y ajoutent, sans compter dans le score : le temps et le carburant (et son coût) à l'arrêt moteur allumé, la
+part du temps en frein moteur (injection coupée, débit < 0,2 L/h au-dessus de 20 km/h), et le **régulateur** :
+pédale au repos au-dessus de 50 km/h pendant au moins 10 s, moteur qui injecte au moins la moitié du temps
+(sinon c'est un lever de pied). Temps, km et conso au régulateur, comparée à celle au-dessus de 50 km/h sans lui. En haut de l'onglet, le
+bilan des trajets : score moyen pondéré par les km, coût total et aux 100 km, coût du ralenti, et le point faible
+(le défaut qui coûte le plus de points) avec un conseil. Seuils et poids en haut de `src/trajets.py`.
 
 ## Trajets
 
@@ -334,7 +360,7 @@ Le principe : **les mesures brutes ne sont jamais modifiées, les trajets sont c
 Un trajet est clos quand le moteur est arrêté depuis 5 min. Il porte un identifiant unique (UUID), un nom lisible
 (`2026-10-06 · trajet 1 · 08:01`, compteur remis à 1 chaque jour), une fiche (durée, distance calculée depuis la
 vitesse, carburant consommé et prix au litre, démarrage à froid ou à chaud, maximums, arrêts moteur, part sans
-réponse, VIN) et une note libre saisie
+réponse, VIN, éco-conduite) et une note libre saisie
 dans l'onglet **Trajets**. Les événements (démarrage, arrêt moteur, passage d'un seuil d'alerte) sont gardés à part.
 
 Les seuils sont en haut de `src/trajets.py`. Après un changement, tout se recalcule depuis le brut, identifiants

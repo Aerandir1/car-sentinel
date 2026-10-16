@@ -19,8 +19,9 @@ VIN = "WF0DEMO0000000000"   # faux numéro de série, reconnaissable (WF0 : Ford
 # Valeurs brutes des mesures Ford à étalonner (onglet Étalonnage) : brut = (valeur - décalage) / gain,
 # avec une échelle volontairement différente de celle par défaut (ford.FALLBACK) pour avoir à la corriger
 RAW = {"tip": (0.0081, 0.0), "octane": (0.0049, 0.0), "wgdc": (0.0025, 0.0)}
-# km/h → tr/min sur chaque rapport (boîte manuelle 5 vitesses de la 1.0 EcoBoost 95 : 100 km/h ≈ 2700 tr/min en 5e)
-GEARS = [140, 78, 50, 36, 27]
+# km/h → tr/min sur chaque rapport (boîte manuelle 5 vitesses de la 1.0 EcoBoost 95, mesuré sur les trajets
+# enregistrés : 100 km/h ≈ 2200 tr/min en 5e)
+GEARS = [70, 45, 33, 26.5, 22]
 # Le trajet : (durée en s, pédale en %, freinage en km/h par s)
 SCRIPT = [
     (8, 0, 0),      # ralenti

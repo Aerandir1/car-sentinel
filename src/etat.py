@@ -12,6 +12,15 @@ from collections import deque
 import donnees
 
 BARO_DEFAULT_KPA = 101.3
+# Pédale d'accélérateur (01 49, capteur D) : le calculateur la donne en % de la tension, 15,69 % au repos et 80 % au
+# plancher sur la Fiesta (lu par pas de 0,39 %). Ramenée à la course de la pédale : 0 au repos, 100 au plancher.
+# Sous régulateur, elle reste au repos : c'est le calculateur qui ouvre le papillon.
+PEDAL_REST, PEDAL_FULL = 15.69, 80.0
+
+
+def pedal_travel(v):
+    return round(min(100.0, max(0.0, (v - PEDAL_REST) * 100 / (PEDAL_FULL - PEDAL_REST))), 1)
+
 
 # key, libellé, unité, commande python-obd (None : mesure Ford seulement, voir ford.py), conversion,
 # min/max d'affichage, seuil d'alerte (rouge au-delà), seuil "froid" (bleu en dessous)
@@ -32,7 +41,7 @@ METRICS = [
     ("baro",     "Pression atmo",    "kPa",    "BAROMETRIC_PRESSURE",       None,              (70, 110),   None, None),
     ("wgdc",     "Wastegate",        "%",      None,                        None,              (0, 100),    None, None),
     ("load",     "Charge moteur",    "%",      "ENGINE_LOAD",               None,              (0, 100),    None, None),
-    ("pedal",    "Pédale accél.",    "%",      "ACCELERATOR_POS_D",         None,              (0, 100),    None, None),
+    ("pedal",    "Pédale accél.",    "%",      "ACCELERATOR_POS_D",         pedal_travel,      (0, 100),    None, None),
     ("throttle", "Papillon",         "%",      "THROTTLE_POS",              None,              (0, 100),    None, None),
     ("maf",      "Débit d'air",      "g/s",    "MAF",                       None,              (0, 100),    None, None),
     ("ethanol",  "Taux d'éthanol",   "%",      "ETHANOL_PERCENT",           None,              (0, 100),    None, None),

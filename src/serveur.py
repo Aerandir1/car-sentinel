@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import donnees
 import ford
+import trajets
 from etat import DERIVED, METRICS
 from reseau import HOST
 
@@ -111,6 +112,9 @@ def make_handler(state, current_db):
                     num = lambda k: int(q[k]) if q.get(k) else None
                     if path == "/api/trips":
                         body = donnees.trips(db_path, num("limit") or 200)
+                        for t in body:   # détail du score d'éco-conduite : points perdus sur chaque défaut
+                            p = trajets.eco_penalties(t) if t["drive_s"] is not None else None
+                            t["eco_penalties"] = p and {k: round(v, 1) for k, v in p.items()}
                     elif path == "/api/trips/keys":
                         body = trip_metrics(db_path, q.get("trip", ""))
                     else:

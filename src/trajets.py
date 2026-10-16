@@ -10,6 +10,9 @@ lancer `python src/trajets.py --rebuild` recalcule tout (les identifiants et les
   carburant      débit (L/h) intégré sur le trajet ; coût = carburant × prix au litre réglé dans le dashboard
                  pendant le trajet (gardé ensuite : changer le prix ne touche pas les trajets finis)
   fermé          moteur arrêté depuis plus de TRIP_GAP_S : le trajet ne bougera plus
+  éco-conduite   voir driving() et eco_score() : accélérations et freinages brusques, rapports montés tard, pied
+                 lourd, ralenti prolongé, frein moteur ; un score sur 100 pour les trajets d'au moins ECO_MIN_KM.
+                 Et le régulateur (temps, km et carburant), hors score
 """
 
 import argparse
@@ -25,6 +28,23 @@ RUN_GAP_S = 10            # plus longtemps sans mesure du régime : le moteur a 
 TRIP_GAP_S = 5 * 60       # arrêt moteur plus long : fin du trajet
 MOVING_KMH = 5            # vitesse max au-dessus : la voiture a roulé
 COLD_START_C = 50         # eau plus froide au démarrage : démarrage à froid
+# Éco-conduite. Rapport engagé déduit de régime / vitesse (tr/min par km/h, mesuré sur les trajets) :
+# 1re ≈ 70, 2e ≈ 45, 3e ≈ 33, 4e ≈ 26,5, 5e ≈ 22
+TOP_GEAR_RATIO = 24       # au-dessus : 4e ou moins
+SHIFT_RPM = 2500          # au-delà, sur un rapport intermédiaire : il fallait monter (1.0 EcoBoost : couple dès 1500)
+PEDAL_HEAVY = 70          # % de la course de la pédale au-delà : pied lourd (jamais sous régulateur, pédale au repos)
+HARD_ACCEL = 2.0          # m/s², sur ACCEL_WINDOW_S : accélération brusque (départ arrêté à 0 → 20 km/h en 2,5 s)
+HARD_BRAKE = -2.5         # m/s² : freinage brusque
+ACCEL_WINDOW_S = 2        # vitesse lue toutes les ≈ 1,3 s : accélération sur au moins 2 s
+IDLE_LONG_S = 60          # moteur à l'arrêt plus longtemps : ralenti prolongé (couper le moteur)
+COAST_KMH = 20            # au-dessus, débit de carburant sous COAST_LH : coupure d'injection (frein moteur)
+COAST_LH = 0.2
+# Régulateur : pédale au repos (la vitesse est tenue par le calculateur) au-dessus de CRUISE_KMH pendant au moins
+# CRUISE_MIN_S, moteur qui injecte au moins la moitié du temps (sinon : lever de pied en frein moteur)
+CRUISE_KMH = 50
+CRUISE_PEDAL = 1          # % de la course : au repos
+CRUISE_MIN_S = 10
+ECO_MIN_KM = 1            # trajet plus court : pas de score
 WARN = {k: (lbl, warn) for k, lbl, _u, _c, _cv, _r, warn, _cold in METRICS if warn is not None}
 
 
@@ -76,6 +96,128 @@ def integrate(rows):
     return d
 
 
+def accel_events(speed):
+    """[(t_ms, km/h)] → (accélérations brusques, freinages brusques). Un événement dure tant que l'accélération
+    reste au-delà de la moitié du seuil."""
+    acc = brk = 0
+    in_acc = in_brk = False
+    j = 0
+    for i, (t, v) in enumerate(speed):
+        while j + 1 < i and t - speed[j + 1][0] >= ACCEL_WINDOW_S * 1000:
+            j += 1
+        dt = (t - speed[j][0]) / 1000
+        if j >= i or not ACCEL_WINDOW_S <= dt <= 2 * ACCEL_WINDOW_S:
+            in_acc = in_brk = False   # trou dans les mesures
+            continue
+        a = (v - speed[j][1]) / 3.6 / dt
+        if a > HARD_ACCEL and not in_acc:
+            acc += 1
+        if a < HARD_BRAKE and not in_brk:
+            brk += 1
+        in_acc = a > HARD_ACCEL / 2 if in_acc else a > HARD_ACCEL
+        in_brk = a < HARD_BRAKE / 2 if in_brk else a < HARD_BRAKE
+    return acc, brk
+
+
+def driving(db, start, end):
+    """Temps passé (s) dans chaque façon de conduire, d'après les dernières valeurs lues de vitesse, régime, pédale
+    et débit de carburant (chaque intervalle entre deux mesures compte pour l'état d'avant). Plus le régulateur :
+    temps, km et carburant dessous, et km et carburant au-dessus de CRUISE_KMH sans lui (pour comparer)."""
+    keys = ("speed", "rpm", "pedal", "fuel")
+    rows = db.execute(f"SELECT t_ms, key, value FROM samples WHERE key IN ({', '.join('?' * len(keys))})"
+                      " AND t_ms BETWEEN ? AND ? ORDER BY t_ms", (*keys, start, end)).fetchall()
+    cur, prev = {}, None
+    out = dict.fromkeys(("drive_s", "idle_s", "idle_long_s", "late_shift_s", "heavy_s", "coast_s"), 0.0)
+    idle_fuel, idle_run, has = 0.0, 0.0, set()
+    # Régulateur : [s, s en injection, km, L] du passage pédale au repos en cours, et les totaux
+    seg = [0.0, 0.0, 0.0, 0.0]
+    cruise, fast = [0.0, 0.0, 0.0], [0.0, 0.0]   # (s, km, L) sous régulateur ; (km, L) au-dessus de 50 sans
+
+    def end_seg():
+        if seg[0] >= CRUISE_MIN_S and seg[1] >= seg[0] / 2:
+            cruise[0] += seg[0]; cruise[1] += seg[2]; cruise[2] += seg[3]
+        else:
+            fast[0] += seg[2]; fast[1] += seg[3]
+        seg[:] = [0.0, 0.0, 0.0, 0.0]
+
+    for t, key, v in rows:
+        if prev is not None and 0 < t - prev <= RUN_GAP_S * 1000:
+            dt = (t - prev) / 1000
+            speed, rpm, pedal, fuel = (cur.get(k) for k in keys)
+            on_road = speed is not None and speed >= CRUISE_KMH and fuel is not None
+            if on_road and pedal is not None and pedal <= CRUISE_PEDAL:
+                seg[0] += dt; seg[2] += speed * dt / 3600; seg[3] += fuel * dt / 3600
+                if fuel >= COAST_LH:
+                    seg[1] += dt
+            else:
+                end_seg()
+                if on_road:
+                    fast[0] += speed * dt / 3600; fast[1] += fuel * dt / 3600
+            if speed is not None and rpm is not None and rpm > ENGINE_ON_RPM:
+                if speed < 1:
+                    out["idle_s"] += dt
+                    idle_run += dt
+                    if fuel is not None:
+                        idle_fuel += fuel * dt / 3600
+                else:
+                    out["drive_s"] += dt
+                    if speed >= 10 and rpm > SHIFT_RPM and rpm / speed > TOP_GEAR_RATIO:
+                        out["late_shift_s"] += dt
+                    if fuel is not None and speed >= COAST_KMH and fuel < COAST_LH:
+                        out["coast_s"] += dt
+                if pedal is not None and pedal > PEDAL_HEAVY:
+                    out["heavy_s"] += dt
+            if not (speed is not None and speed < 1 and rpm is not None and rpm > ENGINE_ON_RPM):
+                if idle_run > IDLE_LONG_S:
+                    out["idle_long_s"] += idle_run
+                idle_run = 0.0
+        else:
+            end_seg()   # trou dans les mesures
+        if v is not None:
+            cur[key] = v
+            has.add(key)
+        prev = t
+    end_seg()
+    if idle_run > IDLE_LONG_S:
+        out["idle_long_s"] += idle_run
+    out = {k: round(v, 1) for k, v in out.items()}
+    if "pedal" not in has:
+        out["heavy_s"] = None
+    if "fuel" not in has:
+        out["coast_s"] = None
+    out["idle_fuel_l"] = round(idle_fuel, 3) if "fuel" in has else None
+    ok = "pedal" in has and "fuel" in has
+    out["cruise_s"] = round(cruise[0], 1) if ok else None
+    out["cruise_km"] = round(cruise[1], 2) if ok else None
+    out["cruise_fuel_l"] = round(cruise[2], 3) if ok else None
+    out["fast_km"] = round(fast[0], 2) if ok else None
+    out["fast_fuel_l"] = round(fast[1], 3) if ok else None
+    out["hard_accels"], out["hard_brakes"] = accel_events(
+        [(t, v) for t, k, v in rows if k == "speed" and v is not None])
+    return out
+
+
+def eco_penalties(s):
+    """Points perdus sur chaque défaut d'éco-conduite (plafonnés), None pour un trajet trop court."""
+    km, drive = s["distance_km"] or 0, s["drive_s"] or 0
+    if km < ECO_MIN_KM or drive < 60:
+        return None
+    per_10km = 10 / max(km, 5)   # trajet court : un seul départ vif ne fait pas tout le score
+    return {
+        "accel": min(25, 5 * s["hard_accels"] * per_10km),   # 1 accélération brusque tous les 10 km : -5
+        "brake": min(25, 5 * s["hard_brakes"] * per_10km),
+        "shift": min(20, 150 * s["late_shift_s"] / drive),     # 10 % du temps à monter les rapports trop tard : -15
+        "pedal": min(15, 150 * (s["heavy_s"] or 0) / drive),
+        "idle": min(10, 50 * s["idle_long_s"] / (drive + s["idle_s"])),   # ralenti prolongé, en part du temps moteur
+    }
+
+
+def eco_score(s):
+    """Score d'éco-conduite sur 100 : 100 moins les points perdus. None pour un trajet trop court."""
+    p = eco_penalties(s)
+    return None if p is None else round(max(0.0, 100 - sum(p.values())))
+
+
 def stats(db, start, end, runs):
     by_key = {k: (mx, n, nv) for k, mx, n, nv in db.execute(
         "SELECT key, max(value), count(*), count(value) FROM samples WHERE t_ms BETWEEN ? AND ? GROUP BY key",
@@ -90,7 +232,7 @@ def stats(db, start, end, runs):
                      (end, start)).fetchone()
     total = sum(n for _mx, n, _nv in by_key.values())
     mx = lambda k: by_key[k][0] if k in by_key else None
-    return {
+    out = {
         "vin": row[0] if row else None,
         "distance_km": round(integrate(series("speed")), 2),
         "fuel_l": round(integrate(fuel), 3) if any(v is not None for _t, v in fuel) else None,
@@ -99,7 +241,10 @@ def stats(db, start, end, runs):
         "max_rpm": mx("rpm"), "max_speed": mx("speed"), "max_coolant": mx("coolant"), "max_boost": mx("boost"),
         "engine_stops": len(runs) - 1,
         "missing_ratio": round(sum(n - nv for _mx, n, nv in by_key.values()) / total, 4) if total else None,
+        **driving(db, start, end),
     }
+    out["eco_score"] = eco_score(out)
+    return out
 
 
 def trip_name(db, kind, start):

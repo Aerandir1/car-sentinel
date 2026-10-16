@@ -1,6 +1,6 @@
 """Enregistrement des mesures dans une base SQLite, chaque valeur avec son horodatage.
 
-Brut, jamais modifié :
+Brut, jamais modifié (sauf une échelle corrigée au passage à un nouveau format, voir init) :
   sessions  une connexion au calculateur (contact mis), avec l'adaptateur, le VIN, la version du script
   samples   une ligne par valeur lue : métrique, instant de la réponse (ms UTC), valeur (NULL : pas de réponse)
 Calculé à partir du brut, recalculable (voir trajets.py) :
@@ -19,7 +19,7 @@ import time
 import traceback
 import uuid
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 5
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id        TEXT PRIMARY KEY,          -- identifiant unique (UUID)
@@ -57,7 +57,24 @@ CREATE TABLE IF NOT EXISTS trips (
     missing_ratio REAL,                  -- part des requêtes sans réponse du calculateur
     note          TEXT,                  -- note libre, saisie dans le dashboard
     fuel_l        REAL,                  -- carburant consommé (débit intégré), NULL sans mesure de conso
-    fuel_price    REAL                   -- prix du carburant (€/L) réglé pendant le trajet : coût = fuel_l × fuel_price
+    fuel_price    REAL,                  -- prix du carburant (€/L) réglé pendant le trajet : coût = fuel_l × fuel_price
+    -- Éco-conduite (voir trajets.py), temps en s
+    drive_s       REAL,                  -- moteur allumé, voiture qui roule
+    idle_s        REAL,                  -- moteur allumé à l'arrêt
+    idle_long_s   REAL,                  -- dont arrêts de plus d'une minute (ralenti prolongé)
+    idle_fuel_l   REAL,                  -- carburant brûlé à l'arrêt
+    late_shift_s  REAL,                  -- au-delà de 2500 tr/min sur un rapport intermédiaire
+    heavy_s       REAL,                  -- pied lourd (pédale à plus de 70 % de sa course), NULL sans mesure
+    coast_s       REAL,                  -- frein moteur, injection coupée, NULL sans mesure de conso
+    hard_accels   INTEGER,               -- accélérations brusques
+    hard_brakes   INTEGER,               -- freinages brusques
+    eco_score     INTEGER,               -- score sur 100, NULL pour un trajet de moins d'1 km
+    -- Régulateur (pédale au repos au-dessus de 50 km/h, moteur qui tire), NULL sans mesure de pédale ou de conso
+    cruise_s      REAL,
+    cruise_km     REAL,
+    cruise_fuel_l REAL,
+    fast_km       REAL,                  -- au-dessus de 50 km/h sans régulateur : de quoi comparer la conso
+    fast_fuel_l   REAL
 );
 CREATE INDEX IF NOT EXISTS trips_start ON trips(start_ms);
 CREATE TABLE IF NOT EXISTS events (
@@ -69,6 +86,13 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_t ON events(t_ms);
 """
+
+# Colonnes ajoutées aux trajets depuis la version 1 (ajoutées à une base plus ancienne)
+TRIP_ADDED = (("fuel_l", "REAL"), ("fuel_price", "REAL"), ("drive_s", "REAL"), ("idle_s", "REAL"),
+              ("idle_long_s", "REAL"), ("idle_fuel_l", "REAL"), ("late_shift_s", "REAL"), ("heavy_s", "REAL"),
+              ("coast_s", "REAL"), ("hard_accels", "INTEGER"), ("hard_brakes", "INTEGER"), ("eco_score", "INTEGER"),
+              ("cruise_s", "REAL"), ("cruise_km", "REAL"), ("cruise_fuel_l", "REAL"), ("fast_km", "REAL"),
+              ("fast_fuel_l", "REAL"))
 
 FLUSH_S = 1.0          # écriture groupée : une transaction par seconde
 MAX_POINTS = 2000      # au-delà, l'historique renvoyé est moyenné par tranches de temps
@@ -111,13 +135,24 @@ def init(path):
                                    (sid, tid))
                     db.execute("DROP TABLE old_samples")
                     db.execute("DROP TABLE old_trips")
-                # Version 2 : carburant et coût des trajets. Les trajets sont rouverts pour que trajets.py les
-                # recalcule tous au prochain passage (identifiants et notes gardés)
+                # Version 2 : carburant et coût des trajets. Versions 3 et 5 : éco-conduite, régulateur. Les trajets
+                # sont rouverts pour que trajets.py les recalcule tous au prochain passage (identifiants, notes et
+                # prix gardés)
                 trip_cols = {r[1] for r in db.execute("PRAGMA table_info(trips)")}
-                for col in ("fuel_l", "fuel_price"):
+                for col, kind in TRIP_ADDED:
                     if col not in trip_cols:
-                        db.execute(f"ALTER TABLE trips ADD COLUMN {col} REAL")
-                if version == 1:
+                        db.execute(f"ALTER TABLE trips ADD COLUMN {col} {kind}")
+                # Version 4 : pédale ramenée à sa course (0 au repos, 100 au plancher, voir etat.pedal_travel) au lieu
+                # du % de tension lu. Les mesures déjà enregistrées sont converties, celles de la Fiesta seulement (pas
+                # la démo, déjà en course, ni une autre voiture branchée par erreur) ; la vérification de synchro.py
+                # renvoie les groupes corrigés au serveur
+                if 1 <= version < 4:
+                    from etat import PEDAL_FULL, PEDAL_REST
+                    db.execute("UPDATE samples SET value = round(max(0.0, min(100.0, (value - ?) * 100 / ?)), 1)"
+                               " WHERE key = 'pedal' AND value IS NOT NULL AND session_id IN"
+                               " (SELECT id FROM sessions WHERE vin IS NULL OR (vin LIKE 'WF0%' AND vin NOT LIKE 'WF0DEMO%'))",
+                               (PEDAL_REST, PEDAL_FULL - PEDAL_REST))
+                if version >= 1:
                     db.execute("UPDATE trips SET closed = 0")
                 db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     finally:
@@ -183,7 +218,7 @@ class Recorder:
 
 TRIP_FIELDS = ("id", "kind", "name", "start_ms", "end_ms", "closed", "vin", "distance_km", "coolant_start",
                "cold_start", "max_rpm", "max_speed", "max_coolant", "max_boost", "engine_stops",
-               "missing_ratio", "note", "fuel_l", "fuel_price")
+               "missing_ratio", "note") + tuple(c for c, _ in TRIP_ADDED)
 
 
 def trips(path, limit=200):
