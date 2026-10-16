@@ -120,7 +120,7 @@ def main():
         print(f"Mesures enregistrées dans {db_path} (mode démo : {demo_path.name})")
         if client:
             state.sync = {"ok": None, "t": time.time()}   # premier essai en cours (témoin « serveur » du dashboard)
-            bases = [(db_path, args.server_name), (demo_path, f"{args.server_name} · démo")]
+            bases = [(db_path, args.server_name)]   # la base de la démo reste sur le PC
             threading.Thread(target=synchro.sync_loop, args=(state, bases, client, version()), daemon=True).start()
             print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
     # Étalonnage des mesures Ford : à côté de la base (data/ par défaut)
