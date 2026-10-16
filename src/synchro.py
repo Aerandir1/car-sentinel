@@ -95,7 +95,7 @@ class Client:
 
     def request(self, method, path, body=None, query=None, timeout_s=None):
         conn, base = self._connect(*(timeout_s, timeout_s) if timeout_s else ())
-        # Adresse de ce PC sur la route prise (Wi-Fi ou VPN) : le serveur derrière Docker ne la voit pas toujours
+        # Adresse de ce PC sur la route prise (Wi-Fi ou VPN) : le serveur ne la voit pas toujours (NAT, Docker)
         headers = {"Accept": "application/json", "X-Clio-Local-IP": conn.sock.getsockname()[0]}
         data = None
         if body is not None:

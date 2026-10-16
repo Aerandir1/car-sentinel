@@ -29,143 +29,90 @@ src/
   donnees.py          base SQLite : sessions, mesures horodatées, trajets, événements
   trajets.py          découpage des mesures en trajets, fiche de chaque trajet
   synchro.py          envoi de la base vers clio-sentinel-server
+  pont_web.py         secours : clé USB ouverte par la page web (Web Serial) et relayée au script
 web/dashboard.html    le dashboard
 data/                 les bases SQLite (pas dans git)
 clio.conf.exemple     modèle des réglages : copié en clio.conf (pas dans git) au premier lancement
-lancer.sh             lancement en local (venv + navigateur)
-service.sh            enregistrement permanent : service systemd lancé avec la session
-Dockerfile, docker-compose.yml
+lancer.sh             Linux : lancement en local (venv + navigateur)
+service.sh            Linux : enregistrement permanent, service systemd lancé avec la session
+lancer.bat, lancer.ps1   Windows : lancement en local (Python + venv + navigateur), double-clic sur lancer.bat
+service.ps1           Windows : enregistrement permanent, lancé à l'ouverture de session
+windows-commun.ps1    Windows : fonctions communes aux deux scripts
 ```
 
-## Installation (Arch)
+Le script tourne directement sous **Linux** et sous **Windows** (Python 3.9 ou plus), sans Docker.
+
+## Installation et lancement sous Linux
 
 ```bash
 sudo usermod -aG uucp $USER          # accès au port de l'ELM327 (dialout sous Debian / Ubuntu), puis déconnexion/reconnexion
+./lancer.sh                          # crée ~/.venvs/obd au premier lancement, lance le script et ouvre la page
+```
+
+À la main :
+```bash
 python -m venv ~/.venvs/obd && source ~/.venvs/obd/bin/activate
 pip install -r requirements.txt
+python src/dashboard_clio.py
+```
+
+Avec `ADAPTATEUR` vide, le script cherche dans `ttyUSB*`, `ttyACM*` et `rfcomm*` celui qui répond à `ATI`
+(« Adaptateur trouvé : ELM327 v1.5 sur /dev/ttyACM0 ») et attend la clé si elle n'est pas branchée. S'il n'a pas
+le droit d'ouvrir le port, le journal donne la commande `usermod` à taper.
+
+## Installation et lancement sous Windows
+
+Double-cliquer sur **`lancer.bat`** (ou, dans PowerShell, `.\lancer.bat`). Au premier lancement, il installe
+Python si besoin (winget, pour l'utilisateur seulement), crée l'environnement `%USERPROFILE%\.venvs\obd`, y
+installe les dépendances, puis lance le script et ouvre la page. La fenêtre reste ouverte tant que le script
+tourne (la fermer, ou Ctrl+C, l'arrête). Des options peuvent suivre : `.\lancer.bat --port COM3 --log trajet.csv`.
+
+L'adaptateur, dans `clio.conf` :
+- **USB** : laisser `ADAPTATEUR` vide. Le script essaie les ports COM, clés USB d'abord (CH340, FTDI, CP210x,
+  Prolific), et garde celui qui répond à `ATI` (« Adaptateur trouvé : ELM327 v1.5 sur COM3 »). Si Windows ne
+  reconnaît pas la clé (pas de port COM dans le Gestionnaire de périphériques), installer le pilote de sa puce
+  (souvent CH340). `ADAPTATEUR=COM3` force un port.
+- **Bluetooth** : appairer l'adaptateur dans Windows, qui lui donne un port COM ; il est trouvé comme une clé USB
+  (plus lentement), ou donné par `ADAPTATEUR=COM5`.
+- **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) : `ADAPTATEUR=socket://192.168.0.10:35000` et `DEBIT=38400`.
+
+Un port COM ne s'ouvre que par un seul programme : fermer les autres logiciels OBD avant (le témoin indique
+« port occupé » sinon).
+
+Port 8080 déjà pris : `PORT_PAGE=8106` dans `clio.conf`, relancer, puis http://clio-sentinel.localhost:8106.
+
+**Accès depuis les autres PC du réseau** : `RESEAU=oui` dans `clio.conf`, relancer, puis ouvrir le port dans le
+pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
+```powershell
+New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private
 ```
 
 ## Réglages : clio.conf
 
-Tous les réglages sont dans **`clio.conf`**, à la racine du projet, lu par le service, `lancer.sh` et Docker. Il
+Tous les réglages sont dans **`clio.conf`**, à la racine du projet, lu par le script à chaque lancement. Il
 est créé au premier lancement depuis `clio.conf.exemple`, qui explique chaque ligne :
 
 | Réglage | Rôle |
 |---|---|
 | `RESEAU` | `oui` : page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `PORT_PAGE` | port de la page (défaut 8080) |
-| `ADAPTATEUR`, `DEBIT` | port de l'ELM327 (vide : auto-détection) : `/dev/ttyACM0`, `socket://192.168.0.10:35000`… |
+| `ADAPTATEUR`, `DEBIT` | port de l'ELM327 (vide : auto-détection) : `/dev/ttyACM0`, `COM3`, `socket://192.168.0.10:35000`… |
 | `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») |
 | `AUTRES_OPTIONS` | autres options du script (voir « Utilisation »), ex. `--fast --log logs/trajet.csv` |
-| `DOCKER_ECOUTE`, `OBD_GID`, `CLIO_DATA` | Docker seulement (voir « Docker ») |
 
-Après un changement : `./service.sh restart` (service), `docker compose --env-file clio.conf up -d` (Docker).
+Après un changement : relancer le script (`./service.sh restart` ou `service.ps1 restart` pour le service).
 Une option donnée en ligne de commande passe avant `clio.conf`.
 
 ## Adresse de la page
 
 Sur ce PC, la page est servie en **http://clio-sentinel.localhost:8080** (HTTP simple, pas de certificat).
-Chromium et Firefox envoient tout nom en `.localhost` vers l'ordi lui-même : rien à mettre dans `/etc/hosts`.
+Chrome, Edge et Firefox envoient tout nom en `.localhost` vers l'ordi lui-même : rien à mettre dans le fichier hosts.
 http://127.0.0.1:8080 et http://localhost:8080 redirigent vers ce nom (l'API, elle, répond aussi sur 127.0.0.1,
 pour le hub).
 
-## Docker sous Linux
-
-```bash
-[ -f clio.conf ] || cp clio.conf.exemple clio.conf
-# groupe des ports série de l'hôte (dialout sous Debian / Ubuntu, uucp sous Arch) : droit d'ouvrir l'adaptateur
-sed -i "s/^OBD_GID=.*/OBD_GID=$(getent group dialout uucp | head -n 1 | cut -d: -f3)/" clio.conf
-docker compose down                     # si un ancien conteneur tourne encore
-docker compose --env-file clio.conf up -d --build        # puis http://clio-sentinel.localhost:8080
-```
-
-`--env-file clio.conf` est à donner à chaque `docker compose up` : c'est lui qui donne à Docker le port publié, le
-groupe du port série et l'emplacement de la base. Le conteneur reçoit les autres réglages de `clio.conf` tout seul.
-
-Le conteneur démarre même sans la clé : il voit le `/dev` de l'hôte en lecture seule (sous `/hostdev`) et
-attend que l'ELM327 apparaisse : avec `ADAPTATEUR` vide, il cherche dans `ttyUSB*`, `ttyACM*` et `rfcomm*` celui
-qui répond à `ATI` (`docker compose logs` : « Adaptateur trouvé : ELM327 v1.5 sur /hostdev/ttyACM0 »). Un port
-donné dans `ADAPTATEUR` (`/dev/ttyACM0`) est traduit tout seul en `/hostdev/ttyACM0`. Seuls les ports série USB
-lui sont autorisés, pas les disques ni le reste. `OBD_GID` lui donne le droit d'ouvrir le port série : s'il est
-faux, le journal donne la bonne valeur (« OBD_GID=985 dans clio.conf »).
-
-La base est rangée dans `data/`, les CSV dans `logs/`. Avec `restart: unless-stopped`, le conteneur se
-relance tout seul au démarrage de Docker : c'est l'équivalent de `service.sh`.
-
-**Accès depuis le réseau** : dans `clio.conf`, `RESEAU=oui` et `DOCKER_ECOUTE=0.0.0.0`, puis
-`docker compose --env-file clio.conf up -d`. Le conteneur ne voit pas les adresses de l'hôte et ne les affiche pas :
-`ip -4 -br addr` les donne. Si `RESEAU=oui` mais que le port n'est publié que sur ce PC, le journal le signale
-(`docker compose logs`).
-
-## Docker sous Windows (Docker Desktop)
-
-Tout se fait dans PowerShell, dans le dossier du projet. Docker Desktop ne voit pas les ports COM de Windows :
-l'adaptateur passe soit par le Wi-Fi, soit par WSL2.
-
-**1. Une seule fois.** Dans Docker Desktop, *Settings → General* : cocher « Start Docker Desktop when you sign
-in ». Le conteneur se relancera alors tout seul à chaque démarrage de Windows. Puis créer les réglages :
-```powershell
-Copy-Item clio.conf.exemple clio.conf
-notepad clio.conf
-```
-
-**2. La base dans un volume Docker.** Un dossier Windows (`C:\...`) partagé avec le conteneur est lent et
-SQLite peut y renvoyer « database is locked ». Mettre donc `CLIO_DATA=clio-data` dans `clio.conf` (volume Docker).
-Pour en sortir une copie (pour l'ouvrir dans DB Browser for SQLite, par exemple) :
-
-```powershell
-docker compose stop
-docker compose cp clio:/app/data .\data-copie     # clio.db + ses fichiers -wal et -shm : garder les trois ensemble
-docker compose start
-```
-
-Variante : cloner le projet dans WSL (`\\wsl$\Ubuntu\home\...`) et suivre la section Linux.
-
-**3. L'adaptateur**, dans `clio.conf` :
-
-- **Wi-Fi** (PC connecté au Wi-Fi de l'adaptateur) : `ADAPTATEUR=socket://192.168.0.10:35000` et `DEBIT=38400`.
-- **USB** : laisser `ADAPTATEUR` vide. Docker Desktop ne voit la clé que si elle est passée à WSL2 par
-  [usbipd-win](https://github.com/dorssel/usbipd-win). Le script `windows-usb.ps1` s'en charge, une seule fois
-  (clé branchée, Docker Desktop démarré) :
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1
-  ```
-  Il installe usbipd, repère la clé, la partage, crée une tâche planifiée qui la rattache à WSL2 à chaque
-  ouverture de session et à chaque branchement, puis vérifie que le conteneur la voit (et corrige `OBD_GID`).
-  `-Supprimer` retire la tâche et le partage. À la main, en PowerShell admin :
-  ```powershell
-  winget install usbipd
-  usbipd list                                        # BUSID de l'ELM327 : CH340, FTDI, « Périphérique série USB (COMx) »…
-  usbipd bind --busid 2-3                            # une seule fois
-  usbipd attach --wsl --busid 2-3 --auto-attach      # laisse la fenêtre ouverte : rattache la clé à chaque branchement
-  ```
-  Sans cette étape, le conteneur ne voit pas la clé (le journal le rappelle). Une fois attachée, il la trouve
-  tout seul, sans redémarrer : `docker compose logs` affiche « Adaptateur trouvé : ELM327… ». S'il dit « pas le
-  droit d'ouvrir », mettre dans `clio.conf` l'`OBD_GID` qu'il donne et relancer.
-- **Bluetooth** (port COM virtuel) : passer par un pont RFC 2217 sous Windows (ex. `rfc2217_server.py` des
-  exemples de pyserial), puis `ADAPTATEUR=rfc2217://host.docker.internal:2217`.
-
-**4. Lancer** (dans un autre PowerShell pour l'USB) :
-```powershell
-$env:CLIO_VERSION=(git describe --always)
-docker compose --env-file clio.conf up -d --build
-```
-Ouvrir http://clio-sentinel.localhost:8080.
-`docker compose logs -f` pour suivre le script, `docker compose down` pour l'arrêter (la base reste dans le volume).
-
-Port 8080 déjà pris (« port is already allocated ») : `PORT_PAGE=8106` dans `clio.conf`, relancer, puis
-http://clio-sentinel.localhost:8106.
-
-**Accès depuis les autres PC du réseau** : `RESEAU=oui` et `DOCKER_ECOUTE=0.0.0.0` dans `clio.conf`, relancer, puis
-ouvrir le port dans le pare-feu Windows (PowerShell admin, une seule fois, réseau privé seulement) :
-```powershell
-New-NetFirewallRule -DisplayName "Clio Sentinel" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private
-```
-Les autres PC ouvrent alors `http://<IP du PC>:8080` (IP donnée par `ipconfig`). Le dashboard n'a pas de mot
-de passe : tout le réseau peut le voir et changer les réglages et les notes des trajets.
-
 ## Enregistrement permanent
 
+Linux (service systemd de l'utilisateur) :
 ```bash
 ./service.sh install     # le script tourne en fond et démarre avec l'ordi (une seule fois)
 ./service.sh restart     # après un changement dans clio.conf
@@ -174,11 +121,21 @@ de passe : tout le réseau peut le voir et changer les réglages et les notes de
 ./service.sh stop        # arrêt (start pour relancer, remove pour supprimer le service)
 ./lancer.sh              # ouvre la page (relance le service s'il ne tourne pas)
 ```
+Pour qu'il démarre avec l'ordi sans ouvrir de session : `sudo loginctl enable-linger $USER`.
 
-Le service attend l'ELM327 et enregistre dès que le calculateur répond (contact mis). Contact coupé, plus de
+Windows (raccourci dans le dossier Démarrage : sans fenêtre, à chaque ouverture de session, sans droits admin) :
+```powershell
+powershell -ExecutionPolicy Bypass -File .\service.ps1 install    # une seule fois
+powershell -ExecutionPolicy Bypass -File .\service.ps1 restart    # après un changement dans clio.conf
+powershell -ExecutionPolicy Bypass -File .\service.ps1 status     # tourne-t-il ? adresses, ou l'erreur
+powershell -ExecutionPolicy Bypass -File .\service.ps1 logs       # journal en direct (logs\clio.log)
+powershell -ExecutionPolicy Bypass -File .\service.ps1 stop       # arrêt (start pour relancer, remove pour supprimer)
+.\lancer.bat                                                      # ouvre la page (relance le script s'il ne tourne pas)
+```
+
+Le script attend l'ELM327 et enregistre dès que le calculateur répond (contact mis). Contact coupé, plus de
 réponse pendant 10 s : la session se ferme et le script attend la suivante. Ordi éteint en route : rien n'est
-perdu, le trajet est clos au lancement suivant. Pour qu'il démarre avec l'ordi sans ouvrir de session :
-`sudo loginctl enable-linger $USER`.
+perdu, le trajet est clos au lancement suivant.
 
 ## Accès depuis le réseau (Raspberry Pi dans la voiture)
 
@@ -215,7 +172,7 @@ et `http://<IP>:8080` pour chaque adresse réseau.
 ## Utilisation
 
 ```bash
-python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main, contact mis
+python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv  # à la main, contact mis (Windows : --port COM3)
 ```
 
 Les options ci-dessous passent avant `clio.conf` ; pour les garder, les mettre dans `AUTRES_OPTIONS`.
@@ -229,7 +186,7 @@ Les options ci-dessous passent avant `clio.conf` ; pour les garder, les mettre d
 | `--log-hz` | fréquence du CSV (défaut 5 Hz) |
 | `--delay` | pause entre deux requêtes OBD (si l'ELM327 décroche) |
 | `--http` | port de la page web (défaut 8080) |
-| `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
+| `--bind` | adresse d'écoute (défaut 127.0.0.1) |
 | `--lan` | page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `--demo` | démarre en mode démo (trajet simulé, base à part `data/clio-demo.db`) |
 | `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
@@ -356,8 +313,8 @@ d'admission. Écriture groupée une fois par seconde, environ 3 Mo par heure de 
 | `events` | calculé : `t_ms`, `kind` (`demarrage`, `arret_moteur`, `alerte`), `key`, `value`, `detail` |
 
 Une base à l'ancien format (un trajet par lancement) est convertie toute seule au premier lancement.
-L'heure est celle de l'ordi : il doit être à l'heure. Dans Docker, `CLIO_VERSION=$(git describe --always)`
-devant `docker compose up` enregistre la version (l'image n'a pas le dossier `.git`).
+L'heure est celle de l'ordi : il doit être à l'heure. La version enregistrée est le commit git du script
+(`CLIO_VERSION` dans l'environnement, sans dossier `.git`).
 
 ```bash
 sqlite3 data/clio.db "SELECT datetime(t_ms/1000, 'unixepoch', 'localtime'), key, value
@@ -400,7 +357,6 @@ n'est jamais modifiée. HTTP simple, sans jeton : le serveur n'est joignable que
 | `SERVEUR` | `--server` | adresse(s) du serveur, séparées par des virgules |
 | `NOM_PC` | `--server-name` | nom de ce PC sur la page du serveur (défaut : nom de la machine) |
 
-- Service et Docker : `SERVEUR=192.168.1.13,10.100.0.1` dans `clio.conf` (port 8207 par défaut ; `http://IP:PORT` aussi accepté), puis
-  `./service.sh restart` (ou `docker compose --env-file clio.conf up -d`). Serveur sur la même machine que le
-  conteneur : `http://host.docker.internal:8207`.
+- Service : `SERVEUR=192.168.1.13,10.100.0.1` dans `clio.conf` (port 8207 par défaut ; `http://IP:PORT` aussi accepté), puis
+  `./service.sh restart` (Windows : `service.ps1 restart`). Serveur sur la même machine : `http://127.0.0.1:8207`.
 - Envoi à la main, sans le dashboard : `python src/synchro.py --server ...`.

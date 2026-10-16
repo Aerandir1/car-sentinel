@@ -1,4 +1,5 @@
 # Scripts shell en fins de ligne Unix, même clonés sous Windows
 *.sh text eol=lf
-# PowerShell en fins de ligne Windows
+# PowerShell et .bat en fins de ligne Windows
 *.ps1 text eol=crlf
+*.bat text eol=crlf

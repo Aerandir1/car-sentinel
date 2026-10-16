@@ -208,7 +208,7 @@ class CsvLogger:
         self.keys = keys
         self.next_t = 0.0
         # Ajout à la fin : chaque reconnexion au calculateur reprend le même fichier
-        self.f = open(path, "a", newline="")
+        self.f = open(path, "a", newline="", encoding="utf-8")
         self.w = csv.writer(self.f)
         if self.f.tell() == 0:
             self.w.writerow(["timestamp"] + keys)

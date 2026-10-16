@@ -435,7 +435,8 @@ class Diag:
                 raise DiagError(f"l'enregistrement n'a pas laissé l'adaptateur en {FREE_TIMEOUT_S // 60} min (sa connexion "
                                 "au calculateur est bloquée : calculateur alimenté ? adaptateur à rebrancher ?)")
             port, baud = self.args.port, self.args.baud
-            if not port and st.port and str(st.port).startswith("/dev/") and Path(st.port).exists():
+            if not port and st.port and (str(st.port).startswith("/dev/") and Path(st.port).exists()
+                                         or re.fullmatch(r"COM\d+", str(st.port))):
                 # Port que l'enregistrement vient de rendre, adaptateur laissé tel quel (sans ATZ, acquisition.py)
                 fd = acquisition.lock_port(st.port)
                 if fd is not None:

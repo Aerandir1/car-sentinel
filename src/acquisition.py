@@ -2,36 +2,47 @@
 
 import glob
 import os
+import sys
 import time
 import traceback
-from pathlib import Path
 
 import demo
 import renault
 
 try:
-    import fcntl   # verrou du port série (Linux, Docker) ; absent sous Windows
+    import fcntl   # verrou du port série (Linux) ; absent sous Windows, où un port COM n'est ouvert que par un seul programme
 except ImportError:
     fcntl = None
 from etat import METRICS
 
+WINDOWS = sys.platform == "win32"
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
 BAUDS = (38400, 9600, 115200, 230400, 57600)   # débits courants des ELM327 (sans effet sur les clés USB en ttyACM)
+# Puces USB-série des ELM327 : CH340/CH341, FTDI, CP210x, Prolific, QBD (essayées en premier sous Windows)
+USB_VIDS = (0x1A86, 0x0403, 0x10C4, 0x067B, 0x0918)
 
 
 def candidates(dev):
-    """Ports série où peut se trouver un ELM327 : clés USB (ttyUSB : CH340, FTDI… ; ttyACM : USB natif) et
-    Bluetooth (rfcomm). python-obd ne cherche que dans ttyUSB et rfcomm."""
+    """Ports série où peut se trouver un ELM327.
+    Linux : clés USB (ttyUSB : CH340, FTDI… ; ttyACM : USB natif) et Bluetooth (rfcomm), dans dev (/dev).
+    Windows : ports COM, clés USB d'abord (un port Bluetooth peut mettre plusieurs secondes à répondre)."""
+    if WINDOWS:
+        from serial.tools import list_ports
+        ports = sorted(list_ports.comports(), key=lambda p: (p.vid not in USB_VIDS, p.vid is None, p.device))
+        return [p.device for p in ports]
     ports = [os.path.realpath(p) for p in sorted(glob.glob(f"{dev}/serial/by-id/*"))]
     for pattern in ("ttyUSB[0-9]*", "ttyACM[0-9]*", "rfcomm[0-9]*"):
         ports += sorted(glob.glob(f"{dev}/{pattern}"))
     return list(dict.fromkeys(ports))   # sans doublon, dans l'ordre
 
 
-def probe(port):
-    """(débit, réponse à ATI) si un ELM327 répond sur ce port, sinon None. Marche sans voiture branchée."""
+def probe(port, cancel=None):
+    """(débit, réponse à ATI) si un ELM327 répond sur ce port, "occupe" si un autre programme l'a ouvert
+    (Windows), sinon None. Marche sans voiture branchée."""
     import serial
     for baud in BAUDS:
+        if cancel and cancel():
+            return None
         try:
             with serial.Serial(port, baud, timeout=0.3, write_timeout=1) as s:
                 s.write(b"\r")             # vide une commande à moitié reçue (l'ELM répond « ? »)
@@ -41,7 +52,9 @@ def probe(port):
                 reply, end = b"", time.time() + 1.0
                 while time.time() < end and not reply.endswith(b">"):
                     reply += s.read(64)
-        except Exception:   # OSError, SerialException, termios.error : clé débranchée ou en train de redémarrer
+        except Exception as e:   # OSError, SerialException, termios.error : clé débranchée ou en train de redémarrer
+            if WINDOWS and "PermissionError" in str(e):   # port COM déjà ouvert ailleurs (accès refusé)
+                return "occupe"
             return None
         if b"ELM" in reply or reply.rstrip().endswith(b">"):
             lines = [x.strip() for x in reply.decode("ascii", "ignore").replace(">", "").splitlines()]
@@ -50,21 +63,13 @@ def probe(port):
     return None
 
 
-def on_windows():
-    """Conteneur de Docker Desktop sous Windows : son noyau est celui de WSL2."""
-    try:
-        return "microsoft" in Path("/proc/version").read_text().lower()
-    except OSError:
-        return False
-
-
 def group_of(path):
-    """(gid, nom) du groupe propriétaire du port : à donner à OBD_GID (Docker) ou à l'utilisateur."""
+    """(gid, nom) du groupe propriétaire du port (Linux) : celui à donner à l'utilisateur."""
     gid = os.stat(path).st_gid
     try:
         import grp
         return gid, grp.getgrgid(gid).gr_name
-    except (ImportError, KeyError):   # Windows, ou groupe de l'hôte inconnu dans le conteneur
+    except (ImportError, KeyError):
         return gid, None
 
 
@@ -91,30 +96,32 @@ def release(fd):
         os.close(fd)
 
 
-def find_adapter(dev):
-    """Cherche l'ELM327 : (port, débit, nom, verrou) s'il répond, sinon (None, ports interdits, ports occupés, None)."""
+def find_adapter(dev, cancel=None):
+    """Cherche l'ELM327 : (port, débit, nom, verrou) s'il répond, sinon (None, ports interdits, ports occupés, None).
+    cancel() vrai : recherche abandonnée (mode démo, diagnostic demandés)."""
     denied, busy = [], []
     for port in candidates(dev):
-        if not os.access(port, os.R_OK | os.W_OK):
+        if cancel and cancel():
+            break
+        if not WINDOWS and not os.access(port, os.R_OK | os.W_OK):
             denied.append(port)
             continue
         fd = lock_port(port)
         if fd is None:
             busy.append(port)
             continue
-        found = probe(port)
-        if found:
+        found = probe(port, cancel)
+        if found == "occupe":
+            busy.append(port)
+        elif found:
             return port, found[0], found[1], fd
         release(fd)
     return None, denied, busy, None
 
 
-def denied_message(port, in_docker):
-    gid, name = group_of(port)
-    if in_docker:
-        return (f"Attention : pas le droit d'ouvrir {port} (groupe {gid} sur l'hôte) : OBD_GID={gid} dans clio.conf,"
-                " puis docker compose --env-file clio.conf up -d")
-    return (f"Attention : pas le droit d'ouvrir {port} : sudo usermod -aG {name or gid} $USER,"
+def denied_message(port):
+    _gid, name = group_of(port)
+    return (f"Attention : pas le droit d'ouvrir {port} : sudo usermod -aG {name or _gid} $USER,"
             " puis se déconnecter / reconnecter (ou redémarrer)")
 
 
@@ -217,9 +224,11 @@ def _obd_loop_locked(state, args, logger_factory, held):
         if port and os.path.exists(port) and not os.access(port, os.R_OK | os.W_OK):
             # Port série présent mais interdit : python-obd dirait juste « Not Connected »
             denied = [port]
-        elif not port and os.path.isdir(args.dev):
-            # Détection automatique (Linux, Docker) : ttyUSB, ttyACM, rfcomm, dont l'ELM327 répond à ATI
-            port, found, name, fd = find_adapter(args.dev)
+        elif not port and (WINDOWS or os.path.isdir(args.dev)):
+            # Détection automatique : ports COM (Windows) ; ttyUSB, ttyACM, rfcomm (Linux) ; dont l'ELM327 répond à ATI
+            if state.status == "démarrage":   # premier essai : quelques secondes par port qui ne répond pas
+                state.status = "recherche de l'adaptateur…"
+            port, found, name, fd = find_adapter(args.dev, lambda: _busy(state))
             denied, busy = ([], []) if port else (found, name)
             if port:
                 held.append(fd)
@@ -229,16 +238,15 @@ def _obd_loop_locked(state, args, logger_factory, held):
                     print(f"Adaptateur trouvé : {name} sur {port}")
                     seen = (port, name)
             elif not denied and not busy:
+                where = "les ports COM" if WINDOWS else args.dev
                 state.source = "auto"
-                state.status = f"adaptateur introuvable (aucun ELM327 dans {args.dev}), nouvel essai dans 5 s"
+                state.status = f"adaptateur introuvable (aucun ELM327 dans {where}), nouvel essai dans 5 s"
                 state.adapter = "absent"
                 state.elm, state.ecu, state.port, state.elm_name = "absent", "off", None, None
                 if seen != "absent":
-                    print(f"En attente de l'adaptateur : aucun ELM327 ne répond dans {args.dev}"
-                          " (ttyUSB, ttyACM, rfcomm). Brancher la clé, ou ADAPTATEUR=… dans clio.conf.")
-                    if args.dev != "/dev" and on_windows():
-                        print("Docker Desktop (Windows) ne voit pas les ports COM : passer la clé USB à WSL2 avec"
-                              r" powershell -ExecutionPolicy Bypass -File .\windows-usb.ps1 (README, « Docker sous Windows »).")
+                    print(f"En attente de l'adaptateur : aucun ELM327 ne répond dans "
+                          f"{where if WINDOWS else where + ' (ttyUSB, ttyACM, rfcomm)'}."
+                          " Brancher la clé, ou ADAPTATEUR=… dans clio.conf.")
                     seen = "absent"
                 _pause(state, 5)
                 continue
@@ -265,7 +273,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             state.status = f"pas le droit d'ouvrir {denied[0]}"
             state.adapter = "absent"
             state.elm, state.ecu, state.port = "refuse", "off", denied[0]
-            msg = denied_message(denied[0], args.dev != "/dev")
+            msg = denied_message(denied[0])
             if msg != seen:
                 print(msg)
                 seen = msg

@@ -1,7 +1,7 @@
 """Réglages de clio.conf (modèle : clio.conf.exemple), traduits en options du script.
 
-Le fichier est créé depuis le modèle au premier lancement. Dans Docker, il n'est pas dans l'image :
-les réglages arrivent en variables d'environnement (env_file du docker-compose.yml), qui passent avant le fichier.
+Le fichier est créé depuis le modèle au premier lancement. Une variable d'environnement du même nom
+(RESEAU, PORT_PAGE…) passe avant le fichier.
 """
 
 import os
@@ -12,7 +12,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent.parent
 CONF = HERE / "clio.conf"
 EXEMPLE = HERE / "clio.conf.exemple"
-IN_DOCKER = Path("/.dockerenv").exists()
 
 # réglage → option du script
 OPTIONS = {"PORT_PAGE": "--http", "ADAPTATEUR": "--port", "DEBIT": "--baud", "SERVEUR": "--server",
@@ -46,9 +45,9 @@ def _yes(key, value):
 
 
 def argv():
-    """Options du script tirées de clio.conf (et de l'environnement dans Docker), à mettre avant celles de la
+    """Options du script tirées de clio.conf (et de l'environnement), à mettre avant celles de la
     ligne de commande : celles-ci passent devant."""
-    if not IN_DOCKER and not CONF.exists() and EXEMPLE.is_file():
+    if not CONF.exists() and EXEMPLE.is_file():
         shutil.copyfile(EXEMPLE, CONF)
         print(f"Réglages créés dans {CONF} (à modifier, puis relancer)")
     conf = read()

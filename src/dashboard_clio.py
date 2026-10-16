@@ -5,7 +5,8 @@ Lit l'ECU en boucle dans un thread et sert dashboard.html + une API JSON
 sur http://clio-sentinel.localhost:8080. Aucune dépendance web : tout marche hors ligne.
 Réglages dans clio.conf (voir clio.conf.exemple) ; les options ci-dessous passent devant.
 
-    python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv
+    python src/dashboard_clio.py --port /dev/ttyUSB0 --log trajet.csv     (Linux)
+    python src/dashboard_clio.py --port COM3 --log trajet.csv             (Windows)
 """
 
 import argparse
@@ -34,7 +35,7 @@ TRIPS_EVERY_S = 10     # mise à jour des trajets
 
 
 def version():
-    """Commit git du script, enregistré avec chaque session (CLIO_VERSION dans un conteneur sans .git)."""
+    """Commit git du script, enregistré avec chaque session (CLIO_VERSION sans dossier .git)."""
     try:
         out = subprocess.run(["git", "-C", str(HERE), "describe", "--always", "--dirty"],
                              capture_output=True, text=True, timeout=5)
@@ -58,8 +59,13 @@ def trips_loop(state, db_path, demo_path):
 
 
 def main():
+    if sys.stdout is None:
+        # Lancé sans console (pythonw, service Windows : service.ps1) : le journal va dans logs/clio.log
+        (HERE / "logs").mkdir(exist_ok=True)
+        sys.stdout = sys.stderr = open(HERE / "logs" / "clio.log", "a", encoding="utf-8", buffering=1)
+        print(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--port", help="port série de l'ELM327 (auto-détection si absent)")
+    p.add_argument("--port", help="port série de l'ELM327 : /dev/ttyUSB0, COM3… (auto-détection si absent)")
     p.add_argument("--baud", type=int, default=None, help="débit série (auto si absent)")
     p.add_argument("--db", metavar="FICHIER.db",
                    help="base SQLite des mesures horodatées (défaut data/clio.db)")
@@ -72,25 +78,15 @@ def main():
     p.add_argument("--demo", action="store_true", help="démarre en mode démo (trajet simulé, base à part)")
     p.add_argument("--http", type=int, default=8080, help="port local de la page web (défaut 8080)")
     p.add_argument("--bind", default="127.0.0.1",
-                   help="adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans un conteneur Docker)")
+                   help="adresse d'écoute (défaut 127.0.0.1)")
     p.add_argument("--lan", action="store_true",
                    help="page accessible depuis les autres appareils du réseau (= --bind 0.0.0.0)")
     synchro.add_arguments(p)
     args = p.parse_args(config.argv() + sys.argv[1:])
     if args.lan:
         args.bind = "0.0.0.0"
-    # Dans Docker, le script écoute toujours sur 0.0.0.0 : c'est la publication du port sur l'hôte qui décide
-    on_lan = args.lan or (args.bind not in ("127.0.0.1", "localhost", "::1") and not config.IN_DOCKER)
-    args.dev = "/dev"
-    if config.IN_DOCKER:
-        # /dev de l'hôte est vu sous /hostdev (docker-compose.yml) : c'est là que la détection cherche l'ELM327
-        args.dev = "/hostdev"
-        if args.port and args.port.startswith("/dev/"):
-            args.port = "/hostdev/" + args.port[5:]
-        if args.lan and os.environ.get("CLIO_PUBLIE", "127.0.0.1") in ("127.0.0.1", "localhost"):
-            on_lan = False   # la page n'est publiée que sur ce PC
-            print("Attention : RESEAU=oui, mais le port n'est publié que sur ce PC. Mettre DOCKER_ECOUTE=0.0.0.0\n"
-                  "dans clio.conf et relancer avec : docker compose --env-file clio.conf up -d")
+    on_lan = args.lan or args.bind not in ("127.0.0.1", "localhost", "::1")
+    args.dev = "/dev"   # où la détection cherche l'ELM327 sous Linux (Windows : ports COM, acquisition.py)
     # Une synchro mal réglée ne doit pas empêcher le dashboard de tourner : on prévient et on continue sans
     client = None
     if args.server and args.no_db:
