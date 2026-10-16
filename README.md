@@ -243,7 +243,7 @@ Les options ci-dessous passent avant `fiesta.conf` ; pour les garder, les mettre
 | `--bind` | adresse d'écoute (défaut 127.0.0.1 ; 0.0.0.0 dans Docker) |
 | `--lan` | page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `--demo` | démarre en mode démo (trajet simulé, base à part `data/fiesta-demo.db`) |
-| `--fast` | mode rapide python-obd : requêtes plus courtes (certains clones ELM327 le refusent) |
+| `--fast` | mode rapide python-obd à la connexion (la lecture, elle, se règle seule : voir « Vitesse de lecture ») |
 | `--max-hz` | fréquence max d'acquisition (défaut 20) |
 | `--server URL` | envoie la base à clio-sentinel-server (voir « Serveur ») |
 
@@ -267,6 +267,27 @@ En plus, le script essaie les mesures Ford de `src/ford.py`. Ce sont des lecture
 qui n'écrivent jamais rien dans le calculateur ; chacune n'est gardée que si le calculateur répond (journal :
 « Mesures Ford lues en plus de l'OBD standard »). Identifiants et échelles tirés de
 [OBDb](https://github.com/OBDb/Ford-Fiesta) (CC BY-SA 4.0).
+
+### Vitesse de lecture
+
+Un ELM327 ne pose qu'une question à la fois : la fréquence dépend du nombre de requêtes par tour et de leur
+durée. Avant, chaque mesure était une requête (≈ 45 ms sur la Fiesta), toutes à chaque tour : environ 28
+requêtes, 1,3 s par tour, 0,8 Hz. `src/requetes.py` réduit les deux :
+
+- **priorités** : régime, vitesse, pédale, papillon, pression d'admission, charge, conso et avance sont lus à
+  chaque tour ; richesse, corrections court terme, débit d'air, pression rail toutes les 0,5 s ; températures,
+  tension et correction long terme toutes les 2 s ; pression atmo, température extérieure, éthanol toutes les 5 s,
+  niveau de carburant toutes les 10 s (tableau `PERIOD`). Les mesures Ford gardent leur période de `ford.py` ;
+- **groupage** : jusqu'à 6 PID dans une requête OBD (`01 0C 0D 0B 04 49 11`), et 4 mesures Ford dans une requête
+  UDS (`22 033E 0462 …`) si le calculateur l'accepte ;
+- **requêtes courtes** : adressées au seul calculateur moteur (`ATSH 7E0`) avec le nombre de réponses attendu
+  (`010C0D1`) : l'ELM327 rend la main dès la réponse, sans attendre d'éventuels autres calculateurs.
+
+Chaque levier est essayé à la connexion et abandonné si l'adaptateur ou le calculateur ne suit pas. Le journal dit
+ce qui est retenu (« Lecture : requêtes au seul calculateur moteur (7E0), réponse sans attente… »). Le témoin
+« Calculateur » affiche la fréquence des tours et le temps de réponse moyen d'une requête (ex. `20 Hz · 16 ms`).
+Le tour est bridé par la fréquence max (défaut 20 Hz, onglet Paramètres) : plus de mesures veut aussi dire une base
+plus grosse. Sur un faux ELM327 qui répond comme la Fiesta, on passe de 0,7 Hz à 20 Hz (à vérifier sur la voiture).
 
 | Mesure | DID | Affichée |
 |---|---|---|
@@ -402,7 +423,8 @@ métrique, et `trip`, l'identifiant du trajet en cours.
 
 ## Limites
 
-- Avec un ELM327, les PID sont interrogés l'un après l'autre : quelques Hz au total.
+- Avec un ELM327, les requêtes passent l'une après l'autre : la fréquence dépend du groupage accepté par
+  l'adaptateur (voir « Vitesse de lecture »).
 - Taux d'éthanol (PID 52) : le relevé OBDb 2022 vient d'une Fiesta essence (01 51 → « Gasoline »), il ne dit
   donc rien de la FlexiFuel. À la connexion, le script écrit au journal le type de carburant annoncé (01 51,
   aussi au survol du témoin « Calculateur ») et interroge 01 52 même si le calculateur ne l'annonce pas : la

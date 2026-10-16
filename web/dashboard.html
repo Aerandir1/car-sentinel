@@ -962,7 +962,9 @@ function showLink(s) {
   const ecu = {
     off: ["off", "Calculateur", "", "En attente de l'adaptateur"],
     recherche: ["wait", "Calculateur", "connexion…", "Essai des protocoles OBD (contact mis ?)"],
-    ok: ["ok", "Calculateur", `${s.hz} Hz`, [`Calculateur connecté · ${s.hz} mesures/s`, l.protocol,
+    ok: ["ok", "Calculateur", `${s.hz} Hz${s.ping_ms != null ? ` · ${s.ping_ms} ms` : ""}`,
+         [`Calculateur connecté · ${s.hz} tours de lecture/s`
+          + (s.ping_ms != null ? ` · ${s.ping_ms} ms par requête` : ""), l.protocol,
          l.vin && `VIN ${l.vin}`, l.fuel_type && `Carburant annoncé (01 51) : ${l.fuel_type}`].filter(Boolean).join("\n")],
     muet: ["warn", "Calculateur", "muet", "L'adaptateur répond, pas le calculateur : contact coupé, ou prise OBD débranchée"],
     demo: ["demo", "Valeurs simulées", `${s.hz} Hz`, "Trajet simulé, enregistré dans une base à part"],

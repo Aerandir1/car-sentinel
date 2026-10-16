@@ -8,6 +8,7 @@ from pathlib import Path
 
 import demo
 import ford
+import requetes
 
 try:
     import fcntl   # verrou du port série (Linux, Docker) ; absent sous Windows
@@ -312,6 +313,9 @@ def _obd_loop_locked(state, args, logger_factory, held):
               + ("" if "ethanol" in state.supported else " ; taux d'éthanol (01 52) : pas de réponse"))
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
         state.status = "connecté (rapide)" if fast else "connecté"
+        reader = requetes.Reader(conn, cmds)
+        notes = reader.setup()
+        print("Lecture : " + (", ".join(notes) if notes else "une requête par mesure (rien de plus rapide accepté)"))
         logger = logger_factory(keys)
         last_ok = time.time()
 
@@ -320,31 +324,9 @@ def _obd_loop_locked(state, args, logger_factory, held):
                 if state.get_settings()["fast"] != fast or _demo_on(state):
                     break  # mode rapide basculé (reconnexion avec le nouveau réglage) ou mode démo
                 t0 = time.time()
-                delay = state.get_settings()["delay"]
-                for key, cmd, conv, slow, force in cmds:
-                    if slow is not None and not slow.due():
-                        continue   # mesure Ford lente : lue moins souvent
-                    r = conn.query(cmd, force=force)
-                    if slow is not None:   # mesure Ford : valeur brute, étalonnée par state
-                        state.update_raw(key, None if r.is_null() else r.value)
-                        if not r.is_null() and r.value is not None:
-                            last_ok = time.time()
-                            if delay:
-                                time.sleep(delay)
-                        continue
-                    if r.is_null():
-                        state.update(key, None)
-                        continue
+                if reader.tick(state, state.get_settings()["delay"]):
                     last_ok = time.time()
-                    v = r.value.magnitude if hasattr(r.value, "magnitude") else r.value
-                    try:
-                        v = float(conv(v) if conv else v)
-                    except (TypeError, ValueError):
-                        state.update(key, None)
-                        continue
-                    state.update(key, round(v, 2))
-                    if delay:
-                        time.sleep(delay)
+                state.ping_ms = reader.ping_ms
                 state.derive()
                 if time.time() - last_ok > MUTE_S:
                     state.status = "calculateur muet (contact coupé ?), attente…"

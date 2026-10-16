@@ -124,6 +124,7 @@ class State:
         self.integ = {}           # "fuel" / "speed" → (t_ms, valeur) de la dernière mesure intégrée
         self.settings_file = None # data/reglages.json (SETTINGS_SAVED)
         self.hz = 0.0
+        self.ping_ms = None   # temps de réponse moyen d'une requête au calculateur (requetes.py)
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
         self.settings = {}
 
@@ -263,7 +264,7 @@ class State:
                 d.clear()
             self.increments.clear()
             self.trip, self.trip_base = None, None   # l'autre base : sa fiche arrive au prochain passage de trajets.py
-            self.hz = 0.0
+            self.hz, self.ping_ms = 0.0, None
 
     def reset_minmax(self):
         with self.lock:
@@ -276,6 +277,7 @@ class State:
                 "t": time.time(),
                 "status": self.status,
                 "hz": round(self.hz, 1),
+                "ping_ms": None if self.ping_ms is None else round(self.ping_ms),
                 "values": dict(self.values),
                 "ts": dict(self.times),
                 "trip": self.trip,
