@@ -79,7 +79,10 @@ SETTINGS_LIMITS = {
     "log_hz": (0.2, 50.0),   # fréquence du CSV
     "fuel_price": (0.0, 10.0),   # prix du carburant en €/L (coût des trajets), gardé dans data/reglages.json
 }
-SETTINGS_SAVED = ("fuel_price",)   # réglages gardés d'un lancement à l'autre (les autres viennent des options)
+# Texte : clé -> longueur max. Serveur (clio-sentinel-server, adresses séparées par des virgules) et nom de ce
+# poste sur sa page : vides tant qu'ils ne sont pas changés ici, SERVEUR et NOM_PC de fiesta.conf s'appliquent
+SETTINGS_TEXT = {"server": 300, "server_name": 60}
+SETTINGS_SAVED = ("fuel_price", *SETTINGS_TEXT)   # réglages gardés d'un lancement à l'autre (les autres viennent des options)
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
 # Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (fiesta-demo.db).
@@ -140,6 +143,9 @@ class State:
             for key in SETTINGS_FLAGS:
                 if key in new:
                     self.settings[key] = bool(new[key])
+            for key, n in SETTINGS_TEXT.items():
+                if key in new:
+                    self.settings[key] = str(new[key] or "").strip()[:n]
             saved = {k: self.settings[k] for k in SETTINGS_SAVED if k in self.settings}
             out = dict(self.settings)
         if self.settings_file and any(k in new for k in SETTINGS_SAVED):
@@ -157,9 +163,17 @@ class State:
             return
         with self.lock:
             for key in SETTINGS_SAVED:
-                if isinstance(saved.get(key), (int, float)):
+                if key in SETTINGS_LIMITS and isinstance(saved.get(key), (int, float)):
                     lo, hi = SETTINGS_LIMITS[key]
                     self.settings[key] = min(hi, max(lo, float(saved[key])))
+                elif key in SETTINGS_TEXT and isinstance(saved.get(key), str):
+                    self.settings[key] = saved[key][:SETTINGS_TEXT[key]]
+
+    def default_settings(self, defaults):
+        """Valeurs prises tant que le réglage n'a jamais été changé dans l'onglet Paramètres (pas enregistrées)."""
+        with self.lock:
+            for key, value in defaults.items():
+                self.settings.setdefault(key, value)
 
     def update(self, key, value, t_ms=None):
         """Nouvelle valeur, horodatée à l'appel (juste après la réponse du calculateur) sauf t_ms donné."""

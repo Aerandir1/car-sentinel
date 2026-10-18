@@ -125,6 +125,8 @@
   .price { display: flex; align-items: center; gap: 6px; }
   .price input { width: 100px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
                  border-radius: 6px; padding: 6px 8px; font: inherit; font-variant-numeric: tabular-nums; }
+  .price input.wide { width: min(260px, 50vw); }
+  #s-srv-msg.ko { color: var(--hot); }
   .row { display: grid; grid-template-columns: 1fr 180px 70px; gap: 12px; align-items: center;
          padding: 10px 0; border-top: 1px solid var(--line); }
   .row label { display: block; }
@@ -527,6 +529,20 @@
       <label for="s-fuel_price">Prix du carburant<small>Par litre, celui du dernier plein (E85 ou SP95)</small></label>
       <span class="price"><input type="number" id="s-fuel_price" min="0" max="10" step="0.001"
         inputmode="decimal" placeholder="ex. 0,859"> €/L</span>
+    </div>
+    <h2 style="margin-top:20px">Serveur <span id="saved-srv" class="saved">enregistré</span></h2>
+    <p class="note">Envoi des trajets vers clio-sentinel-server dès qu'il est joignable. Gardé par le script
+      (data/reglages.json), à la place de SERVEUR et NOM_PC de fiesta.conf. <span id="s-srv-msg"></span></p>
+    <div class="row" style="grid-template-columns:1fr auto">
+      <label for="s-server">Adresse<small>IP ou IP:port, plusieurs séparées par des virgules (la maison, puis le
+        VPN). Vide : pas d'envoi</small></label>
+      <span class="price"><input type="text" id="s-server" class="wide" autocomplete="off" autocapitalize="off"
+        spellcheck="false" inputmode="url" placeholder="ex. 192.168.1.13,10.100.0.1"></span>
+    </div>
+    <div class="row" style="grid-template-columns:1fr auto">
+      <label for="s-server_name">Nom de ce poste<small>Affiché sur la page du serveur</small></label>
+      <span class="price"><input type="text" id="s-server_name" class="wide" autocomplete="off"
+        placeholder="nom de la machine"></span>
     </div>
     <h2 style="margin-top:20px">Affichage</h2>
     <p class="note">Propre à ce navigateur.</p>
@@ -1934,6 +1950,8 @@ function showServer(st) {
   }
   if (st.fuel_price !== undefined && document.activeElement !== $("s-fuel_price"))
     $("s-fuel_price").value = st.fuel_price;
+  for (const k of ["server", "server_name"])
+    if (st[k] !== undefined && document.activeElement !== $("s-" + k)) $("s-" + k).value = st[k];
   if (st.fast !== undefined) {
     $("s-fast").checked = st.fast;
     $("o-fast").textContent = st.fast ? "activé" : "désactivé";
@@ -1970,6 +1988,21 @@ $("s-fuel_price").onchange = (e) => {
   sendServer({ fuel_price: v }, "saved-price");
 };
 $("s-fuel_price").onkeydown = (e) => { if (e.key === "Enter") e.target.blur(); };
+for (const k of ["server", "server_name"]) {
+  $("s-" + k).onchange = async (e) => {
+    const r = await fetch("/api/settings", { method: "POST", body: JSON.stringify({ [k]: e.target.value }) }).catch(() => null);
+    if (!r) return;
+    if (r.ok) {
+      showServer(await r.json());
+      $("s-srv-msg").textContent = ""; $("saved-srv").style.opacity = 1;
+      setTimeout(() => ($("saved-srv").style.opacity = 0), 1200);
+    } else {   // adresse refusée : message du script, l'ancienne est gardée
+      $("s-srv-msg").textContent = await r.text(); $("s-srv-msg").className = "ko";
+      loadServerSettings();
+    }
+  };
+  $("s-" + k).onkeydown = (e) => { if (e.key === "Enter") e.target.blur(); };
+}
 $("s-demo").onclick = (e) => sendServer({ demo: !e.target.classList.contains("on") });
 
 syncUi();

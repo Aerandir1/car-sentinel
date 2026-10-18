@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Compte-tours stylisé (zone utile de 72 dp au centre des 108 dp de l'icône adaptative) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M32,70 A26,26 0 1,1 76,70"
+        android:strokeColor="#FFFFFF" android:strokeWidth="6" android:strokeLineCap="round" />
+    <path android:pathData="M70,36 A26,26 0 0,1 76,70"
+        android:strokeColor="#E5484D" android:strokeWidth="6" android:strokeLineCap="round" />
+    <path android:pathData="M54,56 L68,40"
+        android:strokeColor="@color/bleu" android:strokeWidth="5" android:strokeLineCap="round" />
+    <path android:pathData="M54,56 m-5,0 a5,5 0 1,0 10,0 a5,5 0 1,0 -10,0" android:fillColor="#FFFFFF" />
+</vector>

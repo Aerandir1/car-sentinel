@@ -238,26 +238,46 @@ def verify_once(db_path, client):
         db.close()
 
 
-def sync_loop(state, bases, client, version):
+def sync_loop(state, db_path, version):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
-    state.sync (témoin du dashboard) : ok, t (dernier contact ou essai), url, error, et du dernier envoi
-    réussi : synced (heure) et sent (mesures envoyées)."""
-    was_ok, next_sync, next_verify, last = None, 0.0, 0.0, {}
+    Adresse et nom sont relus à chaque tour dans les réglages (server, server_name : onglet Paramètres, ou
+    SERVEUR et NOM_PC de fiesta.conf) : un changement est pris tout de suite, une adresse vide arrête l'envoi.
+    La base de la démo n'est jamais envoyée.
+
+    state.sync (témoin du dashboard) : None sans serveur ; sinon ok, t (dernier contact ou essai), url, error,
+    et du dernier envoi réussi : synced (heure) et sent (mesures envoyées)."""
+    client, conf = None, None
     while True:
+        settings = state.get_settings()
+        urls, name = settings.get("server") or "", settings.get("server_name") or socket.gethostname()
+        if (urls, name) != conf:
+            conf, client = (urls, name), None
+            was_ok, next_sync, next_verify, last = None, 0.0, 0.0, {}
+            state.sync = None
+            if urls:
+                try:
+                    client = Client(urls)
+                    state.sync = {"ok": None, "t": time.time()}   # premier essai en cours
+                    print(f"Synchro vers {client.url} (toutes les {EVERY_S} s quand il est joignable)")
+                except SyncError as e:
+                    state.sync = {"ok": False, "t": time.time(), "error": str(e)}
+                    print(f"Attention : {e} : synchro désactivée")
+        if client is None:
+            time.sleep(PING_S)
+            continue
         try:
-            hello(client, state, bases[0][1], version)   # présence sous le nom de la vraie base
+            hello(client, state, name, version)
             if time.time() >= next_sync:
-                # Chaque base est une origine à part sur le serveur
-                n = sum(sync_once(db_path, client, name, version) for db_path, name in bases)
+                n = sync_once(db_path, client, name, version)
                 next_sync = time.time() + EVERY_S
                 last = {"synced": time.time(), "sent": n}
                 if n or was_ok is not True:
                     print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
                           if n else f"Synchro serveur ({client.url}) : à jour")
                 if time.time() >= next_verify:
-                    f = sum(verify_once(db_path, client) for db_path, _name in bases)
+                    f = verify_once(db_path, client)
                     next_verify = time.time() + VERIFY_S
                     if f:
                         print(f"Synchro serveur : {f} groupe{'s' if f > 1 else ''} de mesures corrigé{'s' if f > 1 else ''}")

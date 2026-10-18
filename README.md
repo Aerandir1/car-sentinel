@@ -66,7 +66,7 @@ est créé au premier lancement depuis `fiesta.conf.exemple`, qui explique chaqu
 | `RESEAU` | `oui` : page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `PORT_PAGE` | port de la page (défaut 8082) |
 | `ADAPTATEUR`, `DEBIT` | port de l'ELM327 (vide : auto-détection) : `/dev/ttyACM0`, `socket://192.168.0.10:35000`… |
-| `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») |
+| `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») ; l'onglet Paramètres passe devant une fois modifié |
 | `AUTRES_OPTIONS` | autres options du script (voir « Utilisation »), ex. `--fast --log logs/trajet.csv` |
 | `DOCKER_ECOUTE`, `OBD_GID`, `FIESTA_DATA` | Docker seulement (voir « Docker ») |
 
@@ -223,6 +223,34 @@ et `http://<IP>:8082` pour chaque adresse réseau.
 - **Hub** : une page servie par la même machine sur un autre port (clio-hub) et ouverte par le même nom
   (`http://10.42.0.1:8000`) peut lire `/api/state`.
 
+## Tablette Android (APK)
+
+`android/` fait de la tablette un dashboard autonome, sans PC : l'appli embarque le code Python de `src/`
+(Chaquopy, Python 3.14) et le dashboard de `web/`. La clé ELM327 se branche en **USB sur la tablette** (câble OTG
+USB-C) : Android ne donne pas de `/dev/ttyACM0` aux applis, le port passe par l'API USB host
+(usb-serial-for-android) sous l'adresse `androidusb://` (`android/app/src/main/python/fiesta_usb`).
+
+- un service au premier plan lit l'ELM327 et sert la page sur le port 8082, même écran éteint ;
+  l'appli l'affiche en plein écran (écran toujours allumé). « Quitter » dans la notification arrête tout ;
+- à l'arrivée de la clé, Android propose d'ouvrir Fiesta Sentinel : cocher « toujours » donne l'accès au port
+  une fois pour toutes. Puces reconnues : USB natif (CDC ACM), FTDI, CH340, CP210x, PL2303 ;
+- base, réglages et étalonnage sont dans le stockage de l'appli (`files/data/`), à part de ceux du PC ;
+- synchro vers clio-sentinel-server : l'APK part avec le `SERVEUR` du `fiesta.conf` du PC qui l'a compilé, et la
+  tablette se déclare sous son modèle (ex. « samsung SM-X200 ») ; les deux se changent dans l'onglet Paramètres.
+  Sur la route, le serveur n'est joignable que par le VPN (WireGuard sur la tablette).
+
+Compilation (JDK 17, SDK Android dans `~/Android/Sdk`, chemin dans `android/local.properties`) :
+
+```bash
+cd android
+JAVA_HOME=/usr/lib/jvm/java-17-openjdk ./gradlew assembleRelease
+# APK : android/app/build/outputs/apk/release/app-release.apk (signé avec la clé de debug, usage perso)
+adb install -r app/build/outputs/apk/release/app-release.apk   # ou copier l'APK sur la tablette
+```
+
+Sur la tablette sans `adb` : copier l'APK, l'ouvrir, autoriser « installer des applis inconnues ». Journal :
+`adb logcat -s python.stdout python.stderr FiestaSentinel`.
+
 ## Utilisation
 
 ```bash
@@ -283,7 +311,10 @@ requêtes, 1,3 s par tour, 0,8 Hz. `src/requetes.py` réduit les deux :
 - **requêtes courtes** : adressées au seul calculateur moteur (`ATSH 7E0`) avec le nombre de réponses attendu
   (`010C0D1`) : l'ELM327 rend la main dès la réponse, sans attendre d'éventuels autres calculateurs.
 
-Chaque levier est essayé à la connexion et abandonné si l'adaptateur ou le calculateur ne suit pas. Le journal dit
+Chaque levier est essayé à la connexion et abandonné si l'adaptateur ou le calculateur ne suit pas. Si le
+calculateur ne rend qu'une partie d'un groupe (sur la Fiesta, une réponse limitée à une trame : pédale, papillon et
+charge manquaient deux fois sur trois dans un groupe de 6), le groupe est relu mesure par mesure et la taille des
+groupes ramenée à ce qu'il rend (journal : « le calculateur ne rend que 3 PID OBD par requête »). Le journal dit
 ce qui est retenu (« Lecture : requêtes au seul calculateur moteur (7E0), réponse sans attente… »). Le témoin
 « Calculateur » affiche la fréquence des tours et le temps de réponse moyen d'une requête (ex. `20 Hz · 16 ms`).
 Le tour est bridé par la fréquence max (défaut 20 Hz, onglet Paramètres) : plus de mesures veut aussi dire une base
@@ -301,6 +332,29 @@ plus grosse. Sur un faux ELM327 qui répond comme la Fiesta, on passe de 0,7 Hz 
 
 Pour alléger ou compléter les mesures, édite la liste `METRICS` en haut de `src/etat.py` et `FALLBACK` dans
 `src/ford.py`.
+
+#### Scan des PID
+
+`src/scan_pid.py` cherche la façon la plus rapide d'interroger la voiture. Il répète chaque essai (20 fois par
+défaut) et ne retient que ce qui répond à tous les coups :
+
+1. aller-retour avec l'adaptateur seul (`ATRV`) : le temps minimal d'une requête ;
+2. adressage : diffusion (`7DF`), calculateur moteur seul (`7E0`), avec ou sans nombre de réponses attendu ;
+3. délai d'attente de l'ELM327 après la dernière réponse (`ATAT`, `ATST`, 200 ms d'office), qui pèse sur les
+   réponses en plusieurs trames et sur les mesures muettes ;
+4. chaque mesure à part : temps de réponse, part de réponses, mesures muettes, instables ou lentes ;
+5. groupage : 2 à 6 PID OBD, 2 à 4 mesures Ford par requête, jusqu'à ce que le calculateur ne rende plus tout ;
+6. la boucle du dashboard pendant 15 s, sans puis avec les réglages trouvés : tours par seconde.
+
+```bash
+./service.sh stop                          # le dashboard tient l'adaptateur pendant qu'il tourne
+~/.venvs/obd/bin/python src/scan_pid.py    # contact mis, moteur tournant ; --tours 50 pour plus d'essais
+./service.sh start
+```
+
+Le résultat va dans `data/scan-pid.json` (délai d'attente, taille des groupes, temps de chaque mesure) ; le
+dashboard le reprend à la connexion suivante si le VIN est le même (journal : « Lecture : délai d'attente du
+scan… »). Supprimer le fichier revient aux réglages d'office.
 
 ## Étalonnage
 

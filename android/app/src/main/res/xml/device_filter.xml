@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Puces des clés ELM327 USB -->
+<resources>
+    <usb-device class="2" />              <!-- USB natif (CDC ACM, ttyACM sur le PC) -->
+    <usb-device vendor-id="1027" />       <!-- FTDI (OBDLink, ttyUSB) -->
+    <usb-device vendor-id="6790" />       <!-- CH340 / CH341 -->
+    <usb-device vendor-id="4292" />       <!-- CP210x -->
+    <usb-device vendor-id="1659" />       <!-- PL2303 -->
+</resources>

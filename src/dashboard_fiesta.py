@@ -91,15 +91,8 @@ def main():
             on_lan = False   # la page n'est publiée que sur ce PC
             print("Attention : RESEAU=oui, mais le port n'est publié que sur ce PC. Mettre DOCKER_ECOUTE=0.0.0.0\n"
                   "dans fiesta.conf et relancer avec : docker compose --env-file fiesta.conf up -d")
-    # Une synchro mal réglée ne doit pas empêcher le dashboard de tourner : on prévient et on continue sans
-    client = None
     if args.server and args.no_db:
         print("Attention : --server envoie la base, incompatible avec --no-db : synchro désactivée")
-    elif args.server:
-        try:
-            client = synchro.make_client(args)
-        except synchro.SyncError as e:
-            print(f"Attention : {e} : synchro désactivée (SERVEUR dans fiesta.conf)")
 
     def logger_factory(keys):
         return CsvLogger(args.log, keys) if args.log else None
@@ -109,6 +102,8 @@ def main():
     settings_dir = Path(args.db).parent if args.db and not args.no_db else DATA
     settings_dir.mkdir(parents=True, exist_ok=True)
     state.load_settings(settings_dir / "reglages.json")
+    # Serveur de fiesta.conf, tant qu'il n'a pas été changé dans l'onglet Paramètres
+    state.default_settings({"server": args.server or "", "server_name": args.server_name or ""})
     db_path = demo_path = None
     if not args.no_db:
         db_path = Path(args.db) if args.db else DATA / "fiesta.db"
@@ -118,11 +113,8 @@ def main():
         state.demo_recorder = donnees.Recorder(demo_path, version())
         threading.Thread(target=trips_loop, args=(state, db_path, demo_path), daemon=True).start()
         print(f"Mesures enregistrées dans {db_path} (mode démo : {demo_path.name})")
-        if client:
-            state.sync = {"ok": None, "t": time.time()}   # premier essai en cours (témoin « serveur » du dashboard)
-            bases = [(db_path, args.server_name)]   # la base de la démo reste sur le PC
-            threading.Thread(target=synchro.sync_loop, args=(state, bases, client, version()), daemon=True).start()
-            print(f"Synchro vers {client.url} (toutes les {synchro.EVERY_S} s quand il est joignable)")
+        # Synchro vers clio-sentinel-server, selon l'adresse des réglages (rien tant qu'elle est vide)
+        threading.Thread(target=synchro.sync_loop, args=(state, db_path, version()), daemon=True).start()
     # Étalonnage des mesures Ford : à côté de la base (data/ par défaut)
     calib_dir = db_path.parent if db_path else DATA
     calib_dir.mkdir(parents=True, exist_ok=True)

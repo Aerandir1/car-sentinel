@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import donnees
 import ford
+import synchro
 import trajets
 from etat import DERIVED, METRICS
 from reseau import HOST
@@ -141,7 +142,12 @@ def make_handler(state, current_db):
             elif self.path == "/api/settings":
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    if str(body.get("server") or "").strip():
+                        synchro.Client(str(body["server"]))   # adresse refusée avant d'être gardée
                     saved = state.set_settings(body)
+                except synchro.SyncError as e:
+                    self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                    return
                 except (ValueError, TypeError, AttributeError):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
