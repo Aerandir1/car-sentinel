@@ -147,6 +147,34 @@ def read_fuel_type(obd, conn):
     return None if r.is_null() or not r.value else str(r.value)
 
 
+def spaced(cmd):
+    """b"015C" → "01 5C", b"220334" → "22 03 34" """
+    return " ".join(cmd[i:i + 2] for i in range(0, len(cmd), 2))
+
+
+def find_measures(obd, conn):
+    """Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Ford s'il répond.
+    Renvoie ([(clé, commande, conversion, lecture espacée ou None pour l'OBD standard, requête forcée)],
+    clés sans réponse). Sert au dashboard et au scan des PID (scan_pid.py)."""
+    cmds, missing = [], []
+    for key, _lbl, _u, name, conv, *_ in METRICS:
+        cmd = getattr(obd.commands, name, None) if name else None   # None : mesure Ford seulement
+        if cmd is not None and conn.supports(cmd):
+            cmds.append((key, cmd, conv, None, False))
+            continue
+        if cmd is not None and key in FORCE_PROBE and ford.probe(conn, cmd):
+            # Répond sans être annoncé : interrogé en forçant python-obd (qui sinon l'ignore)
+            cmds.append((key, cmd, conv, None, True))
+            print(f"{key} ({spaced(cmd.command.decode())}) : non annoncé par le calculateur, mais il répond")
+            continue
+        rcmd = ford.command(obd, key)
+        if rcmd is not None and ford.probe(conn, rcmd):
+            cmds.append((key, rcmd, None, ford.Slow(ford.FALLBACK[key][4]), True))
+        else:
+            missing.append(key)
+    return cmds, missing
+
+
 def obd_loop(state, args, logger_factory):
     """Lit l'ECU sans fin ; une erreur imprévue est notée au journal et la connexion reprend."""
     while True:
@@ -275,35 +303,15 @@ def _obd_loop_locked(state, args, logger_factory, held):
             _pause(state, 5)
             continue
 
-        # Mesures lues : OBD standard si le calculateur l'annonce, sinon l'équivalent Ford s'il répond
-        cmds = []   # (clé, commande, conversion, lecture espacée ou None pour l'OBD standard, requête forcée)
-        state.supported, state.unsupported, state.sources, state.raw_keys = [], [], {}, []
+        cmds, state.unsupported = find_measures(obd, conn)
+        state.supported = [c[0] for c in cmds]
+        state.sources = {c[0]: {"kind": "ford", "cmd": f"22 {ford.FALLBACK[c[0]][0]}"} if c[3] is not None else
+                         {"kind": "obd", "cmd": spaced(c[1].command.decode())} for c in cmds}
+        state.raw_keys = [c[0] for c in cmds if c[3] is not None]
         extra = []
-        spaced = lambda c: " ".join(c[i:i + 2] for i in range(0, len(c), 2))   # b"015C" → "01 5C"
-        for key, _lbl, _u, name, conv, *_ in METRICS:
-            cmd = getattr(obd.commands, name, None) if name else None   # None : mesure Ford seulement
-            if cmd is not None and conn.supports(cmd):
-                cmds.append((key, cmd, conv, None, False))
-                state.supported.append(key)
-                state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
-                continue
-            if cmd is not None and key in FORCE_PROBE and ford.probe(conn, cmd):
-                # Répond sans être annoncé : interrogé en forçant python-obd (qui sinon l'ignore)
-                cmds.append((key, cmd, conv, None, True))
-                state.supported.append(key)
-                state.sources[key] = {"kind": "obd", "cmd": spaced(cmd.command.decode())}
-                print(f"{key} ({spaced(cmd.command.decode())}) : non annoncé par le calculateur, mais il répond")
-                continue
-            rcmd = ford.command(obd, key)
-            if rcmd is not None and ford.probe(conn, rcmd):
-                cmds.append((key, rcmd, None, ford.Slow(ford.FALLBACK[key][4]), True))
-                state.supported.append(key)
-                state.sources[key] = {"kind": "ford", "cmd": f"22 {ford.FALLBACK[key][0]}"}
-                state.raw_keys.append(key)
-                validated = state.calib is None or state.calib.get(key)[2]
-                extra.append(f"{key} (22 {ford.FALLBACK[key][0]}{'' if validated else ', à étalonner'})")
-            else:
-                state.unsupported.append(key)
+        for key in state.raw_keys:
+            validated = state.calib is None or state.calib.get(key)[2]
+            extra.append(f"{key} (22 {ford.FALLBACK[key][0]}{'' if validated else ', à étalonner'})")
         if extra:
             print("Mesures Ford lues en plus de l'OBD standard : " + ", ".join(extra))
         keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys]
@@ -311,9 +319,10 @@ def _obd_loop_locked(state, args, logger_factory, held):
         state.fuel_type = read_fuel_type(obd, conn)
         print(f"Type de carburant annoncé (01 51) : {state.fuel_type or 'non donné'}"
               + ("" if "ethanol" in state.supported else " ; taux d'éthanol (01 52) : pas de réponse"))
-        state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", read_vin(obd, conn), keys)
+        vin = read_vin(obd, conn)
+        state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", vin, keys)
         state.status = "connecté (rapide)" if fast else "connecté"
-        reader = requetes.Reader(conn, cmds)
+        reader = requetes.Reader(conn, cmds, requetes.load_scan(vin))
         notes = reader.setup()
         print("Lecture : " + (", ".join(notes) if notes else "une requête par mesure (rien de plus rapide accepté)"))
         logger = logger_factory(keys)

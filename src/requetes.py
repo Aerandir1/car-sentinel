@@ -12,11 +12,18 @@ si le calculateur ou l'adaptateur ne suit pas :
               réponses attendu ajouté à la requête (« 010C0D1 ») : l'ELM327 rend la main dès la réponse reçue,
               au lieu d'attendre que d'autres calculateurs répondent
 
+Le calculateur peut ne rendre qu'une partie d'un groupe (réponse limitée à une trame) : le groupe est alors relu
+mesure par mesure, et la taille des groupes ramenée à ce qu'il a rendu. Le scan des PID (scan_pid.py) mesure tout
+ça à l'avance, essai après essai, et laisse dans data/scan-pid.json la façon la plus rapide qui répond à tous les
+coups (taille des groupes, délai d'attente de l'ELM327) : reprise ici à la connexion.
+
 Les requêtes passent directement par l'interface ELM327 de python-obd (send_and_parse) ; les réponses sont
 découpées mesure par mesure et décodées par les décodeurs habituels (python-obd, ford.py).
 """
 
+import json
 import time
+from pathlib import Path
 
 from obd.protocols.protocol import Message
 
@@ -31,14 +38,27 @@ PERIOD = {
 MAX_OBD = 6      # PID par requête OBD (limite de la norme)
 MAX_UDS = 4      # identifiants Ford par requête UDS (prudent : la taille de réponse dépend du calculateur)
 PING_EMA = 0.1   # lissage du temps de réponse affiché
+SCAN_FILE = Path(__file__).resolve().parent.parent / "data" / "scan-pid.json"   # écrit par scan_pid.py
+
+
+def load_scan(vin, path=SCAN_FILE):
+    """Réglages trouvés par le dernier scan des PID, s'il a été fait sur cette voiture ; sinon None."""
+    try:
+        scan = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(scan, dict) or (scan.get("vin") and vin and scan["vin"] != vin):
+        return None
+    return scan
 
 
 class Reader:
     """Mesures à lire et façon de les demander, choisie à la connexion (setup), puis lues tour après tour (tick)."""
 
-    def __init__(self, conn, cmds):
-        """cmds : (clé, commande, conversion, lecture espacée ou None, requête forcée), comme acquisition.py."""
-        self.conn, self.elm = conn, conn.interface
+    def __init__(self, conn, cmds, scan=None):
+        """cmds : (clé, commande, conversion, lecture espacée ou None, requête forcée), comme acquisition.py ;
+        scan : résultat de scan_pid.py (load_scan), ou None."""
+        self.conn, self.elm, self.scan = conn, conn.interface, scan or {}
         self.items = []   # [clé, commande, conversion, ford ?, période, dernière lecture]
         for key, cmd, conv, slow, _force in cmds:
             period = slow.period if slow is not None else PERIOD.get(key, 1)
@@ -46,7 +66,7 @@ class Reader:
         self.frames = {}        # requête → nombre de trames de la réponse (suffixe « nombre de réponses »)
         self.no_count = set()   # requêtes que le suffixe tronque : envoyées sans
         self.count_ok = False   # l'adaptateur accepte le suffixe
-        self.group_obd = self.group_uds = False
+        self.max_obd = self.max_uds = 1   # mesures par requête (1 : pas de groupage)
         self.ping_ms = None     # temps de réponse moyen d'une requête
 
     # --- Connexion : ce que l'adaptateur et le calculateur acceptent ---
@@ -54,6 +74,10 @@ class Reader:
     def setup(self):
         """Essaie adressage direct, suffixe et groupage ; renvoie un résumé pour le journal."""
         notes = []
+        # Délai d'attente de l'ELM327 trouvé par le scan des PID (ATST, ATAT) : gardé si l'adaptateur l'accepte
+        at = [c for c in self.scan.get("at", []) if self._send_at(c.encode())]
+        if at:
+            notes.append("délai d'attente du scan (" + " ".join(at) + ")")
         obd_items = [it for it in self.items if not it[3]]
         uds_items = [it for it in self.items if it[3]]
         # Essai sur des mesures qui répondent à coup sûr moteur tournant ou non (régime, vitesse)
@@ -68,14 +92,14 @@ class Reader:
             self.count_ok = self._answers(probe[:1], True)
             if self.count_ok:
                 notes.append("réponse sans attente (nombre de réponses)")
-        if len(probe) == 2:
-            self.group_obd = self._answers(probe)
-            if self.group_obd:
-                notes.append(f"jusqu'à {MAX_OBD} PID OBD par requête")
-        if len(uds_items) >= 2:
-            self.group_uds = self._answers(uds_items[:2])
-            if self.group_uds:
-                notes.append(f"jusqu'à {MAX_UDS} mesures Ford par requête")
+        max_obd = min(MAX_OBD, self.scan.get("max_obd", MAX_OBD))
+        max_uds = min(MAX_UDS, self.scan.get("max_uds", MAX_UDS))
+        if len(probe) == 2 and max_obd > 1 and self._answers(probe):
+            self.max_obd = max_obd
+            notes.append(f"jusqu'à {max_obd} PID OBD par requête")
+        if len(uds_items) >= 2 and max_uds > 1 and self._answers(uds_items[:2]):
+            self.max_uds = max_uds
+            notes.append(f"jusqu'à {max_uds} mesures Ford par requête")
         return notes
 
     def _answers(self, group, count=None):
@@ -116,8 +140,7 @@ class Reader:
     def _groups(self, due):
         obd_items = [it for it in due if not it[3]]
         uds_items = [it for it in due if it[3]]
-        n_obd = MAX_OBD if self.group_obd else 1
-        n_uds = MAX_UDS if self.group_uds else 1
+        n_obd, n_uds = self.max_obd, self.max_uds
         return ([obd_items[i:i + n_obd] for i in range(0, len(obd_items), n_obd)]
                 + [uds_items[i:i + n_uds] for i in range(0, len(uds_items), n_uds)])
 
@@ -166,12 +189,24 @@ class Reader:
             if len(group) == 1 or not messages:
                 return {it[0]: None for it in group}   # pas de réponse : mesure muette, pas groupe refusé
             return None
-        values = self._split_uds(group, data) if uds else self._split_obd(group, data)
-        if values is None and send != req:
+        out = self._split_uds(group, data) if uds else self._split_obd(group, data)
+        if out is not None and (len(out) == len(group) or len(group) == 1):
+            return {it[0]: out.get(it[0]) for it in group}
+        if send != req:
             # Réponse tronquée par le suffixe (réponse en plusieurs trames) : plus de suffixe pour celle-ci
             self.no_count.add(req)
             self.frames.pop(req, None)
-        return values
+        elif out:
+            # Le calculateur n'a rendu qu'une partie du groupe : groupes ramenés à ce qu'il rend
+            self._shrink(uds, len(out))
+        return None
+
+    def _shrink(self, uds, n):
+        attr = "max_uds" if uds else "max_obd"
+        if 1 <= n < getattr(self, attr):
+            setattr(self, attr, n)
+            print(f"Lecture : le calculateur ne rend que {n} {'mesures Ford' if uds else 'PID OBD'} par requête,"
+                  " groupes réduits")
 
     @staticmethod
     def _part(msg, data):
@@ -180,7 +215,7 @@ class Reader:
         return m
 
     def _split_obd(self, group, msg):
-        """41 PID A B PID A … → une réponse par PID, décodée par la commande python-obd."""
+        """41 PID A B PID A … → {clé: valeur} des PID présents dans la réponse, None si elle est illisible."""
         by_pid = {it[1].pid: it for it in group}
         d, i, out = msg.data, 1, {}
         while i < len(d) and len(out) < len(group):
@@ -189,14 +224,14 @@ class Reader:
                 return None   # octet inattendu : découpage impossible
             n = it[1].bytes - 2
             if i + 1 + n > len(d):
-                return None   # tronqué
+                break   # tronqué : les PID entiers déjà lus comptent
             r = it[1]([self._part(msg, bytes([0x41, d[i]]) + bytes(d[i + 1:i + 1 + n]))])
             out[it[0]] = None if r.is_null() else r.value
             i += 1 + n
-        return {it[0]: out.get(it[0]) for it in group}
+        return out
 
     def _split_uds(self, group, msg):
-        """62 DID x x DID y … → une réponse par identifiant, décodée par ford.py."""
+        """62 DID x x DID y … → {clé: valeur} des identifiants présents, None si la réponse est illisible."""
         import ford
         by_did = {bytes.fromhex(ford.FALLBACK[it[0]][0]): it for it in group}
         d, i, out = bytes(msg.data), 1, {}
@@ -207,10 +242,8 @@ class Reader:
                 return None
             n = ford.FALLBACK[it[0]][5]
             if i + 2 + n > len(d):
-                return None
+                break
             r = it[1]([self._part(msg, b"\x62" + d[i:i + 2 + n])])
             out[it[0]] = None if r.is_null() else r.value
             i += 2 + n
-        if len(group) > 1 and not out:
-            return None
-        return {it[0]: out.get(it[0]) for it in group}
+        return out
