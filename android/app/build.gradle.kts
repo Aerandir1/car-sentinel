@@ -28,8 +28,8 @@ android {
         applicationId = "fr.fiesta.sentinel"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.2"
         buildConfigField("String", "FIESTA_VERSION", "\"${gitVersion()}\"")
         buildConfigField("String", "FIESTA_SERVER", "\"${confServer()}\"")
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }   // tablettes Samsung (arm64) et émulateur

@@ -4,10 +4,13 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
@@ -32,7 +35,9 @@ public class MainActivity extends Activity {
 
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);   // puis la batterie
+        } else {
+            askBatteryExemption();
         }
         startForegroundService(new Intent(this, SentinelService.class));
 
@@ -54,6 +59,30 @@ public class MainActivity extends Activity {
         setContentView(web);
         hideBars();
         web.loadUrl(URL);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        askBatteryExemption();   // après la fenêtre des notifications, pour ne pas les empiler
+    }
+
+    /**
+     * Sort l'appli de l'économie de batterie (Samsung l'endort sinon, service ou pas) : la lecture et l'envoi au
+     * serveur continuent en arrière-plan. Demandé une seule fois ; ensuite, Paramètres → Applications → Batterie.
+     */
+    private void askBatteryExemption() {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        android.content.SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        if (pm.isIgnoringBatteryOptimizations(getPackageName()) || prefs.getBoolean("batterie_demandee", false)) {
+            return;
+        }
+        prefs.edit().putBoolean("batterie_demandee", true).apply();
+        try {
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:" + getPackageName())));
+        } catch (android.content.ActivityNotFoundException e) {
+            // tablette sans cette fenêtre : réglage à faire à la main
+        }
     }
 
     private void hideBars() {

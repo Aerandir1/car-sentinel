@@ -232,6 +232,9 @@ USB-C) : Android ne donne pas de `/dev/ttyACM0` aux applis, le port passe par l'
 
 - un service au premier plan lit l'ELM327 et sert la page sur le port 8082, même écran éteint ;
   l'appli l'affiche en plein écran (écran toujours allumé). « Quitter » dans la notification arrête tout ;
+- au premier lancement, l'appli demande à sortir de l'économie de batterie (sinon Samsung l'endort et
+  l'envoi au serveur s'arrête en arrière-plan) ; refusé, ça se règle dans Paramètres → Applications →
+  Fiesta Sentinel → Batterie → Non restreinte ;
 - à l'arrivée de la clé, Android propose d'ouvrir Fiesta Sentinel : cocher « toujours » donne l'accès au port
   une fois pour toutes. Puces reconnues : USB natif (CDC ACM), FTDI, CH340, CP210x, PL2303 ;
 - base, réglages et étalonnage sont dans le stockage de l'appli (`files/data/`), à part de ceux du PC ;
