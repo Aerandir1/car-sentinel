@@ -193,6 +193,28 @@ def sync_once(db_path, client, name=None, version=None, car=None):
         db.close()
 
 
+def sync_calib(client, garage, name=None):
+    """Étalonnage de la voiture : celui du serveur fusionné ici (mesure par mesure, la plus récente gagne), puis le
+    résultat renvoyé s'il diffère du sien. Un nouveau client récupère ainsi tout l'étalonnage. Renvoie
+    (mesures reprises du serveur, envoyé ?) ; (0, False) avec un serveur d'avant l'étalonnage (404)."""
+    car, store = garage.car, garage.calib
+    code, st = client.request("GET", "/api/calib", query={"vehicle": car.ID})
+    if code == 404:
+        return 0, False
+    if code != 200:
+        raise SyncError(f"le serveur a répondu {code} : {st}")
+    remote = (st or {}).get("data") or {}
+    before = store.snapshot()
+    taken = sum(1 for k in remote if remote[k] != before.get(k)) if store.merge(remote) else 0
+    mine = store.snapshot()
+    if not mine or mine == remote:
+        return taken, False
+    code, st = client.request("POST", "/api/calib", {"vehicle": car.ID, "data": mine, "source": name})
+    if code != 200:
+        raise SyncError(f"le serveur a refusé l'étalonnage ({code}) : {st}")
+    return taken, True
+
+
 def digest_rows(rows):
     """Empreinte de chaque groupe (session, métrique) de lignes (session_id, key, t_ms, value) triées dans cet ordre.
     Même calcul que dans clio-sentinel-server (base.py) : les deux doivent rester identiques."""
@@ -241,13 +263,14 @@ def verify_once(db_path, client):
         db.close()
 
 
-def sync_loop(state, bases, version):
+def sync_loop(state, bases, version, garages=lambda: []):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
     Adresse et nom sont relus à chaque tour dans les réglages (server, server_name : onglet Réglages, ou
     SERVEUR et NOM_PC de car.conf) : un changement est pris tout de suite, une adresse vide arrête l'envoi.
     bases() : [(base, voiture)] des voitures qui ont une base. La base de la démo n'est jamais envoyée.
+    garages() : les voitures (etat.Garage) dont l'étalonnage s'échange avec le serveur (sync_calib).
 
     state.sync (témoin du dashboard) : None sans serveur ; sinon ok, t (dernier contact ou essai), url, error,
     et du dernier envoi réussi : synced (heure) et sent (mesures envoyées)."""
@@ -274,6 +297,15 @@ def sync_loop(state, bases, version):
             hello(client, state, name, version)
             if time.time() >= next_sync:
                 n = sum(sync_once(db, client, name, version, car) for db, car in bases())
+                for g in garages():
+                    taken, sent = sync_calib(client, g, name)
+                    if taken:
+                        print(f"Étalonnage {g.car.NAME} : {taken} mesure{'s' if taken > 1 else ''} reprise"
+                              f"{'s' if taken > 1 else ''} du serveur")
+                        if g.car is state.car:
+                            state.calib_changed()   # tuiles validées depuis un autre client : la page recharge
+                    elif sent:
+                        print(f"Étalonnage {g.car.NAME} envoyé au serveur")
                 next_sync = time.time() + EVERY_S
                 last = {"synced": time.time(), "sent": n}
                 if n or was_ok is not True:

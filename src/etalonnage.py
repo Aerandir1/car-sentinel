@@ -6,6 +6,10 @@ Rangé dans data/etalonnage-<voiture>.json, avec les références notées (valeu
 
     {"fuel": {"gain": 0.0042, "offset": 0.0, "validated": true, "updated": "2026-10-13 15:02:11",
               "refs": [{"t0": …, "t1": …, "ref": 5.4, "unit": "L/100 km", "a": …, "b": …}]}}
+
+Il part aussi sur clio-sentinel-server (synchro.py) : un nouveau client (autre PC, tablette réinstallée) le
+récupère, et un étalonnage fait sur un client arrive sur les autres. Fusion mesure par mesure : la plus récente
+(« updated ») gagne.
 """
 
 import json
@@ -78,7 +82,33 @@ class Store:
                 c["refs"] = change["refs"][-MAX_REFS:]
             c["updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
             self.data[key] = c
-            tmp = f"{self.path}.tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(self.data, f, indent=1, ensure_ascii=False)
-            os.replace(tmp, self.path)   # jamais de fichier à moitié écrit
+            self._write()
+
+    def _write(self):
+        """Appelé sous self.lock."""
+        tmp = f"{self.path}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, indent=1, ensure_ascii=False)
+        os.replace(tmp, self.path)   # jamais de fichier à moitié écrit
+
+    def snapshot(self):
+        """Réglages de chaque mesure, tels que rangés dans le fichier (envoyés au serveur)."""
+        with self.lock:
+            return json.loads(json.dumps(self.data))
+
+    def merge(self, remote):
+        """Prend du serveur les mesures plus récentes qu'ici (ou absentes d'ici). Renvoie True si quelque chose a
+        changé (le fichier est alors réécrit)."""
+        changed = False
+        with self.lock:
+            for key, c in (remote or {}).items():
+                if key not in self.car.FALLBACK or not isinstance(c, dict):
+                    continue
+                mine = self.data.get(key)
+                if mine is None or str(c.get("updated") or "") > str(mine.get("updated") or ""):
+                    if c != mine:
+                        self.data[key] = c
+                        changed = True
+            if changed:
+                self._write()
+        return changed

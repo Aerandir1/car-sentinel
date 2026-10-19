@@ -118,7 +118,8 @@ def main():
               f" ({', '.join(f'{c}.db' for c in voitures.CARS)}, démo à part)")
         # Synchro vers clio-sentinel-server, selon l'adresse des réglages (rien tant qu'elle est vide)
         bases = lambda: [(g.db, g.car) for g in state.garages.values() if g.exists()]
-        threading.Thread(target=synchro.sync_loop, args=(state, bases, version()), daemon=True).start()
+        garages = lambda: list(state.garages.values())   # étalonnages, même d'une voiture encore jamais branchée
+        threading.Thread(target=synchro.sync_loop, args=(state, bases, version(), garages), daemon=True).start()
     state.diag = diagnostic.Diag(state, args, data)   # onglet Diagnostic : scans rangés dans data/diag/
     state.set_settings({"max_hz": args.max_hz,
                         "delay": args.delay, "log_hz": args.log_hz, "fast": args.fast,

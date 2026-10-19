@@ -417,6 +417,12 @@ Le réglage est rangé dans `data/etalonnage-<voiture>.json`. Comme la valeur br
 corrigé s'applique aussi aux courbes des trajets passés. Les mesures déjà vérifiées peuvent y être réajustées de
 la même façon.
 
+**Sauvegardé sur le serveur** : avec la synchro (voir « Serveur »), l'étalonnage de chaque voiture part aussi sur
+clio-sentinel-server, et en revient. Un nouveau client (autre PC, tablette réinstallée, `data/` perdu) récupère
+tout l'étalonnage dès qu'il joint le serveur, et un étalonnage fait sur la tablette arrive sur le PC (et
+inversement) au tour de synchro suivant, toutes les 60 s. Fusion mesure par mesure : la plus récemment réglée
+gagne (journal : « Étalonnage … : 3 mesures reprises du serveur »). Le serveur garde chaque version reçue.
+
 ## Diagnostic
 
 L'onglet **Diagnostic** lit les codes défaut et fouille les identifiants des calculateurs, sans jamais rien
@@ -600,7 +606,8 @@ une origine à part, déclarée « clio » ou « fiesta » ; le serveur vérifie
 s'ils ont changé. Entre deux, il vérifie toutes les 3 s que le serveur répond ; hors réseau, il réessaie sans
 bruit et envoie dès que le serveur revient. Un envoi coupé est refait au suivant. Un témoin en haut du dashboard
 le montre : vert « serveur · adresse » quand il répond (avec l'adresse prise : Wi‑Fi ou VPN), rouge « serveur
-injoignable » sinon (la raison au survol), gris pendant le premier essai. Chaque vérification est une présence
+injoignable » sinon (la raison au survol), gris pendant le premier essai. Avec les bases part l'étalonnage de
+chaque voiture (voir « Étalonnage ») : un client neuf le reprend du serveur. Chaque vérification est une présence
 (`POST /api/hello`, avec la voiture en cours) : la page du serveur affiche ce PC, son adresse et l'état de
 l'ELM327. Les bases locales ne sont jamais modifiées, et celles de la démo ne partent jamais. HTTP simple, sans
 jeton : le serveur n'est joignable que depuis la maison et le VPN.
