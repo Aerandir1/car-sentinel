@@ -193,6 +193,44 @@ def sync_once(db_path, client, name=None, version=None, car=None):
         db.close()
 
 
+DIAG_SENT = "envoyes.txt"   # dans data/diag : empreinte des diagnostics déjà reçus par le serveur, une par ligne
+
+
+def sync_diag(client, diag_dir, name=None):
+    """Diagnostics (data/diag/scan-*.json, dtc-*.json) pas encore reçus par le serveur : envoyés un par un, le
+    serveur les range par VIN. Un fichier modifié repart (autre empreinte). Renvoie le nombre envoyé ; 0 avec un
+    serveur d'avant les diagnostics (404)."""
+    from pathlib import Path
+    diag_dir = Path(diag_dir)
+    if not diag_dir.is_dir():
+        return 0
+    sent_file = diag_dir / DIAG_SENT
+    try:
+        sent = set(sent_file.read_text(encoding="utf-8").split())
+    except OSError:
+        sent = set()
+    n = 0
+    for f in sorted(diag_dir.glob("*.json")):
+        raw = f.read_bytes()
+        h = hashlib.sha256(raw).hexdigest()
+        if h in sent:
+            continue
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        code, r = client.request("POST", "/api/diagnostics", {"name": f.name, "source": name, "data": data})
+        if code == 404:
+            return n
+        if code != 200:
+            raise SyncError(f"le serveur a refusé le diagnostic {f.name} ({code}) : {r}")
+        sent.add(h)
+        with open(sent_file, "a", encoding="utf-8") as out:
+            out.write(h + "\n")
+        n += 1
+    return n
+
+
 def sync_calib(client, garage, name=None):
     """Étalonnage de la voiture : celui du serveur fusionné ici (mesure par mesure, la plus récente gagne), puis le
     résultat renvoyé s'il diffère du sien. Un nouveau client récupère ainsi tout l'étalonnage. Renvoie
@@ -364,6 +402,10 @@ def sync_loop(state, bases, version, garages=lambda: []):
                 n = sum(sync_once(db, client, name, version, car) for db, car in bases())
                 for line in sync_prices(client, state):
                     print(f"Prix du carburant, {line}")
+                if state.diag is not None:
+                    nd = sync_diag(client, state.diag.dir, name)
+                    if nd:
+                        print(f"Diagnostics : {nd} envoyé{'s' if nd > 1 else ''} au serveur")
                 for g in garages():
                     taken, sent = sync_calib(client, g, name)
                     if taken:

@@ -18,7 +18,9 @@ sont propres à ce dépôt.
 Session étendue (10 03 en UDS, 10 C0 chez Renault en KWP) : moteur coupé et voiture à l'arrêt obligatoires (régime et vitesse lus juste avant), retour en
 session normale à la fin, même sur erreur ou arrêt demandé.
 
-Scans rangés dans data/diag/*.json, au format de uds_scan.py (python uds_scan.py --compare data/diag/*.json).
+Scans rangés dans data/diag/scan-*.json, au format de uds_scan.py (python uds_scan.py --compare data/diag/*.json),
+codes défaut dans data/diag/dtc-*.json ; chacun avec le VIN lu au début du diagnostic (OBD 09 02). Ils partent
+sur clio-sentinel-server, qui les range par VIN (synchro.sync_diag).
 """
 
 import json
@@ -345,6 +347,24 @@ class Kwp:
         return False
 
 
+def read_vin(elm):
+    """VIN (OBD 09 02, à tous les calculateurs), ou None. En CAN, une réponse en plusieurs trames réassemblée :
+    49 02 01 + 17 caractères ; en K-line, 5 messages 49 02 NN + 4 octets."""
+    if elm.bus == "can":
+        elm.cmd("ATSH7DF")
+        elm.cmd("ATCRA")
+    parts = {}
+    for _src, d in obd_sources(elm, "0902", timeout=3):
+        if len(d) >= 4 and d[0] == 0x49 and d[1] == 0x02:
+            if elm.bus == "can":
+                parts.setdefault(0, d[3:])
+            else:
+                parts[d[2]] = d[3:]
+    raw = b"".join(parts[k] for k in sorted(parts))
+    vin = "".join(chr(c) for c in raw if chr(c).isalnum())[-17:]
+    return vin if len(vin) == 17 else None
+
+
 def engine_stopped(elm):
     """Lève DiagError si le moteur tourne ou si la voiture roule (requête à tous les calculateurs : 7DF en CAN,
     en-tête OBD par défaut en K-line, donc à appeler avant de viser un calculateur)."""
@@ -477,8 +497,15 @@ class Diag:
             self._set(journal=journal)
             elm = Elm(port, baud, bus, journal=self.dir / journal)
             job["obd"] = elm.initialize(bus)
+            # VIN de la voiture diagnostiquée : lu ici, sinon celui de la dernière connexion si c'est la même voiture
+            vin = read_vin(elm) if job["obd"] else None
+            car = VEHICLES[job["vehicle"]].get("car")
+            if not vin and car is self.state.car and self.state.vin and voitures.detect(self.state.vin) == car.ID:
+                vin = self.state.vin
+            job["vin"] = vin
+            self._set(vin=vin)
             if job["kind"] == "dtc":
-                self._dtc(elm, VEHICLES[job["vehicle"]], job["obd"])
+                self._dtc(elm, VEHICLES[job["vehicle"]], job["obd"], job)
             else:
                 self._scan(elm, job)
         except (DiagError, Forbidden, ValueError, OSError) as e:
@@ -494,7 +521,7 @@ class Diag:
             self._set(running=False, phase="terminé", ended=time.time())
             st.diag_want.clear()   # l'acquisition reprend l'adaptateur
 
-    def _dtc(self, elm, veh, obd=True):
+    def _dtc(self, elm, veh, obd=True, job=None):
         """Codes défaut : OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis ceux du constructeur
         (UDS 19 02 en CAN, KWP 18 02 en K-line) sur chaque calculateur du véhicule. Rien n'est effacé."""
         out, can = [], veh["bus"] == "can"
@@ -533,7 +560,15 @@ class Diag:
                 out.append({"source": src, "code": None, "state": f"lecture refusée : {NRC.get(d[2], f'code {d[2]:02X}')}"})
             else:
                 out.append({"source": src, "code": None, "state": "pas de réponse"})
-        self._set(result={"dtc": out, "time": time.strftime("%Y-%m-%d %H:%M:%S")})
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        self._set(result={"dtc": out, "time": now})
+        # Gardés (le serveur les reçoit, rangés par VIN), même sans code : « aucun code ce jour-là » compte aussi
+        if job is not None and not self.stop_flag.is_set():
+            self.dir.mkdir(parents=True, exist_ok=True)
+            name = f"dtc-{job['vehicle']}-{time.strftime('%Y%m%d-%H%M%S')}.json"
+            body = {"kind": "dtc", "vehicle": job["vehicle"], "vin": job.get("vin"), "time": now, "dtc": out}
+            (self.dir / name).write_text(json.dumps(body, indent=1, ensure_ascii=False), encoding="utf-8")
+            self._set(file=name)
 
     def _scan(self, elm, job):
         ecu, dids, bus = job["ecu"], job["dids"], BUS[VEHICLES[job["vehicle"]]["bus"]]
@@ -562,7 +597,8 @@ class Diag:
         self._set(done=len(dids) if not self.stop_flag.is_set() else self.job["done"], found=len(found))
         self.dir.mkdir(parents=True, exist_ok=True)
         name = f"scan-{ecu}-{time.strftime('%Y%m%d-%H%M%S')}{'-etendue' if job['extended'] else ''}.json"
-        body = {"vehicle": job["vehicle"], "ecu": ecu, "time": time.strftime("%Y-%m-%d %H:%M:%S"),
+        body = {"kind": "scan", "vehicle": job["vehicle"], "vin": job.get("vin"), "ecu": ecu,
+                "time": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "session": "étendue" if job["extended"] else "normale",
                 "complete": not self.stop_flag.is_set(),
                 "refused": {NRC.get(k, f"code {k:02X}"): v for k, v in refused.items()},
@@ -584,6 +620,8 @@ class Diag:
             try:
                 b = json.loads(p.read_text(encoding="utf-8"))
             except (OSError, ValueError):
+                continue
+            if b.get("kind") == "dtc":   # codes défaut : pas des scans (pas d'identifiants à comparer)
                 continue
             ecu, veh = b.get("ecu", "?"), VEHICLES.get(b.get("vehicle", DEFAULT_VEHICLE), {})
             out.append({"name": p.name, "ecu": ecu, "ecu_name": veh.get("ecus", {}).get(ecu, ("",))[0],

@@ -456,6 +456,13 @@ Requêtes, calculateurs et session suivent ce choix :
   la session est refusée sinon. Retour en session normale (10 01) à la fin, même si le scan est arrêté ; sans
   message pendant ~5 s, le calculateur y revient de lui-même.
 
+**Gardés et envoyés au serveur** : chaque diagnostic lit d'abord le VIN (OBD 09 02 ; à défaut, celui de la
+dernière connexion si c'est la même voiture). Les scans sont rangés dans `data/diag/scan-*.json`, les codes défaut
+dans `data/diag/dtc-*.json` (même sans code : « aucun défaut ce jour-là » compte aussi), avec ce VIN. Avec la
+synchro, chacun part une fois sur clio-sentinel-server (`data/diag/envoyes.txt` retient ceux déjà reçus), qui les
+range par VIN sur sa page **Diagnostics**. Les anciens scans, sans VIN, y sont rattachés au VIN de la voiture quand
+le serveur n'en connaît qu'un.
+
 **Liste blanche** (`ALLOWED` dans `src/diagnostic.py`, vérifiée au seul endroit qui écrit sur le port) : seules
 partent vers la voiture les lectures (OBD 01, 03, 07, 09 ; UDS 22, 19 02), l'entrée / sortie de session (10 03,
 10 01) et son maintien (3E) ; en K-line, les équivalents KWP (21, 1A, 18 02, 10 C0 / 10 81, 3E). Tout le
