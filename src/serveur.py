@@ -99,8 +99,9 @@ def make_handler(state):
             if path in pages:
                 self._send(200, (WEB / pages[path]).read_bytes(), "text/html; charset=utf-8")
             elif path.startswith("/logo/"):
+                # Les deux résolus : sur Android, le dossier de l'appli passe par un lien (/data/user/0 → /data/data)
                 f = (LOGOS / path[6:]).resolve()
-                if f.is_file() and f.is_relative_to(LOGOS) and f.suffix == ".svg":
+                if f.is_file() and f.is_relative_to(LOGOS.resolve()) and f.suffix == ".svg":
                     self._send(200, f.read_bytes(), "image/svg+xml")
                 else:
                     self._send(404, b"not found", "text/plain")

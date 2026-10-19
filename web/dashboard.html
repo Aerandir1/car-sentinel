@@ -775,8 +775,9 @@
     </section>
     <section class="panel step">
       <h3>Codes défaut</h3>
-      <p class="note">OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis <span id="g-dtc-svc">UDS 19 02</span>
-        sur <span id="g-dtc-ecus">le moteur</span>. Contact mis suffit.</p>
+      <p class="note">OBD 03 (mémorisés), 07 (en attente) et 0A (permanents) à tous les calculateurs, puis
+        <span id="g-dtc-svc">UDS 19 02</span> sur <span id="g-dtc-ecus">le moteur</span>. Seuls les vrais défauts sont
+        gardés, avec leur état, leur type de défaillance et leur description. Contact mis suffit.</p>
       <div class="c-form"><button class="btn primary" id="g-dtc">Lire les codes défaut</button></div>
       <table class="c-refs" id="g-dtc-out"></table>
     </section>
@@ -2533,7 +2534,7 @@ function setVehicle() {
   $("g-ecu-x").placeholder = kline ? "ex. 7A" : "ex. 744";
   $("g-ranges").value = v.ecus[order[0]]?.ranges || "";
   $("g-dtc-svc").textContent = v.dtc;
-  const names = order.map((k) => v.ecus[k].name.toLowerCase());
+  const names = order.map((k) => v.ecus[k].name.replace(/^[A-ZÉ](?=[a-zé])/, (c) => c.toLowerCase()));   // sigles gardés (ABS, PCM)
   $("g-dtc-ecus").textContent = names.length > 3 ? `les ${names.length} calculateurs du véhicule (${names.join(", ")})`
     : names.length > 1 ? `le ${names.slice(0, -1).join(", le ")} et le ${names.at(-1)}` : `l'${names[0]}`;
   $("g-read").textContent = v.read;
