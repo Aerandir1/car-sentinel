@@ -432,9 +432,13 @@ l'enregistrement est en pause ; il reprend tout seul après. Pas en mode démo.
 **Véhicule** : celui de la voiture en cours par défaut, ou choisi en haut de l'onglet (gardé par le navigateur).
 Requêtes, calculateurs et session suivent ce choix :
 
-- **Ford Fiesta VII 1.0 EcoBoost** : prise OBD en CAN, requêtes UDS ; calculateur moteur (PCM, 7E0), identifiants
-  par familles Ford (03xx à 05xx, 09xx, 11xx à 13xx, 1Exx, F4xx). Les DID déjà connus du dashboard sont nommés
-  et décodés dans les scans.
+- **Ford Fiesta VII 1.0 EcoBoost** : prise OBD en CAN, requêtes UDS, réponse à l'adresse + 8 (726 → 72E). Codes
+  défaut lus sur tous les calculateurs du réseau Ford (adresses FORScan des Fiesta VII) : moteur (PCM, 7E0), ABS /
+  ESP (760), airbags (RCM, 737), direction assistée (PSCM, 730), boîtier carrosserie (BCM, 726), combiné (IPC, 720),
+  passerelle (GWM, 716), SYNC (APIM, 7D0), audio (ACM, 727), climatisation (HVAC, 733), aide au stationnement (PAM,
+  736), caméra avant (IPMA, 706). Ceux que la voiture n'a pas sont signalés « pas de réponse ». Scan du moteur par
+  familles d'identifiants Ford (03xx à 05xx, 09xx, 11xx à 13xx, 1Exx, F4xx), des autres en identification (F1xx)
+  et données (DDxx) ; les DID déjà connus du dashboard sont nommés et décodés dans les scans.
 - **Renault Clio IV dCi 90 (K9K)** : prise OBD en CAN, requêtes UDS ; moteur (7E0) et tableau de bord (743).
 - **Renault Clio II phase 2 (2002) essence** : prise OBD en K-line, sans CAN. Codes défaut OBD 03 / 07, puis
   KWP 18 02 sur l'injection (adresses 7A Renault et 10 OBD, init 5 bauds ou rapide comme en OBD) ; codes
@@ -445,8 +449,17 @@ Requêtes, calculateurs et session suivent ce choix :
   Si le protocole détecté ne correspond pas au véhicule choisi, le diagnostic s'arrête avant toute requête
   constructeur.
 
-- **Codes défaut** : OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis UDS 19 02 sur les
-  calculateurs du véhicule. Contact mis suffit.
+- **Codes défaut** : OBD 03 (mémorisés), 07 (en attente) et 0A (permanents, effaçables seulement par le
+  calculateur lui-même) à tous les calculateurs, puis UDS 19 02 sur chaque calculateur du véhicule. Contact mis
+  suffit. En UDS, seuls les codes en défaut sont demandés (masque d'état `AD`) : avec `FF`, un PCM Ford renvoie
+  aussi des centaines de codes dont le test n'a simplement pas encore tourné, qui ne sont pas des défauts (un
+  calculateur qui ignore le masque les renvoie quand même : ils sont écartés et comptés). Pour chaque code :
+  - l'**état** résumé (présent, confirmé, en attente, historique), le **voyant** moteur demandé, et au survol le
+    détail des bits d'état (ISO 14229) ;
+  - le **type de défaillance** (3e octet des codes UDS, ISO 15031-6) en clair : court-circuit à la masse, circuit
+    ouvert, signal invalide, plausibilité… (`P0171-29` : mélange pauvre, signal invalide) ;
+  - la **description** des codes génériques SAE (P0…, P2…, U0…, table de python-obd, en anglais) ; les codes propres
+    au constructeur (P1…, B1…) sont signalés comme tels.
 - **Scan des identifiants** : lecture (UDS 22) de chaque DID d'une plage, sur un calculateur du véhicule ou une
   autre adresse. Les DID qui répondent sont rangés dans `data/diag/*.json`, au format de `uds_scan.py`
   (clio-iv-obd-utils). Cocher deux scans ou plus et « Comparer » liste ce qui change : faire un scan contact mis,
@@ -464,7 +477,7 @@ range par VIN sur sa page **Diagnostics**. Les anciens scans, sans VIN, y sont r
 le serveur n'en connaît qu'un.
 
 **Liste blanche** (`ALLOWED` dans `src/diagnostic.py`, vérifiée au seul endroit qui écrit sur le port) : seules
-partent vers la voiture les lectures (OBD 01, 03, 07, 09 ; UDS 22, 19 02), l'entrée / sortie de session (10 03,
+partent vers la voiture les lectures (OBD 01, 03, 07, 09, 0A ; UDS 22, 19 02), l'entrée / sortie de session (10 03,
 10 01) et son maintien (3E) ; en K-line, les équivalents KWP (21, 1A, 18 02, 10 C0 / 10 81, 3E). Tout le
 reste est refusé avant l'envoi, en particulier 10 02 (programmation), 27 (déverrouillage), 2E (écriture), 2F
 (actionneurs), 31 (routines), 11 (redémarrage), 14 / 04 (effacement des défauts). Lignes CAN identiques à

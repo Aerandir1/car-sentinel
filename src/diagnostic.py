@@ -38,7 +38,7 @@ ALLOWED = [
     (r"AT.*", "réglage de l'adaptateur (ne part pas vers la voiture)"),
     (r"01[0-9A-F]{2}", "OBD 01 : valeur temps réel"),
     (r"09[0-9A-F]{2}", "OBD 09 : infos véhicule (VIN…)"),
-    (r"0[37]", "OBD 03 / 07 : lecture des codes défaut"),
+    (r"0[37A]", "OBD 03 / 07 / 0A : lecture des codes défaut (mémorisés, en attente, permanents)"),
     (r"22[0-9A-F]{4}", "UDS 22 : lecture d'un identifiant"),
     (r"1902[0-9A-F]{2}", "UDS 19 02 : lecture des codes défaut"),
     (r"100[13]", "UDS 10 01 / 10 03 : session normale / étendue"),
@@ -54,11 +54,25 @@ _ALLOWED_RE = re.compile("|".join(f"(?:{p})" for p, _ in ALLOWED))
 # Véhicules proposés sur la page : liaison, calculateurs (adresse : nom, plages fouillées par défaut)
 # Clio II : injection à l'adresse de l'outil Renault (7A) et à son adresse OBD (10), jointes comme en OBD (init
 # 5 bauds ou rapide, ISO 14230). ABS, airbag, UCH : non proposés (autre adresse possible).
-# Fiesta : calculateur moteur (PCM) seul, identifiants Ford rangés par familles (OBDb : 03xx, 04xx, 05xx, 09xx,
-# 11xx-13xx, 1Exx, F4xx)
+# Fiesta : les calculateurs du réseau CAN Ford (adresses FORScan des Fiesta VII), réponse à l'adresse + 8 (726 →
+# 72E). Ceux qui ne répondent pas (option absente sur cette voiture) sont signalés, pas en erreur. Moteur :
+# identifiants Ford rangés par familles (OBDb : 03xx, 04xx, 05xx, 09xx, 11xx-13xx, 1Exx, F4xx) ; les autres :
+# identification (F1xx) et données du calculateur (DDxx)
+FORD_IDS = "DD00-DDFF,F100-F1FF"
 VEHICLES = {
-    "fiesta7": {"name": "Ford Fiesta VII 1.0 EcoBoost", "bus": "can", "car": fiesta, "ecus": {
+    "fiesta7": {"name": "Ford Fiesta VII 1.0 EcoBoost", "bus": "can", "car": fiesta, "reply": 8, "ecus": {
         "7E0": ("Moteur (PCM)", "0300-05FF,0900-09FF,1100-13FF,1E00-1EFF,F400-F4FF"),
+        "760": ("ABS / ESP", FORD_IDS),
+        "737": ("Airbags (RCM)", FORD_IDS),
+        "730": ("Direction assistée (PSCM)", FORD_IDS),
+        "726": ("Boîtier carrosserie (BCM)", FORD_IDS),
+        "720": ("Combiné (IPC)", FORD_IDS),
+        "716": ("Passerelle (GWM)", FORD_IDS),
+        "7D0": ("SYNC (APIM)", FORD_IDS),
+        "727": ("Audio (ACM)", FORD_IDS),
+        "733": ("Climatisation (HVAC)", FORD_IDS),
+        "736": ("Aide au stationnement (PAM)", FORD_IDS),
+        "706": ("Caméra avant (IPMA)", FORD_IDS),
     }},
     "clio4": {"name": "Renault Clio IV dCi 90 (K9K)", "bus": "can", "car": clio, "ecus": {
         "7E0": ("Moteur", "2000-2FFF,F400-F4FF,FD00-FDFF"),
@@ -107,10 +121,68 @@ def check_allowed(command):
         raise Forbidden(f"requête {command!r} refusée : hors de la liste blanche (lecture seule)")
 
 
-def reply_addr(ecu):
-    """Adresse de réponse CAN 11 bits : 7E0 → 7E8 (OBD), sinon +0x20 chez Renault (743 → 763)."""
+def reply_addr(ecu, offset=None):
+    """Adresse de réponse CAN 11 bits : 7E0 → 7E8 (OBD) ; sinon + offset du véhicule (Ford : + 8, 726 → 72E),
+    par défaut + 0x20 comme chez Renault (743 → 763)."""
     n = int(ecu, 16)
-    return f"{n + 8:03X}" if 0x7E0 <= n <= 0x7E7 else f"{n + 0x20:03X}"
+    return f"{n + 8:03X}" if 0x7E0 <= n <= 0x7E7 else f"{n + (offset or 0x20):03X}"
+
+
+# Octet d'état d'un code défaut UDS (ISO 14229, 19 02) : bit → sens
+DTC_STATUS = {0x01: "défaut présent", 0x02: "défaillant pendant ce cycle", 0x04: "en attente",
+              0x08: "confirmé", 0x10: "test non terminé depuis l'effacement", 0x20: "défaillant depuis l'effacement",
+              0x40: "test non terminé pendant ce cycle", 0x80: "voyant demandé"}
+DTC_FAULT = 0x01 | 0x04 | 0x08 | 0x20 | 0x80   # un vrai défaut, présent ou passé ; sinon : test pas encore fait
+# Type de défaillance (3e octet des codes UDS, ISO 15031-6 / SAE J2012) : les plus courants
+FTB = {0x00: None, 0x01: "défaut électrique général", 0x02: "défaut de signal général", 0x03: "signal FM / MLI",
+       0x04: "défaut interne du système", 0x05: "programmation du système", 0x06: "algorithme", 0x07: "défaut mécanique",
+       0x08: "défaut de signal bus", 0x09: "défaut de composant", 0x11: "court-circuit à la masse",
+       0x12: "court-circuit au + batterie", 0x13: "circuit ouvert", 0x14: "court-circuit à la masse ou circuit ouvert",
+       0x15: "court-circuit au + ou circuit ouvert", 0x16: "tension trop basse", 0x17: "tension trop haute",
+       0x18: "courant trop bas", 0x19: "courant trop haut", 0x1A: "résistance trop basse",
+       0x1B: "résistance trop haute", 0x1C: "tension hors plage", 0x1D: "courant hors plage",
+       0x1E: "résistance hors plage", 0x1F: "circuit intermittent", 0x21: "amplitude du signal trop basse",
+       0x22: "amplitude du signal trop haute", 0x23: "signal bloqué bas", 0x24: "signal bloqué haut",
+       0x25: "forme de signal incorrecte", 0x26: "taux de variation trop bas", 0x27: "taux de variation trop haut",
+       0x28: "décalage ou zéro du signal", 0x29: "signal invalide", 0x2A: "signal figé", 0x2F: "signal erratique",
+       0x31: "pas de signal", 0x41: "erreur de somme de contrôle", 0x42: "erreur mémoire", 0x44: "erreur mémoire de données",
+       0x45: "erreur mémoire programme", 0x46: "erreur de calibration / paramétrage", 0x47: "chien de garde / sécurité",
+       0x48: "erreur de supervision", 0x49: "défaut électronique interne", 0x4B: "température trop haute",
+       0x51: "non programmé", 0x54: "calibration manquante", 0x55: "non configuré", 0x56: "configuration invalide",
+       0x62: "comparaison de signaux en défaut", 0x63: "temporisation de circuit / composant",
+       0x64: "plausibilité du signal", 0x67: "signal incorrect après action", 0x68: "compteur d'événements",
+       0x71: "actionneur bloqué", 0x72: "actionneur bloqué ouvert", 0x73: "actionneur bloqué fermé",
+       0x77: "position commandée non atteinte", 0x7B: "niveau de fluide bas", 0x81: "message série invalide",
+       0x82: "compteur de vie / message", 0x83: "protection de message", 0x84: "signal sous la plage",
+       0x85: "signal au-dessus de la plage", 0x86: "signal invalide reçu", 0x87: "message manquant",
+       0x88: "bus off", 0x8F: "erratique", 0x92: "performance ou réponse incorrecte", 0x96: "défaut interne du composant",
+       0x98: "température du composant trop haute"}
+
+
+def dtc_desc(code):
+    """Description d'un code générique SAE (P0…, P2…, U0…, B0…, C0… : table de python-obd, en anglais), sinon None
+    (codes propres au constructeur, P1… ou B1…)."""
+    try:
+        from obd.codes import DTC
+    except ImportError:
+        return None
+    return DTC.get(code)
+
+
+def status_flags(s):
+    """Octet d'état → liste des bits levés, en clair."""
+    return [txt for bit, txt in DTC_STATUS.items() if s & bit]
+
+
+def dtc_state(s):
+    """État résumé d'un code UDS, du plus grave au plus ancien."""
+    if s & 0x01:
+        return "présent"
+    if s & 0x08:
+        return "confirmé"
+    if s & 0x04:
+        return "en attente"
+    return "historique"   # défaillant depuis l'effacement, plus maintenant
 
 
 def vehicle(key):
@@ -255,8 +327,8 @@ class Elm:
 class Uds:
     """Requêtes UDS adressées à un calculateur."""
 
-    def __init__(self, elm, ecu):
-        self.elm, self.ecu, self.rx = elm, ecu, reply_addr(ecu)
+    def __init__(self, elm, ecu, offset=None):
+        self.elm, self.ecu, self.rx = elm, ecu, reply_addr(ecu, offset)
         self.extended, self.last = False, time.time()
         elm.cmd(f"ATSH{ecu}")
         elm.cmd(f"ATCRA{self.rx}")
@@ -410,7 +482,8 @@ class Diag:
             job = dict(self.job) if self.job else None
         return {"job": job, "scans": self.list_scans(), "default": CAR_VEHICLE.get(self.state.car.ID, DEFAULT_VEHICLE),
                 "vehicles": {k: {"name": v["name"], **BUS[v["bus"]], "bus": v["bus"],
-                                 "ecus": {a: {"name": n, "ranges": r} for a, (n, r) in v["ecus"].items()}}
+                                 "ecus": {a: {"name": n, "ranges": r} for a, (n, r) in v["ecus"].items()},
+                                 "order": list(v["ecus"])}   # en JS, « 760 » passerait avant « 7E0 »
                              for k, v in VEHICLES.items()},
                 "allowed": [d for _p, d in ALLOWED]}
 
@@ -522,44 +595,69 @@ class Diag:
             st.diag_want.clear()   # l'acquisition reprend l'adaptateur
 
     def _dtc(self, elm, veh, obd=True, job=None):
-        """Codes défaut : OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis ceux du constructeur
-        (UDS 19 02 en CAN, KWP 18 02 en K-line) sur chaque calculateur du véhicule. Rien n'est effacé."""
+        """Codes défaut : OBD 03 (mémorisés), 07 (en attente) et 0A (permanents) à tous les calculateurs, puis ceux
+        du constructeur (UDS 19 02 en CAN, KWP 18 02 en K-line) sur chaque calculateur du véhicule. Rien n'est effacé.
+
+        En UDS, seuls les codes en défaut sont demandés (masque d'état AD : présent, en attente, confirmé, défaillant
+        depuis l'effacement, voyant) : avec FF, le calculateur renvoie aussi ceux dont le test n'a pas encore tourné,
+        des centaines sur un PCM Ford, en une réponse que certains ELM327 coupent. Un calculateur qui ignore le masque
+        les renvoie quand même : ils sont alors écartés et seulement comptés. Chaque code garde son état bit par bit, son type
+        de défaillance (3e octet) et sa description quand c'est un code générique."""
         out, can = [], veh["bus"] == "can"
-        self._set(phase="codes défaut OBD (03 / 07)")
+        self._set(phase="codes défaut OBD (03 / 07 / 0A)")
         if can:
             elm.cmd("ATSH7DF")
             elm.cmd("ATCRA")
         if not obd:
-            out.append({"source": "OBD 03 / 07", "code": None, "state": "pas de réponse OBD (calculateur seul ?)"})
-        for mode, kind in (("03", "mémorisé"), ("07", "en attente")) if obd else ():
+            out.append({"source": "OBD 03 / 07 / 0A", "code": None, "state": "pas de réponse OBD (calculateur seul ?)"})
+        for mode, kind in (("03", "mémorisé"), ("07", "en attente"), ("0A", "permanent")) if obd else ():
             for src, d in obd_sources(elm, mode, timeout=3):
                 if d and d[0] == 0x40 + int(mode, 16):
-                    out += [{"source": f"OBD {mode} · {src}", "code": c, "state": kind} for c in obd_dtcs(d, can)]
+                    out += [{"source": f"OBD {mode} · {src}", "code": c, "state": kind, "desc": dtc_desc(c)}
+                            for c in obd_dtcs(d, can)]
+        offset = veh.get("reply")
         for ecu, (name, _r) in veh["ecus"].items():
             if self.stop_flag.is_set():
                 break
             src = f"{BUS[veh['bus']]['dtc']} · {name} ({ecu})"
             self._set(phase=f"codes défaut · {name} ({ecu})")
             if can:
-                d = Uds(elm, ecu).request("1902FF", timeout=3)
+                d = Uds(elm, ecu, offset).request(f"1902{DTC_FAULT:02X}", timeout=3)
                 ok, step = len(d) >= 3 and d[0] == 0x59, 4
             else:
                 d = Kwp(elm, ecu).request("1802FF00", timeout=3)
                 ok, step = len(d) >= 2 and d[0] == 0x58, 3
             if ok:
+                found, untested = 0, 0
                 for i in range(3 if can else 2, len(d) - step + 1, step):
                     s = d[i + step - 1]
                     if can:
-                        state = "actif" if s & 0x01 else "confirmé" if s & 0x08 else "en attente" if s & 0x04 else "mémorisé"
-                        code = f"{dtc_name(d[i], d[i + 1])}-{d[i + 2]:02X}"
+                        if not s & DTC_FAULT:   # test pas encore fait : pas un défaut
+                            untested += 1
+                            continue
+                        base = dtc_name(d[i], d[i + 1])
+                        ftb = d[i + 2]
+                        row = {"source": src, "ecu": ecu, "code": f"{base}-{ftb:02X}", "state": dtc_state(s),
+                               "status": f"{s:02X}", "flags": status_flags(s), "desc": dtc_desc(base),
+                               "ftb": FTB.get(ftb, f"type {ftb:02X}"), "mil": bool(s & 0x80)}
                     else:   # codes Renault (DF… sur l'outil du garage) : laissés en hexa, état ISO 14230
-                        state = "présent" if (s >> 5) & 3 in (1, 3) else "mémorisé"
-                        code = f"{d[i]:02X}{d[i + 1]:02X} ({dtc_name(d[i], d[i + 1])})"
-                    out.append({"source": src, "code": code, "state": state, "status": f"{s:02X}"})
+                        row = {"source": src, "ecu": ecu, "code": f"{d[i]:02X}{d[i + 1]:02X} ({dtc_name(d[i], d[i + 1])})",
+                               "state": "présent" if (s >> 5) & 3 in (1, 3) else "mémorisé", "status": f"{s:02X}"}
+                    out.append(row)
+                    found += 1
+                if not found:
+                    out.append({"source": src, "ecu": ecu, "code": None, "state": "aucun défaut"
+                                + (f" ({untested} test{'s' if untested > 1 else ''} pas encore fait"
+                                   f"{'s' if untested > 1 else ''})" if untested else "")})
+                elif untested:
+                    out.append({"source": src, "ecu": ecu, "code": None,
+                                "state": f"{untested} autre{'s' if untested > 1 else ''} code{'s' if untested > 1 else ''}"
+                                         f" au test pas encore fait (pas des défauts)"})
             elif len(d) >= 3 and d[0] == 0x7F:
-                out.append({"source": src, "code": None, "state": f"lecture refusée : {NRC.get(d[2], f'code {d[2]:02X}')}"})
+                out.append({"source": src, "ecu": ecu, "code": None,
+                            "state": f"lecture refusée : {NRC.get(d[2], f'code {d[2]:02X}')}"})
             else:
-                out.append({"source": src, "code": None, "state": "pas de réponse"})
+                out.append({"source": src, "ecu": ecu, "code": None, "state": "pas de réponse (absent sur cette voiture ?)"})
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         self._set(result={"dtc": out, "time": now})
         # Gardés (le serveur les reçoit, rangés par VIN), même sans code : « aucun code ce jour-là » compte aussi
@@ -575,7 +673,8 @@ class Diag:
         if job["extended"]:
             self._set(phase="vérification : moteur coupé, voiture à l'arrêt")
             engine_stopped(elm)
-        uds = (Uds if elm.bus == "can" else Kwp)(elm, ecu)
+        offset = VEHICLES[job["vehicle"]].get("reply")
+        uds = Uds(elm, ecu, offset) if elm.bus == "can" else Kwp(elm, ecu)
         found, refused = {}, {}
         try:
             if job["extended"]:

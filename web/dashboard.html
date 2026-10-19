@@ -482,6 +482,9 @@
   .g-ext { display: flex; gap: 8px; align-items: center; cursor: pointer; }
   .g-ext input { width: 20px; height: 20px; accent-color: var(--accent); }
   .g-hex { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  #g-dtc-out tr.g-none td { color: var(--dim); }
+  #g-dtc-out small { color: var(--dim); }
+  .g-mil { color: var(--hot); }
   .g-scroll { max-height: 460px; overflow: auto; }
   .g-scroll table { min-width: 100%; }
   #g-list td:first-child { width: 1%; }
@@ -2523,14 +2526,16 @@ async function refreshDiag() {
 function setVehicle() {
   const v = G.vehicles[$("g-veh").value];
   const kline = v.bus === "kline";
-  $("g-ecu").innerHTML = Object.entries(v.ecus).map(([k, e]) => `<option value="${k}">${gEsc(e.name)} (${k})</option>`).join("")
+  const order = v.order || Object.keys(v.ecus);   // ordre du script (moteur d'abord), pas celui des clés JS
+  $("g-ecu").innerHTML = order.map((k) => `<option value="${k}">${gEsc(v.ecus[k].name)} (${k})</option>`).join("")
     + `<option value="">Autre adresse…</option>`;
   $("g-ecu-x").hidden = true;
   $("g-ecu-x").placeholder = kline ? "ex. 7A" : "ex. 744";
-  $("g-ranges").value = Object.values(v.ecus)[0]?.ranges || "";
+  $("g-ranges").value = v.ecus[order[0]]?.ranges || "";
   $("g-dtc-svc").textContent = v.dtc;
-  const names = Object.values(v.ecus).map((e) => e.name.toLowerCase());
-  $("g-dtc-ecus").textContent = names.length > 1 ? `le ${names.slice(0, -1).join(", le ")} et le ${names.at(-1)}` : `l'${names[0]}`;
+  const names = order.map((k) => v.ecus[k].name.toLowerCase());
+  $("g-dtc-ecus").textContent = names.length > 3 ? `les ${names.length} calculateurs du véhicule (${names.join(", ")})`
+    : names.length > 1 ? `le ${names.slice(0, -1).join(", le ")} et le ${names.at(-1)}` : `l'${names[0]}`;
   $("g-read").textContent = v.read;
   $("g-open").textContent = v.open;
   $("g-veh-note").textContent = kline
@@ -2565,9 +2570,14 @@ function renderDtc(r) {
   const codes = rows.filter((x) => x.code);
   gMsg(codes.length ? `${codes.length} code${codes.length > 1 ? "s" : ""} défaut lu${codes.length > 1 ? "s" : ""} (${r.time}).`
                     : `Aucun code défaut (${r.time}).`, codes.length ? "" : "ok");
+  // Code, description (codes génériques) et type de défaillance (3e octet), état résumé ; le détail des bits
+  // d'état au survol ; voyant moteur demandé en rouge
   $("g-dtc-out").innerHTML = rows.length
-    ? "<tr><th>Source</th><th>Code</th><th>État</th></tr>" + rows.map((x) =>
-        `<tr><td>${gEsc(x.source)}</td><td class="g-hex">${gEsc(x.code || "—")}</td><td>${gEsc(x.state)}${x.status ? ` <small>(${gEsc(x.status)})</small>` : ""}</td></tr>`).join("")
+    ? "<tr><th>Source</th><th>Code</th><th>Description</th><th>État</th></tr>" + rows.map((x) =>
+        `<tr${x.code ? "" : ' class="g-none"'}><td>${gEsc(x.source)}</td><td class="g-hex">${gEsc(x.code || "—")}</td>`
+        + `<td>${gEsc(x.desc || (x.code ? "code propre au constructeur" : ""))}${x.ftb ? `<br><small>${gEsc(x.ftb)}</small>` : ""}</td>`
+        + `<td title="${gEsc((x.flags || []).join(", "))}">${x.mil ? '<b class="g-mil">voyant</b> ' : ""}${gEsc(x.state)}`
+        + `${x.status ? ` <small>(${gEsc(x.status)})</small>` : ""}</td></tr>`).join("")
     : "";
 }
 function renderDiagList(scans) {
