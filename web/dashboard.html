@@ -400,6 +400,38 @@
   .lay-foot label { display: flex; align-items: center; gap: 10px; margin-right: auto; cursor: pointer; }
   .lay-foot input { width: 20px; height: 20px; accent-color: var(--accent); }
 
+  /* Prix du carburant : une ligne par voiture, avec son témoin de synchro */
+  .fuel-cars { display: grid; gap: 8px; margin-bottom: 14px; }
+  .fuel-car { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 4px 14px; padding: 12px 14px;
+              background: var(--bg); border: 1px solid var(--line); border-radius: var(--r); }
+  .fuel-car.current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+  .fuel-car .logo { grid-row: span 2; width: 34px; height: 22px; }
+  .fuel-car b { font-size: 15px; }
+  .fuel-car .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--accent);
+                   margin-left: 8px; }
+  .fuel-car .val { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .fuel-car .val small { font-size: 13px; color: var(--dim); font-weight: 500; margin-left: 4px; }
+  .fuel-car .sub { color: var(--dim); font-size: 13px; }
+  .fuel-car .chip { justify-self: end; min-height: 24px; font-size: 12px; }
+  .fuel-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .logo { display: inline-block; flex: none; }
+  .logo.fiesta { background: url(/logo/ford-ovale.svg) center / contain no-repeat; }
+  .logo.clio { background: var(--text); -webkit-mask: url(/logo/Renault_2021_Logo.svg) center / contain no-repeat;
+               mask: url(/logo/Renault_2021_Logo.svg) center / contain no-repeat; }
+  .chip[data-st="pending"] { color: var(--warn); border-color: var(--warn); }
+  /* Notification en bas d'écran (prix validé…) */
+  .toast { position: fixed; left: 50%; bottom: calc(var(--nav-h) + 18px + env(safe-area-inset-bottom)); z-index: 50;
+           transform: translate(-50%, 20px); opacity: 0; pointer-events: none; max-width: min(560px, calc(100vw - 32px));
+           padding: 12px 18px; border-radius: var(--r); background: var(--panel-2); border: 1px solid var(--line-2);
+           box-shadow: 0 10px 30px rgba(0, 0, 0, .4); font-weight: 600; transition: opacity .25s, transform .25s; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.ok { border-color: var(--ok); } .toast.warn { border-color: var(--warn); } .toast.err { border-color: var(--hot); }
+  /* Combiné : prix du carburant et son témoin, sous le coût du trajet */
+  .k-price { display: inline-flex; align-items: center; justify-content: center; gap: 5px; }
+  .k-price i { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); flex: none; }
+  .k-price[data-st="serveur"] i { background: var(--ok); box-shadow: 0 0 5px var(--ok); }
+  .k-price[data-st="attente"] i { background: var(--warn); }
+
   /* ---------- Étalonnage : trois étapes ---------- */
   #calib { display: grid; gap: 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
   .cal-intro h2 { display: block; font-size: 20px; font-weight: 700; margin-bottom: 4px; }
@@ -509,6 +541,7 @@
 </style>
 </head>
 <body>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div id="splash" role="img" aria-label="Car Sentinel">
   <div class="sp-box sp-clio">
     <svg viewBox="0 0 500 437.5" aria-hidden="true">
@@ -609,7 +642,7 @@
       <div class="k-info">
         <div><small>Conso</small><b id="k-l100">—</b><span>L/100 km</span></div>
         <div><small>Moyenne</small><b id="k-avg">—</b><span>L/100 km</span></div>
-        <div><small>Trajet</small><b id="k-cost">—</b><span id="k-dist"></span></div>
+        <div><small>Trajet</small><b id="k-cost">—</b><span id="k-dist"></span><span class="k-price" id="k-price"></span></div>
       </div>
       <div class="k-foot"><span id="k-clock"></span><span id="k-ext"></span></div>
     </div>
@@ -787,17 +820,19 @@
       </div>
     </details>
     <details class="card" open>
-      <summary><span><b>Carburant</b> <span id="saved-price" class="saved">enregistré</span>
-        <small>Prix au litre de la voiture affichée, pour le coût des trajets</small></span></summary>
+      <summary><span><b>Carburant</b>
+        <small>Prix au litre de chaque voiture, pour le coût des trajets · synchronisé avec le serveur</small></span></summary>
       <div class="card-body">
-        <p class="note">Un prix par voiture, synchronisé avec le serveur : réglé ici, il part au serveur et sur les autres
-          dashboards (PC, tablette) ; réglé sur la page du serveur ou ailleurs, il revient ici. Un trajet terminé garde
-          le prix de son moment.</p>
-        <div class="row two">
-          <label for="s-fuel_price">Prix du carburant<small id="s-fuel-note">Par litre, celui du dernier plein</small></label>
-          <span class="price"><input type="number" id="s-fuel_price" class="field" min="0" max="10" step="0.001"
-            inputmode="decimal" placeholder="ex. 0,859"> €/L</span>
-        </div>
+        <div class="fuel-cars" id="fuel-cars"></div>
+        <form class="fuel-form" id="fuel-form">
+          <div class="seg" id="fuel-car" role="group" aria-label="Voiture du prix"></div>
+          <span class="price"><input type="number" id="s-fuel_price" class="field" min="0.001" max="10" step="0.001"
+            inputmode="decimal" placeholder="ex. 1,659" required aria-label="Prix au litre"> €/L</span>
+          <button class="btn primary" type="submit">Valider</button>
+        </form>
+        <p class="note" style="margin-top:10px">Validé ici, le prix part tout de suite au serveur et fait foi : les autres
+          dashboards (PC, tablette) et la page du serveur le reprennent. Réglé sur la page du serveur ou sur un autre
+          dashboard, il revient ici dans la minute. Le plus récent gagne. Un trajet terminé garde le prix de son moment.</p>
       </div>
     </details>
     <details class="card" open>
@@ -1524,7 +1559,6 @@ function applyCar(car) {
   $("brand").setAttribute("aria-label", car.maker);
   $("favicon").href = car.id === "clio" ? "/logo/Renault_2021_Logo.svg" : "/logo/ford-ovale.svg";
   for (const el of document.querySelectorAll(".maker")) el.textContent = car.maker;
-  $("s-fuel-note").textContent = `Par litre, celui du dernier plein (${car.fuel})`;
   ECO.shift[1] = car.shift_tip;
   const t = car.gauges.tach, b = car.gauges.boost;
   TACH = { ...TACH, max: t.max, redline: t.redline, majors: t.majors };
@@ -1560,13 +1594,79 @@ function showHud(s) {
   $("h-fuel").textContent = info;
   if (t && t.fuel_l != null && !price) {
     const a = Object.assign(document.createElement("a"), { textContent: "régler le prix du carburant" });
-    a.onclick = () => { showTab("set"); $("s-fuel_price").closest("details").open = true; $("s-fuel_price").focus(); };
+    a.onclick = () => { showTab("set"); $("fuel-form").closest("details").open = true; $("s-fuel_price").focus(); };
     $("h-fuel").append(" · ", a);
   }
   $("k-l100").textContent = inst;
   $("k-avg").textContent = avg != null ? num(avg, 1) : "—";
   $("k-cost").textContent = cost;
   $("k-dist").textContent = t ? fmtKm(t.distance_km) : "pas de trajet";
+  // Prix du carburant de la voiture : d'où il vient (témoin vert : à jour avec le serveur)
+  const p = s.price, kp = $("k-price");
+  kp.dataset.st = p ? p.state : "aucun";
+  kp.replaceChildren(document.createElement("i"), p?.price ? `${num(p.price, 3)} €/L · ${PRICE_ST[p.state][1]}` : "prix à régler");
+  kp.title = p?.price ? priceOrigin(p) : "Réglages → Carburant";
+}
+
+// ---------- Prix du carburant (Réglages → Carburant, combiné) ----------
+// État de la synchro avec le serveur : [classe du témoin, libellé, explication]
+const PRICE_ST = {
+  serveur: ["ok", "serveur", "Le même que sur le serveur : il fait foi pour tous les dashboards"],
+  attente: ["pending", "en attente", "Validé ici, pas encore reçu par le serveur : il part dès que le serveur répond"],
+  hors_ligne: ["off", "hors ligne", "Serveur injoignable (ou pas réglé) : dernier prix connu"],
+  aucun: ["off", "pas de prix", "Pas encore de prix pour cette voiture"],
+};
+const priceOrigin = (p) => p.t ? `réglé le ${new Date(p.t).toLocaleDateString("fr-FR")} à ${hhmm(p.t)}`
+  + (p.source ? ` · ${p.source === ui.serverName ? "ici" : p.source}` : "") : "réglé avant la synchro des prix";
+let priceCar = null, priceList = [];
+function renderPrices(list) {
+  priceList = list;
+  const current = list.find((p) => p.current);
+  priceCar = list.some((p) => p.car === priceCar) ? priceCar : current?.car;
+  const plugged = last?.link?.ecu === "ok";
+  $("fuel-cars").replaceChildren(...list.map((p) => {
+    const row = document.createElement("div");
+    row.className = "fuel-car" + (p.current ? " current" : "");
+    const [st, lbl, why] = PRICE_ST[p.state];
+    row.innerHTML = `<span class="logo ${p.car}" role="img" aria-label="${p.name}"></span>
+      <span><b>${p.name}</b>${p.current ? `<span class="tag">${plugged ? "branchée" : "affichée"}</span>` : ""}</span>
+      <span class="val">${p.price ? num(p.price, 3) : "—"}<small>€/L</small></span>
+      <span class="sub">${p.fuel} · ${p.price ? priceOrigin(p) : "pas encore de prix"}</span>
+      <span class="chip" data-st="${st}" title="${why}"><i></i><b>${lbl}</b></span>`;
+    return row;
+  }));
+  $("fuel-car").replaceChildren(...list.map((p) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = p.name.replace(/^(Renault|Ford) /, ""); b.className = p.car === priceCar ? "on" : "";
+    b.onclick = () => { priceCar = p.car; renderPrices(priceList); $("s-fuel_price").value = p.price ?? ""; $("s-fuel_price").focus(); };
+    return b;
+  }));
+  const sel = list.find((p) => p.car === priceCar);
+  if (document.activeElement !== $("s-fuel_price") && sel) $("s-fuel_price").value = sel.price ?? "";
+}
+async function loadPrices() {
+  try { renderPrices(await (await fetch("/api/prices")).json()); } catch (e) {}
+}
+$("fuel-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const price = parseFloat($("s-fuel_price").value.replace(",", "."));
+  if (!(price > 0 && price <= 10)) { toast("Prix entre 0 et 10 €/L", "err"); return; }
+  try {
+    const r = await fetch("/api/price", { method: "POST", body: JSON.stringify({ car: priceCar, price }) });
+    if (!r.ok) throw new Error(await r.text());
+    const res = await r.json();
+    $("s-fuel_price").blur();
+    renderPrices(res.prices);
+    toast(`Prix ${num(price, 3)} €/L modifié pour la ${res.name}`
+      + (res.sent ? " · envoyé au serveur" : ` · gardé ici, envoyé au serveur dès qu'il répond (${res.error})`), res.sent ? "ok" : "warn");
+  } catch (err) { toast(`Prix non modifié : ${err.message}`, "err"); }
+};
+
+// Notification en bas d'écran
+function toast(msg, kind = "") {
+  const t = $("toast");
+  t.textContent = msg; t.className = `toast show ${kind}`;
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => (t.className = "toast"), 4500);
 }
 
 $("reset").onclick = () => fetch("/api/reset", { method: "POST" });
@@ -1856,7 +1956,7 @@ function showTab(name, sub = "prefs", remember = true) {
   clearInterval(G.timer);
   if (name === "diag") openDiag();
   if (name === "cal") openCalib();
-  if (name === "set") { loadServerSettings(); showSub(sub); }
+  if (name === "set") { loadServerSettings(); loadPrices(); showSub(sub); tripsTimer = setInterval(loadPrices, 5000); }
   if (name === "trips") { renderTrips(); tripsTimer = setInterval(renderTrips, 10000); }
 }
 for (const t of TABS) $("tab-" + t).onclick = () => showTab(t);
@@ -2665,8 +2765,7 @@ function showServer(st) {
     $("s-demo").classList.toggle("on", st.demo);
     $("s-demo").textContent = st.demo ? "Arrêter la démo" : "Lancer la démo";
   }
-  if (st.fuel_price !== undefined && document.activeElement !== $("s-fuel_price"))
-    $("s-fuel_price").value = st.fuel_price;
+  if (st.server_name !== undefined) ui.serverName = st.server_name;   // « ici » dans l'origine des prix
   for (const k of ["server", "server_name"])
     if (st[k] !== undefined && document.activeElement !== $("s-" + k)) $("s-" + k).value = st[k];
   if (st.fast !== undefined) {
@@ -2699,12 +2798,6 @@ for (const [k, show] of Object.entries(SERVER_FIELDS)) {
   };
 }
 $("s-fast").onchange = (e) => sendServer({ fast: e.target.checked });
-$("s-fuel_price").onchange = (e) => {
-  const v = parseFloat(e.target.value.replace(",", "."));
-  if (!(v >= 0 && v <= 10)) { loadServerSettings(); return; }   // vide ou hors limites : on remet le prix gardé
-  sendServer({ fuel_price: v }, "saved-price");
-};
-$("s-fuel_price").onkeydown = (e) => { if (e.key === "Enter") e.target.blur(); };
 for (const k of ["server", "server_name"]) {
   $("s-" + k).onchange = async (e) => {
     const r = await fetch("/api/settings", { method: "POST", body: JSON.stringify({ [k]: e.target.value }) }).catch(() => null);

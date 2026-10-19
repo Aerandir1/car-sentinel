@@ -484,14 +484,24 @@ avec les litres et les kilomètres. Le carburant consommé est le débit (L/h) i
 ou sur la Clio la mesure Renault `22 2806` une fois validée dans l'onglet **Étalonnage** (sans elle, ni conso ni
 coût).
 
-Le prix au litre se règle dans **Réglages → Carburant**, un par voiture (gazole pour la Clio, E85 ou SP95 pour la
-Fiesta, au prix du dernier plein). Il est gardé par le script dans `data/reglages.json` et **synchronisé avec le
-serveur** (voir « Serveur ») : réglé dans un dashboard, il part au serveur, daté du moment du réglage, et arrive
-sur les autres (PC, tablette) au tour de synchro suivant ; réglé sur la page du serveur (Serveur → Prix du
-carburant), il revient dans les dashboards. Le plus récemment réglé gagne ; réglé hors réseau, il part au retour
-du serveur. Chaque trajet garde le
-prix réglé pendant qu'il roulait : changer le prix au plein suivant ne touche pas les trajets finis. Les trajets
-d'avant le premier prix réglé prennent celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la
+Le prix au litre se règle dans **Réglages → Carburant**, un par voiture : la carte montre les deux voitures côte
+à côte (logo, carburant : gazole pour la Clio, E85 ou SP95 pour la Fiesta), avec leur prix, quand et par qui il a
+été réglé (ce dashboard, un autre PC ou la tablette, la page du serveur), et un témoin ; la voiture branchée (ou
+affichée) est encadrée. Pour le changer : choisir la voiture, taper le prix, **Valider**. Le prix part tout de suite
+au serveur et fait foi : les autres dashboards et la page du serveur le reprennent (dans la minute). Une
+notification le confirme (« Prix 1,659 €/L modifié pour la Renault Clio IV dCi 90 · envoyé au serveur ») ; serveur
+injoignable, le prix est gardé ici et part dès qu'il répond. Réglé sur la page du serveur (Serveur → Prix du
+carburant) ou sur un autre dashboard, il revient ici. Le plus récemment réglé gagne.
+
+| Témoin | Sens |
+|---|---|
+| vert « serveur » | le même que sur le serveur : il fait foi pour tous les dashboards |
+| orange « en attente » | validé ici, pas encore reçu par le serveur (il part dès qu'il répond) |
+| gris « hors ligne » | serveur injoignable ou pas réglé : dernier prix connu |
+
+Le même témoin suit le coût du trajet sur l'écran central du mode Conduite (« 1,659 €/L · serveur »). Chaque
+trajet garde le prix réglé pendant qu'il roulait : changer le prix au plein suivant ne touche pas les trajets
+finis. Les trajets d'avant le premier prix réglé prennent celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la
 moyenne en L/100 km et le prix retenu, et ce que le trajet a coûté en plus (ou en moins) qu'à la conso habituelle
 (médiane des trajets d'au moins 3 km).
 

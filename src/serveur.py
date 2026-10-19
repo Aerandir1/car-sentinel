@@ -133,6 +133,8 @@ def make_handler(state):
                 self._send(200, json.dumps(state.get_settings()).encode(), "application/json")
             elif path == "/api/calib":
                 self._send(200, json.dumps(calib_info()).encode(), "application/json")
+            elif path == "/api/prices":
+                self._send(200, json.dumps(state.prices()).encode(), "application/json")
             elif path in ("/api/diag", "/api/diag/scan", "/api/diag/compare"):
                 q = parse_qs(urlsplit(self.path).query)
                 try:
@@ -185,6 +187,23 @@ def make_handler(state):
                     return
                 state.calib_changed()
                 self._send(200, json.dumps(calib_info()).encode(), "application/json")
+            elif self.path == "/api/price":
+                # Prix d'une voiture validé dans Réglages → Carburant : gardé ici, puis poussé tout de suite au
+                # serveur (sinon au retour du serveur) ; la réponse dit s'il est parti, pour la notification
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    car, price = str(body["car"]), float(body["price"])
+                    if car not in voitures.CARS:
+                        raise ValueError("voiture inconnue")
+                    if not 0 < price <= 10:
+                        raise ValueError("prix entre 0 et 10 €/L attendu")
+                except (ValueError, TypeError, KeyError) as e:
+                    self._send(400, f"prix refusé : {e}".encode(), "text/plain; charset=utf-8")
+                    return
+                state.set_settings({f"fuel_price_{car}": price})
+                sent, error = synchro.push_price(state, car)
+                self._send(200, json.dumps({"car": car, "name": voitures.get(car).NAME, "price": price, "sent": sent,
+                                            "error": error, "prices": state.prices()}).encode(), "application/json")
             elif self.path in ("/api/diag/start", "/api/diag/stop"):
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")

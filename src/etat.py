@@ -25,8 +25,8 @@ SETTINGS_LIMITS = {
 }
 # Prix du carburant en €/L (coût des trajets), un par voiture (gazole, E85…) : « fuel_price » vu de la page est
 # celui de la voiture en cours, rangé sous « fuel_price_<voiture> » dans data/reglages.json. Synchronisé avec le
-# serveur (synchro.sync_prices) : price_sync garde, par voiture, l'instant du prix (« t », ms) et s'il reste à
-# envoyer (« pending » : réglé ici, pas encore reçu par le serveur)
+# serveur (synchro.sync_prices, push_price) : price_sync garde, par voiture, l'instant du réglage (« t », ms), qui
+# l'a réglé (« source » : nom d'un dashboard, ou « page du serveur ») et s'il reste à envoyer (« pending »)
 PRICE_LIMITS = (0.0, 10.0)
 PRICE_KEYS = tuple(f"fuel_price_{c}" for c in voitures.CARS)
 # Texte : clé -> longueur max. Serveur (clio-sentinel-server, adresses séparées par des virgules) et nom de ce
@@ -160,6 +160,7 @@ class State:
             new[f"fuel_price_{self.car.ID}"] = new.pop("fuel_price")
         if "car" in new and new["car"] not in voitures.CARS:
             raise ValueError("voiture inconnue")
+        me = self.name() if any(k in new for k in PRICE_KEYS) else None   # avant le verrou (name le prend aussi)
         with self.lock:
             for key, (lo, hi) in SETTINGS_LIMITS.items():
                 if key in new and new[key] is not None:
@@ -168,8 +169,8 @@ class State:
             for key in PRICE_KEYS:
                 if key in new and new[key] is not None:
                     self.settings[key] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(new[key])))
-                    # réglé ici (page, option) : à envoyer au serveur, daté de maintenant
-                    sync[key[len("fuel_price_"):]] = {"t": donnees.now_ms(), "pending": True}
+                    # réglé ici : à envoyer au serveur, daté de maintenant, au nom de ce dashboard
+                    sync[key[len("fuel_price_"):]] = {"t": donnees.now_ms(), "pending": True, "source": me}
             if any(k in new for k in PRICE_KEYS):
                 self.settings["price_sync"] = sync
             if "car" in new:
@@ -212,14 +213,43 @@ class State:
                 self.settings["price_sync"] = {c: v for c, v in saved["price_sync"].items()
                                                if c in voitures.CARS and isinstance(v, dict)}
 
+    def _prices_unlocked(self):
+        """Prix de chaque voiture (voir prices), sous self.lock."""
+        sync_ok = (self.sync or {}).get("ok") is True
+        sync = self.settings.get("price_sync") or {}
+        out = []
+        for car_id in voitures.CARS:
+            price, s = self.settings.get(f"fuel_price_{car_id}"), sync.get(car_id) or {}
+            state = "aucun" if price is None else "attente" if s.get("pending") else "serveur" if sync_ok else "hors_ligne"
+            out.append({"car": car_id, "price": price, "t": s.get("t"), "source": s.get("source"), "state": state,
+                        "current": car_id == self.car.ID})
+        return out
+
+    def name(self):
+        """Nom de ce dashboard (NOM_PC, onglet Réglages, sinon nom de la machine) : sur le serveur et ses prix."""
+        import socket
+        return self.get_settings().get("server_name") or socket.gethostname()
+
     def price_sync(self):
-        """Par voiture : (prix ici, {"t", "pending"})."""
+        """Par voiture : (prix ici, {"t", "pending", "source"})."""
         with self.lock:
             sync = self.settings.get("price_sync") or {}
             return {c: (self.settings.get(f"fuel_price_{c}"), dict(sync.get(c) or {})) for c in voitures.CARS}
 
-    def price_synced(self, car_id, price=None, t=None):
-        """Prix envoyé au serveur (price None, t : son instant) ou repris du serveur (price, t) : plus rien à envoyer."""
+    def prices(self):
+        """Prix de chaque voiture pour la page : prix, réglé quand et par qui, état de la synchro
+        (« serveur » : reçu par le serveur et à jour, « attente » : réglé ici, pas encore envoyé, « hors_ligne » :
+        serveur injoignable ou pas réglé, dernier prix connu, « aucun »), et si c'est la voiture en cours."""
+        with self.lock:
+            out = self._prices_unlocked()
+        for p in out:
+            car = voitures.get(p["car"])
+            p.update(name=car.NAME, fuel=car.FUEL)
+        return out
+
+    def price_synced(self, car_id, price=None, t=None, source=None):
+        """Prix envoyé au serveur (price None, t : son instant) ou repris du serveur (price, t, source) : plus rien
+        à envoyer."""
         with self.lock:
             sync = dict(self.settings.get("price_sync") or {})
             entry = dict(sync.get(car_id) or {})
@@ -228,6 +258,8 @@ class State:
                 self.settings[f"fuel_price_{car_id}"] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(price)))
             if t is not None:
                 entry["t"] = t
+            if source is not None:
+                entry["source"] = source
             sync[car_id] = entry
             self.settings["price_sync"] = sync
             saved = {k: self.settings[k] for k in SETTINGS_SAVED if k in self.settings}
@@ -363,6 +395,7 @@ class State:
                 "trip": self.trip,
                 "trip_live": self._trip_live(),
                 "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
+                "price": next((p for p in self._prices_unlocked() if p["current"]), None),
                 "car": self.car.ID,
                 "meta_rev": self.meta_rev,
                 "sync": self.sync,

@@ -235,13 +235,8 @@ def sync_prices(client, state):
             if price <= 0:   # 0 : pas de prix, rien à envoyer
                 state.price_synced(car_id)
                 continue
-            code, r = client.request("POST", "/api/prices", {"vehicle": car_id, "price": price,
-                                                              "from_ms": sync.get("t") or now})
-            if code == 404:
-                return out
-            if code != 200:
-                raise SyncError(f"le serveur a refusé le prix ({code}) : {r}")
-            state.price_synced(car_id, t=sync.get("t") or now)
+            _post_price(client, car_id, price, sync.get("t") or now, sync.get("source") or state.name())
+            state.price_synced(car_id, t=sync.get("t") or now, source=sync.get("source") or state.name())
             out.append(f"{car_id} : {price:.3f} €/L envoyé au serveur")
             continue
         # Prix du serveur : le dernier réglé parmi ceux déjà commencés (un prix réglé sur la page « à partir
@@ -250,9 +245,35 @@ def sync_prices(client, state):
         current = max(started, key=lambda p: p.get("set_ms") or p["from_ms"], default=None)
         set_ms = current and (current.get("set_ms") or current["from_ms"])
         if current and set_ms > (sync.get("t") or 0) and current["price"] != price:
-            state.price_synced(car_id, current["price"], set_ms)
-            out.append(f"{car_id} : {current['price']:.3f} €/L repris du serveur")
+            source = current.get("source") or "page du serveur"
+            state.price_synced(car_id, current["price"], set_ms, source)
+            out.append(f"{car_id} : {current['price']:.3f} €/L repris du serveur (réglé par {source})")
+        elif current and current["price"] == price and not sync.get("source"):
+            state.price_synced(car_id, t=set_ms, source=current.get("source") or "page du serveur")   # origine connue
     return out
+
+
+def _post_price(client, car_id, price, t, source):
+    code, r = client.request("POST", "/api/prices", {"vehicle": car_id, "price": price, "from_ms": t, "source": source})
+    if code != 200:
+        raise SyncError(f"le serveur a refusé le prix ({code}) : {r}")
+
+
+def push_price(state, car_id):
+    """Prix d'une voiture validé dans le dashboard : envoyé tout de suite au serveur, qui fait foi ensuite pour
+    tous les dashboards. Renvoie (envoyé ?, raison si non) ; non envoyé, il reste à envoyer (sync_prices)."""
+    urls = state.get_settings().get("server") or ""
+    if not urls:
+        return False, "pas de serveur réglé (Réglages → Serveur)"
+    price, sync = state.price_sync()[car_id]
+    if price is None or not sync.get("pending"):
+        return True, None
+    try:
+        _post_price(Client(urls), car_id, price, sync.get("t"), sync.get("source") or state.name())
+    except (OSError, socket.timeout, http.client.HTTPException, SyncError) as e:
+        return False, str(e)
+    state.price_synced(car_id)
+    return True, None
 
 
 def digest_rows(rows):
@@ -335,6 +356,10 @@ def sync_loop(state, bases, version, garages=lambda: []):
             continue
         try:
             hello(client, state, name, version)
+            if time.time() < next_sync and any(s.get("pending") for _p, s in state.price_sync().values()):
+                # Prix validé pendant que le serveur ne répondait pas : envoyé dès qu'il répond, sans attendre le tour
+                for line in sync_prices(client, state):
+                    print(f"Prix du carburant, {line}")
             if time.time() >= next_sync:
                 n = sum(sync_once(db, client, name, version, car) for db, car in bases())
                 for line in sync_prices(client, state):
