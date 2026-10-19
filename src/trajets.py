@@ -7,6 +7,8 @@ lancer `python src/trajets.py --rebuild` recalcule tout (les identifiants et les
                  un régime bas pendant moins de ENGINE_OFF_S (lecture ratée) ne coupe pas
   trajet         marches moteur séparées de moins de TRIP_GAP_S (arrêt court : même trajet)
                  'trajet' si la voiture a roulé, 'arret' si le moteur a tourné sans rouler
+  carburant      débit (L/h) intégré sur le trajet ; coût = carburant × prix au litre réglé dans le dashboard
+                 pendant le trajet (gardé ensuite : changer le prix ne touche pas les trajets finis)
   fermé          moteur arrêté depuis plus de TRIP_GAP_S : le trajet ne bougera plus
 """
 
@@ -61,8 +63,9 @@ def group_runs(runs):
     return trips
 
 
-def distance_km(rows):
-    """Intègre la vitesse [(t_ms, km/h)] ; les trous de plus de RUN_GAP_S ne comptent pas."""
+def integrate(rows):
+    """Intègre [(t_ms, valeur par heure)] : km pour une vitesse, litres pour un débit de carburant.
+    Les trous de plus de RUN_GAP_S ne comptent pas (même calcul en direct dans etat.py)."""
     d, prev = 0.0, None
     for t, v in rows:
         if v is None:
@@ -70,15 +73,16 @@ def distance_km(rows):
         if prev and t - prev[0] <= RUN_GAP_S * 1000:
             d += (prev[1] + v) / 2 * (t - prev[0]) / 3_600_000
         prev = (t, v)
-    return round(d, 2)
+    return d
 
 
 def stats(db, start, end, runs):
     by_key = {k: (mx, n, nv) for k, mx, n, nv in db.execute(
         "SELECT key, max(value), count(*), count(value) FROM samples WHERE t_ms BETWEEN ? AND ? GROUP BY key",
         (start, end))}
-    speed = db.execute("SELECT t_ms, value FROM samples WHERE key = 'speed' AND t_ms BETWEEN ? AND ? ORDER BY t_ms",
-                       (start, end)).fetchall()
+    series = lambda key: db.execute("SELECT t_ms, value FROM samples WHERE key = ? AND t_ms BETWEEN ? AND ?"
+                                    " ORDER BY t_ms", (key, start, end)).fetchall()
+    fuel = series("fuel")
     row = db.execute("SELECT value FROM samples WHERE key = 'coolant' AND value IS NOT NULL"
                      " AND t_ms BETWEEN ? AND ? ORDER BY t_ms LIMIT 1", (start - 60_000, end)).fetchone()
     coolant = row[0] if row else None
@@ -88,7 +92,8 @@ def stats(db, start, end, runs):
     mx = lambda k: by_key[k][0] if k in by_key else None
     return {
         "vin": row[0] if row else None,
-        "distance_km": distance_km(speed),
+        "distance_km": round(integrate(series("speed")), 2),
+        "fuel_l": round(integrate(fuel), 3) if any(v is not None for _t, v in fuel) else None,
         "coolant_start": coolant,
         "cold_start": None if coolant is None else int(coolant < COLD_START_C),
         "max_rpm": mx("rpm"), "max_speed": mx("speed"), "max_coolant": mx("coolant"), "max_boost": mx("boost"),
@@ -127,18 +132,19 @@ def events(db, from_ms, runs, now):
     db.executemany("INSERT INTO events (t_ms, kind, key, value, detail) VALUES (?, ?, ?, ?, ?)", out)
 
 
-def update(path, rebuild=False):
-    """Met à jour trajets et événements avec les nouvelles mesures. Renvoie l'id du trajet en cours (ou None)."""
+def update(path, rebuild=False, price=None):
+    """Met à jour trajets et événements avec les nouvelles mesures. price : prix du carburant (€/L) du moment.
+    Renvoie la fiche du trajet en cours (ou None)."""
     now = donnees.now_ms()
     db = donnees.connect(path)
     try:
         with db:
             if rebuild:
                 from_ms = 0
-                existing = db.execute("SELECT id, start_ms, end_ms, note FROM trips").fetchall()
+                existing = db.execute("SELECT id, start_ms, end_ms, note, fuel_price FROM trips").fetchall()
             else:
                 from_ms = db.execute("SELECT coalesce(max(end_ms), 0) FROM trips WHERE closed = 1").fetchone()[0]
-                existing = db.execute("SELECT id, start_ms, end_ms, note FROM trips WHERE closed = 0").fetchall()
+                existing = db.execute("SELECT id, start_ms, end_ms, note, fuel_price FROM trips WHERE closed = 0").fetchall()
             rpm = db.execute("SELECT t_ms, value FROM samples WHERE key = 'rpm' AND t_ms > ? ORDER BY t_ms",
                              (from_ms,)).fetchall()
             runs = engine_runs(rpm)
@@ -148,17 +154,23 @@ def update(path, rebuild=False):
                 # Même trajet qu'avant (il chevauche) : on garde son identifiant et sa note
                 match = max((e for e in existing if e[0] not in used and e[1] <= end and e[2] >= start),
                             key=lambda e: min(e[2], end) - max(e[1], start), default=None)
-                tid, note = (match[0], match[3]) if match else (donnees.new_id(), None)
+                tid, note, old_price = (match[0], match[3], match[4]) if match else (donnees.new_id(), None, None)
                 used.add(tid)
                 s = stats(db, start, end, trip_runs)
                 kind = "trajet" if (s["max_speed"] or 0) > MOVING_KMH else "arret"
                 closed = now - end > TRIP_GAP_S * 1000
-                if not closed:
-                    current = tid
+                # Prix du moment pour un trajet en cours ; un trajet fini garde le sien (recalcul, --rebuild)
+                fuel_price = old_price if closed and old_price is not None else price
                 row = {"id": tid, "kind": kind, "name": trip_name(db, kind, start), "start_ms": start,
-                       "end_ms": end, "closed": int(closed), "note": note, **s}
+                       "end_ms": end, "closed": int(closed), "note": note, "fuel_price": fuel_price, **s}
+                if not closed:
+                    current = row
                 db.execute(f"INSERT INTO trips ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
                            tuple(row.values()))
+            if price is not None:   # trajets d'avant le premier prix réglé : ils prennent celui-ci
+                db.execute("UPDATE trips SET fuel_price = ? WHERE fuel_price IS NULL", (price,))
+                if current and current["fuel_price"] is None:
+                    current["fuel_price"] = price
             events(db, from_ms, runs, now)
     finally:
         db.close()
@@ -174,8 +186,10 @@ def main():
     donnees.init(args.db)
     update(args.db, rebuild=args.rebuild)
     for t in reversed(donnees.trips(args.db)):
+        cost = f"  {t['fuel_l'] * t['fuel_price']:6.2f} €" if t["fuel_l"] is not None and t["fuel_price"] else ""
+        fuel = f"  {t['fuel_l']:6.2f} L" if t["fuel_l"] is not None else ""
         print(f"{t['name']:40} {(t['end_ms'] - t['start_ms']) / 60000:6.1f} min  {t['distance_km'] or 0:7.2f} km"
-              + ("" if t["closed"] else "  (en cours)"))
+              + fuel + cost + ("" if t["closed"] else "  (en cours)"))
 
 
 if __name__ == "__main__":

@@ -43,13 +43,14 @@ def make_handler(state, current_db):
         (elle est recalculée avec l'étalonnage actuel, voir history)."""
         counts = donnees.trip_keys(db_path, trip)
         out = []
+        calc = {d["key"] for d in DERIVED}
         for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS + [
-                (DERIVED["key"], DERIVED["label"], DERIVED["unit"], None, None, DERIVED["range"], None, None)]:
+                (d["key"], d["label"], d["unit"], None, None, d["range"], None, None) for d in DERIVED]:
             n = counts.get(k, 0)
             if k in renault.FALLBACK and state.calib.get(k)[2]:
                 n = max(n, counts.get("brut." + k, 0))
             if n:
-                src = state.sources.get(k) or ({"kind": "calc", "cmd": None} if k == DERIVED["key"] else None)
+                src = state.sources.get(k) or ({"kind": "calc", "cmd": None} if k in calc else None)
                 out.append({"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold,
                             "source": src, "n": n})
         return out

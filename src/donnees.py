@@ -19,7 +19,7 @@ import time
 import traceback
 import uuid
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id        TEXT PRIMARY KEY,          -- identifiant unique (UUID)
@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS trips (
     max_boost     REAL,
     engine_stops  INTEGER,               -- arrêts moteur de moins de 5 min dans le trajet
     missing_ratio REAL,                  -- part des requêtes sans réponse du calculateur
-    note          TEXT                   -- note libre, saisie dans le dashboard
+    note          TEXT,                  -- note libre, saisie dans le dashboard
+    fuel_l        REAL,                  -- carburant consommé (débit intégré), NULL sans mesure de conso
+    fuel_price    REAL                   -- prix du carburant (€/L) réglé pendant le trajet : coût = fuel_l × fuel_price
 );
 CREATE INDEX IF NOT EXISTS trips_start ON trips(start_ms);
 CREATE TABLE IF NOT EXISTS events (
@@ -92,7 +94,8 @@ def init(path):
     db = connect(path)
     try:
         with db:
-            if db.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
+            version = db.execute("PRAGMA user_version").fetchone()[0]
+            if version < SCHEMA_VERSION:
                 old = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
                 if "trips" in old and "samples" in old and "sessions" not in old:
                     db.execute("ALTER TABLE trips RENAME TO old_trips")
@@ -108,6 +111,14 @@ def init(path):
                                    (sid, tid))
                     db.execute("DROP TABLE old_samples")
                     db.execute("DROP TABLE old_trips")
+                # Version 2 : carburant et coût des trajets. Les trajets sont rouverts pour que trajets.py les
+                # recalcule tous au prochain passage (identifiants et notes gardés)
+                trip_cols = {r[1] for r in db.execute("PRAGMA table_info(trips)")}
+                for col in ("fuel_l", "fuel_price"):
+                    if col not in trip_cols:
+                        db.execute(f"ALTER TABLE trips ADD COLUMN {col} REAL")
+                if version == 1:
+                    db.execute("UPDATE trips SET closed = 0")
                 db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     finally:
         db.close()
@@ -172,7 +183,7 @@ class Recorder:
 
 TRIP_FIELDS = ("id", "kind", "name", "start_ms", "end_ms", "closed", "vin", "distance_km", "coolant_start",
                "cold_start", "max_rpm", "max_speed", "max_coolant", "max_boost", "engine_stops",
-               "missing_ratio", "note")
+               "missing_ratio", "note", "fuel_l", "fuel_price")
 
 
 def trips(path, limit=200):
