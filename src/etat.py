@@ -24,14 +24,16 @@ SETTINGS_LIMITS = {
     "log_hz": (0.2, 50.0),   # fréquence du CSV
 }
 # Prix du carburant en €/L (coût des trajets), un par voiture (gazole, E85…) : « fuel_price » vu de la page est
-# celui de la voiture en cours, rangé sous « fuel_price_<voiture> » dans data/reglages.json
+# celui de la voiture en cours, rangé sous « fuel_price_<voiture> » dans data/reglages.json. Synchronisé avec le
+# serveur (synchro.sync_prices) : price_sync garde, par voiture, l'instant du prix (« t », ms) et s'il reste à
+# envoyer (« pending » : réglé ici, pas encore reçu par le serveur)
 PRICE_LIMITS = (0.0, 10.0)
 PRICE_KEYS = tuple(f"fuel_price_{c}" for c in voitures.CARS)
 # Texte : clé -> longueur max. Serveur (clio-sentinel-server, adresses séparées par des virgules) et nom de ce
 # poste sur sa page : vides tant qu'ils ne sont pas changés ici, SERVEUR et NOM_PC de car.conf s'appliquent
 SETTINGS_TEXT = {"server": 300, "server_name": 60}
 # Réglages gardés d'un lancement à l'autre (les autres viennent des options). car : dernière voiture vue
-SETTINGS_SAVED = (*PRICE_KEYS, *SETTINGS_TEXT, "car")
+SETTINGS_SAVED = (*PRICE_KEYS, *SETTINGS_TEXT, "car", "price_sync")
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
 # Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (<voiture>-demo.db).
@@ -162,9 +164,14 @@ class State:
             for key, (lo, hi) in SETTINGS_LIMITS.items():
                 if key in new and new[key] is not None:
                     self.settings[key] = min(hi, max(lo, float(new[key])))
+            sync = dict(self.settings.get("price_sync") or {})
             for key in PRICE_KEYS:
                 if key in new and new[key] is not None:
                     self.settings[key] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(new[key])))
+                    # réglé ici (page, option) : à envoyer au serveur, daté de maintenant
+                    sync[key[len("fuel_price_"):]] = {"t": donnees.now_ms(), "pending": True}
+            if any(k in new for k in PRICE_KEYS):
+                self.settings["price_sync"] = sync
             if "car" in new:
                 self.settings["car"] = new["car"]
             for key in SETTINGS_FLAGS:
@@ -201,6 +208,33 @@ class State:
                     self.settings[key] = saved[key][:SETTINGS_TEXT[key]]
             if car:
                 self.settings["car"] = car
+            if isinstance(saved.get("price_sync"), dict):
+                self.settings["price_sync"] = {c: v for c, v in saved["price_sync"].items()
+                                               if c in voitures.CARS and isinstance(v, dict)}
+
+    def price_sync(self):
+        """Par voiture : (prix ici, {"t", "pending"})."""
+        with self.lock:
+            sync = self.settings.get("price_sync") or {}
+            return {c: (self.settings.get(f"fuel_price_{c}"), dict(sync.get(c) or {})) for c in voitures.CARS}
+
+    def price_synced(self, car_id, price=None, t=None):
+        """Prix envoyé au serveur (price None, t : son instant) ou repris du serveur (price, t) : plus rien à envoyer."""
+        with self.lock:
+            sync = dict(self.settings.get("price_sync") or {})
+            entry = dict(sync.get(car_id) or {})
+            entry["pending"] = False
+            if price is not None:
+                self.settings[f"fuel_price_{car_id}"] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(price)))
+            if t is not None:
+                entry["t"] = t
+            sync[car_id] = entry
+            self.settings["price_sync"] = sync
+            saved = {k: self.settings[k] for k in SETTINGS_SAVED if k in self.settings}
+        if self.settings_file:
+            tmp = self.settings_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(saved, indent=2) + "\n", encoding="utf-8")
+            tmp.replace(self.settings_file)
 
     def default_settings(self, defaults):
         """Valeurs prises tant que le réglage n'a jamais été changé dans l'onglet Réglages (pas enregistrées)."""

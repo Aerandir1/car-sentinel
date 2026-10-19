@@ -485,7 +485,11 @@ ou sur la Clio la mesure Renault `22 2806` une fois validée dans l'onglet **Ét
 coût).
 
 Le prix au litre se règle dans **Réglages → Carburant**, un par voiture (gazole pour la Clio, E85 ou SP95 pour la
-Fiesta, au prix du dernier plein). Il est gardé par le script dans `data/reglages.json`. Chaque trajet garde le
+Fiesta, au prix du dernier plein). Il est gardé par le script dans `data/reglages.json` et **synchronisé avec le
+serveur** (voir « Serveur ») : réglé dans un dashboard, il part au serveur, daté du moment du réglage, et arrive
+sur les autres (PC, tablette) au tour de synchro suivant ; réglé sur la page du serveur (Serveur → Prix du
+carburant), il revient dans les dashboards. Le plus récemment réglé gagne ; réglé hors réseau, il part au retour
+du serveur. Chaque trajet garde le
 prix réglé pendant qu'il roulait : changer le prix au plein suivant ne touche pas les trajets finis. Les trajets
 d'avant le premier prix réglé prennent celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la
 moyenne en L/100 km et le prix retenu, et ce que le trajet a coûté en plus (ou en moins) qu'à la conso habituelle
@@ -607,7 +611,8 @@ s'ils ont changé. Entre deux, il vérifie toutes les 3 s que le serveur répond
 bruit et envoie dès que le serveur revient. Un envoi coupé est refait au suivant. Un témoin en haut du dashboard
 le montre : vert « serveur · adresse » quand il répond (avec l'adresse prise : Wi‑Fi ou VPN), rouge « serveur
 injoignable » sinon (la raison au survol), gris pendant le premier essai. Avec les bases part l'étalonnage de
-chaque voiture (voir « Étalonnage ») : un client neuf le reprend du serveur. Chaque vérification est une présence
+chaque voiture (voir « Étalonnage ») et son prix du carburant (voir « Coût des trajets ») : un client neuf les
+reprend du serveur. Chaque vérification est une présence
 (`POST /api/hello`, avec la voiture en cours) : la page du serveur affiche ce PC, son adresse et l'état de
 l'ELM327. Les bases locales ne sont jamais modifiées, et celles de la démo ne partent jamais. HTTP simple, sans
 jeton : le serveur n'est joignable que depuis la maison et le VPN.

@@ -215,6 +215,46 @@ def sync_calib(client, garage, name=None):
     return taken, True
 
 
+def sync_prices(client, state):
+    """Prix du carburant de chaque voiture, avec ceux du serveur (table prices : par voiture, à partir d'une date,
+    réglés sur sa page ou envoyés par un dashboard). Un prix réglé ici part au serveur, daté du moment du réglage ;
+    un prix plus récent sur le serveur (autre client, page du serveur) remplace celui d'ici. Renvoie la liste des
+    changements, pour le journal ; [] avec un serveur sans prix (404)."""
+    code, st = client.request("GET", "/api/prices")
+    if code == 404:
+        return []
+    if code != 200:
+        raise SyncError(f"le serveur a répondu {code} : {st}")
+    now, out = int(time.time() * 1000), []
+    for car_id, (price, sync) in state.price_sync().items():
+        prices = ((st or {}).get(car_id) or {}).get("prices", [])
+        # Prix d'avant la synchro des prix (sans instant) : il part si le serveur n'en a aucun pour cette voiture
+        if price is not None and not sync and not prices:
+            sync = {"t": now, "pending": True}
+        if price is not None and sync.get("pending"):
+            if price <= 0:   # 0 : pas de prix, rien à envoyer
+                state.price_synced(car_id)
+                continue
+            code, r = client.request("POST", "/api/prices", {"vehicle": car_id, "price": price,
+                                                              "from_ms": sync.get("t") or now})
+            if code == 404:
+                return out
+            if code != 200:
+                raise SyncError(f"le serveur a refusé le prix ({code}) : {r}")
+            state.price_synced(car_id, t=sync.get("t") or now)
+            out.append(f"{car_id} : {price:.3f} €/L envoyé au serveur")
+            continue
+        # Prix du serveur : le dernier réglé parmi ceux déjà commencés (un prix réglé sur la page « à partir
+        # d'aujourd'hui » passe devant un prix envoyé plus tôt dans la journée), s'il a été réglé après celui d'ici
+        started = [p for p in prices if p["from_ms"] <= now]
+        current = max(started, key=lambda p: p.get("set_ms") or p["from_ms"], default=None)
+        set_ms = current and (current.get("set_ms") or current["from_ms"])
+        if current and set_ms > (sync.get("t") or 0) and current["price"] != price:
+            state.price_synced(car_id, current["price"], set_ms)
+            out.append(f"{car_id} : {current['price']:.3f} €/L repris du serveur")
+    return out
+
+
 def digest_rows(rows):
     """Empreinte de chaque groupe (session, métrique) de lignes (session_id, key, t_ms, value) triées dans cet ordre.
     Même calcul que dans clio-sentinel-server (base.py) : les deux doivent rester identiques."""
@@ -297,6 +337,8 @@ def sync_loop(state, bases, version, garages=lambda: []):
             hello(client, state, name, version)
             if time.time() >= next_sync:
                 n = sum(sync_once(db, client, name, version, car) for db, car in bases())
+                for line in sync_prices(client, state):
+                    print(f"Prix du carburant, {line}")
                 for g in garages():
                     taken, sent = sync_calib(client, g, name)
                     if taken:
