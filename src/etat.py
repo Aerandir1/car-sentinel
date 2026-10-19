@@ -72,7 +72,7 @@ L100_MIN_KMH = 5     # en dessous (arrêt, manœuvre), pas de L/100 km
 L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateur de bord
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
 
-# Réglages modifiables à chaud depuis l'onglet Paramètres : clé -> (min, max)
+# Réglages modifiables à chaud depuis l'onglet Réglages : clé -> (min, max)
 SETTINGS_LIMITS = {
     "max_hz": (0.5, 50.0),   # fréquence max de la boucle d'acquisition
     "delay": (0.0, 1.0),     # pause en s entre deux requêtes OBD
@@ -170,7 +170,7 @@ class State:
                     self.settings[key] = saved[key][:SETTINGS_TEXT[key]]
 
     def default_settings(self, defaults):
-        """Valeurs prises tant que le réglage n'a jamais été changé dans l'onglet Paramètres (pas enregistrées)."""
+        """Valeurs prises tant que le réglage n'a jamais été changé dans l'onglet Réglages (pas enregistrées)."""
         with self.lock:
             for key, value in defaults.items():
                 self.settings.setdefault(key, value)

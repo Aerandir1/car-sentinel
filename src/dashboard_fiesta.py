@@ -98,11 +98,11 @@ def main():
         return CsvLogger(args.log, keys) if args.log else None
 
     state = State()
-    # Prix du carburant (onglet Paramètres), à côté de la base ; lu avant le premier calcul des trajets
+    # Prix du carburant (onglet Réglages), à côté de la base ; lu avant le premier calcul des trajets
     settings_dir = Path(args.db).parent if args.db and not args.no_db else DATA
     settings_dir.mkdir(parents=True, exist_ok=True)
     state.load_settings(settings_dir / "reglages.json")
-    # Serveur de fiesta.conf, tant qu'il n'a pas été changé dans l'onglet Paramètres
+    # Serveur de fiesta.conf, tant qu'il n'a pas été changé dans l'onglet Réglages
     state.default_settings({"server": args.server or "", "server_name": args.server_name or ""})
     db_path = demo_path = None
     if not args.no_db:

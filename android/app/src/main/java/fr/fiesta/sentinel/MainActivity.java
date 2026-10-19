@@ -20,6 +20,7 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.window.OnBackInvokedDispatcher;
 
 /** Le dashboard en plein écran, servi par le Python du service (comme dans le navigateur du PC). */
 public class MainActivity extends Activity {
@@ -47,6 +48,7 @@ public class MainActivity extends Activity {
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        s.setTextZoom(100);   // tailles de la page telles quelles : la taille de police système déborderait des jauges
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest req, WebResourceError err) {
@@ -58,6 +60,10 @@ public class MainActivity extends Activity {
         });
         setContentView(web);
         hideBars();
+        if (Build.VERSION.SDK_INT >= 33) {   // Android 16 n'appelle plus onBackPressed (retour prédictif)
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
+        }
         web.loadUrl(URL);
     }
 
@@ -107,12 +113,17 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    public void onBackPressed() {
-        if (web.canGoBack()) {
-            web.goBack();
-        } else {
-            moveTaskToBack(true);   // la lecture continue en arrière-plan (notification « Quitter » pour l'arrêter)
-        }
+    public void onBackPressed() {   // Android 12 et avant
+        goBack();
+    }
+
+    private void goBack() {
+        // La page ferme d'abord la courbe ouverte, ou revient au tableau de bord depuis un autre onglet (fiestaBack)
+        web.evaluateJavascript("window.fiestaBack ? fiestaBack() : false", r -> {
+            if (!"true".equals(r)) {
+                moveTaskToBack(true);   // la lecture continue en arrière-plan (notification « Quitter » pour l'arrêter)
+            }
+        });
     }
 
     @Override

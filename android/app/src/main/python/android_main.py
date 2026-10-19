@@ -16,7 +16,7 @@ def main(files_dir, web_dir, version, server="", name=""):
     data.mkdir(parents=True, exist_ok=True)
     os.environ["FIESTA_VERSION"] = version
     # Serveur d'office (SERVEUR du fiesta.conf du PC à la compilation) et nom de la tablette sur sa page :
-    # files/fiesta.conf puis l'onglet Paramètres passent devant
+    # files/fiesta.conf puis l'onglet Réglages passent devant
     os.environ.setdefault("FIESTA_SERVER", server)
     os.environ.setdefault("FIESTA_SERVER_NAME", name)
 

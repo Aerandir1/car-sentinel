@@ -215,7 +215,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
     while True:
         while held:
             release(held.pop())
-        if _demo_on(state):   # mode démo (onglet Paramètres) : l'ELM327 est laissé de côté
+        if _demo_on(state):   # mode démo (onglet Réglages) : l'ELM327 est laissé de côté
             state.adapter = "absent"
             state.elm, state.ecu, state.protocol = "demo", "demo", None
             state.clear_live()

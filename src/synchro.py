@@ -242,7 +242,7 @@ def sync_loop(state, db_path, version):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
-    Adresse et nom sont relus à chaque tour dans les réglages (server, server_name : onglet Paramètres, ou
+    Adresse et nom sont relus à chaque tour dans les réglages (server, server_name : onglet Réglages, ou
     SERVEUR et NOM_PC de fiesta.conf) : un changement est pris tout de suite, une adresse vide arrête l'envoi.
     La base de la démo n'est jamais envoyée.
 

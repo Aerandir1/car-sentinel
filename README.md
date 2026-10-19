@@ -66,7 +66,7 @@ est créé au premier lancement depuis `fiesta.conf.exemple`, qui explique chaqu
 | `RESEAU` | `oui` : page accessible depuis les autres appareils du réseau (voir « Accès depuis le réseau ») |
 | `PORT_PAGE` | port de la page (défaut 8082) |
 | `ADAPTATEUR`, `DEBIT` | port de l'ELM327 (vide : auto-détection) : `/dev/ttyACM0`, `socket://192.168.0.10:35000`… |
-| `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») ; l'onglet Paramètres passe devant une fois modifié |
+| `SERVEUR`, `NOM_PC` | envoi vers clio-sentinel-server (voir « Serveur ») ; l'onglet Réglages passe devant une fois modifié |
 | `AUTRES_OPTIONS` | autres options du script (voir « Utilisation »), ex. `--fast --log logs/trajet.csv` |
 | `DOCKER_ECOUTE`, `OBD_GID`, `FIESTA_DATA` | Docker seulement (voir « Docker ») |
 
@@ -239,7 +239,7 @@ USB-C) : Android ne donne pas de `/dev/ttyACM0` aux applis, le port passe par l'
   une fois pour toutes. Puces reconnues : USB natif (CDC ACM), FTDI, CH340, CP210x, PL2303 ;
 - base, réglages et étalonnage sont dans le stockage de l'appli (`files/data/`), à part de ceux du PC ;
 - synchro vers clio-sentinel-server : l'APK part avec le `SERVEUR` du `fiesta.conf` du PC qui l'a compilé, et la
-  tablette se déclare sous son modèle (ex. « samsung SM-X200 ») ; les deux se changent dans l'onglet Paramètres.
+  tablette se déclare sous son modèle (ex. « samsung SM-X200 ») ; les deux se changent dans l'onglet Réglages.
   Sur la route, le serveur n'est joignable que par le VPN (WireGuard sur la tablette).
 
 Compilation (JDK 17, SDK Android dans `~/Android/Sdk`, chemin dans `android/local.properties`) :
@@ -278,11 +278,23 @@ Les options ci-dessous passent avant `fiesta.conf` ; pour les garder, les mettre
 | `--max-hz` | fréquence max d'acquisition (défaut 20) |
 | `--server URL` | envoie la base à clio-sentinel-server (voir « Serveur ») |
 
-L'onglet **Paramètres** du dashboard règle tout ça à chaud :
-- affichage (gardé dans le navigateur) : rafraîchissement de la page, durée du graphique ;
+Le dashboard a ses onglets dans la barre du bas (à portée de pouce sur la tablette) :
+- **Conduite** : compte-tours et turbo en grand, conso et coût du trajet dans les coins, et quelques grosses valeurs
+  (par défaut rapport, niveau de carburant, températures d'eau et d'huile ; à choisir dans Réglages → Disposition
+  des tuiles, case « Mode conduite »). Un bandeau rouge apparaît en haut dès qu'une mesure dépasse son seuil ;
+- **Détail** : les jauges et toutes les tuiles rangées par catégorie, avec mini-courbes et min / max ;
+- **Trajets**, **Étalonnage** (en trois étapes) et **Réglages** (cartes repliables, et sous-onglet Disposition).
+
+Au premier lancement, un écran tactile (la tablette) ouvre sur Conduite et un PC sur Détail ; ensuite, le dernier des
+deux choisi. Thème **Nuit** (bleu nuit) ou **Jour** (clair, lisible au soleil), ou **Auto** : celui du système
+(sur la tablette, le mode sombre d'Android). Le bouton retour d'Android ferme la courbe ouverte, puis revient au
+tableau de bord.
+
+L'onglet **Réglages** règle tout ça à chaud :
+- affichage (gardé dans le navigateur) : thème, rafraîchissement de la page, durée des mini-courbes ;
 - acquisition (appliqué par le script jusqu'à son arrêt) : fréquence max, pause entre requêtes OBD, fréquence du CSV,
   mode rapide (le basculer relance la connexion à l'ELM327) ;
-- **mode démo** (bouton en haut de l'onglet) : un trajet simulé en boucle (démarrage, ville, voie rapide, arrêt
+- **mode démo** : un trajet simulé en boucle (démarrage, ville, voie rapide, arrêt
   moteur), pour voir le dashboard sans voiture. Tout se passe comme avec la voiture (session, mesures, trajets,
   envoi au serveur), mais dans une base à part, `data/fiesta-demo.db`, que le serveur reçoit comme une autre origine
   (« <nom du PC> · démo », VIN `WF0DEMO…`). Les vrais trajets n'y sont jamais mêlés. Arrêter la démo reprend
@@ -320,7 +332,7 @@ charge manquaient deux fois sur trois dans un groupe de 6), le groupe est relu m
 groupes ramenée à ce qu'il rend (journal : « le calculateur ne rend que 3 PID OBD par requête »). Le journal dit
 ce qui est retenu (« Lecture : requêtes au seul calculateur moteur (7E0), réponse sans attente… »). Le témoin
 « Calculateur » affiche la fréquence des tours et le temps de réponse moyen d'une requête (ex. `20 Hz · 16 ms`).
-Le tour est bridé par la fréquence max (défaut 20 Hz, onglet Paramètres) : plus de mesures veut aussi dire une base
+Le tour est bridé par la fréquence max (défaut 20 Hz, onglet Réglages) : plus de mesures veut aussi dire une base
 plus grosse. Sur un faux ELM327 qui répond comme la Fiesta, on passe de 0,7 Hz à 20 Hz (à vérifier sur la voiture).
 
 | Mesure | DID | Affichée |
@@ -377,7 +389,7 @@ Le réglage est rangé dans `data/etalonnage.json` (à côté de la base). Comme
 
 ## Courbes
 
-Chaque tuile porte une mini-courbe des 2 dernières minutes (durée réglable dans Paramètres), sauf la pression
+Chaque tuile porte une mini-courbe des 2 dernières minutes (durée réglable dans Réglages), sauf la pression
 atmosphérique et la température extérieure, presque constantes. Un clic sur une tuile ouvre sa courbe détaillée :
 1 min, 5 min, 15 min ou trajet entier, mise à jour en direct sur le trajet en cours, et une liste pour revoir les
 trajets passés enregistrés dans la base. Le curseur donne la valeur et l'heure exactes ; les seuils d'alerte de la
@@ -394,7 +406,7 @@ Dans les coins du compte-tours : à gauche la conso instantanée et la moyenne d
 **coût du trajet**, qui monte en direct (carburant consommé × prix au litre), avec les litres et les kilomètres.
 Le carburant consommé est le débit (L/h, OBD standard) intégré sur le trajet.
 
-Le prix au litre se règle dans **Paramètres → Coût des trajets** (celui du dernier plein : E85 ou SP95). Il est
+Le prix au litre se règle dans **Réglages → Carburant** (celui du dernier plein : E85 ou SP95). Il est
 gardé par le script dans `data/reglages.json`. Chaque trajet garde le prix réglé pendant qu'il roulait : changer
 le prix au plein suivant ne touche pas les trajets finis. Les trajets d'avant le premier prix réglé prennent
 celui-ci. L'onglet **Trajets** donne pour chacun le coût, les litres, la moyenne en L/100 km et le prix retenu,
