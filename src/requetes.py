@@ -7,18 +7,19 @@ si le calculateur ou l'adaptateur ne suit pas :
   priorités   chaque mesure a sa période (PERIOD) : régime, vitesse, pédale… à chaque tour, les températures
               toutes les 2 s, le niveau de carburant toutes les 10 s
   groupage    jusqu'à 6 PID OBD dans une requête (« 01 0C 0D 49 11 0B 04 », permis par l'OBD sur CAN), et
-              plusieurs identifiants Ford dans une requête UDS (« 22 033E 0462 »), si le calculateur l'accepte
+              plusieurs identifiants constructeur dans une requête UDS (« 22 033E 0462 »), si le calculateur
+              l'accepte
   adressage   requêtes envoyées au seul calculateur moteur (ATSH 7E0) au lieu de tous (7DF), et nombre de
               réponses attendu ajouté à la requête (« 010C0D1 ») : l'ELM327 rend la main dès la réponse reçue,
               au lieu d'attendre que d'autres calculateurs répondent
 
 Le calculateur peut ne rendre qu'une partie d'un groupe (réponse limitée à une trame) : le groupe est alors relu
 mesure par mesure, et la taille des groupes ramenée à ce qu'il a rendu. Le scan des PID (scan_pid.py) mesure tout
-ça à l'avance, essai après essai, et laisse dans data/scan-pid.json la façon la plus rapide qui répond à tous les
-coups (taille des groupes, délai d'attente de l'ELM327) : reprise ici à la connexion.
+ça à l'avance, essai après essai, et laisse dans data/scan-pid-<voiture>.json la façon la plus rapide qui répond
+à tous les coups (taille des groupes, délai d'attente de l'ELM327) : reprise ici à la connexion.
 
 Les requêtes passent directement par l'interface ELM327 de python-obd (send_and_parse) ; les réponses sont
-découpées mesure par mesure et décodées par les décodeurs habituels (python-obd, ford.py).
+découpées mesure par mesure et décodées par les décodeurs habituels (python-obd, constructeur.py).
 """
 
 import json
@@ -27,22 +28,28 @@ from pathlib import Path
 
 from obd.protocols.protocol import Message
 
-# Période de lecture (s) de chaque mesure, 0 : à chaque tour. Les mesures Ford gardent celle de ford.FALLBACK.
-# Rapides : ce que suivent les trajets (vitesse, régime, pédale, conso) et ce qui bouge sous le pied.
+# Période de lecture (s) de chaque mesure, 0 : à chaque tour. Les mesures constructeur gardent celle de leur
+# FALLBACK (clio.py, fiesta.py). Rapides : ce que suivent les trajets (vitesse, régime, pédale, conso) et ce qui
+# bouge sous le pied.
 PERIOD = {
     "rpm": 0, "speed": 0, "pedal": 0, "throttle": 0, "map": 0, "load": 0, "fuel": 0, "timing": 0,
-    "maf": 0.5, "lambda": 0.5, "stft": 0.5, "rail": 0.5,
+    "maf": 0.5, "lambda": 0.5, "stft": 0.5, "rail": 0.5, "egr": 0.5, "egr_err": 0.5,
     "coolant": 2, "oil": 2, "intake": 2, "cat": 2, "voltage": 2, "ltft": 2,
     "baro": 5, "ambient": 5, "ethanol": 5, "fuel_lvl": 10,
 }
 MAX_OBD = 6      # PID par requête OBD (limite de la norme)
-MAX_UDS = 4      # identifiants Ford par requête UDS (prudent : la taille de réponse dépend du calculateur)
+MAX_UDS = 4      # identifiants constructeur par requête UDS (prudent : la taille de réponse dépend du calculateur)
 PING_EMA = 0.1   # lissage du temps de réponse affiché
-SCAN_FILE = Path(__file__).resolve().parent.parent / "data" / "scan-pid.json"   # écrit par scan_pid.py
+SCAN_DIR = Path(__file__).resolve().parent.parent / "data"   # scan-pid-<voiture>.json, écrit par scan_pid.py
 
 
-def load_scan(vin, path=SCAN_FILE):
+def scan_file(car):
+    return SCAN_DIR / f"scan-pid-{car.ID}.json"
+
+
+def load_scan(vin, car, path=None):
     """Réglages trouvés par le dernier scan des PID, s'il a été fait sur cette voiture ; sinon None."""
+    path = path or scan_file(car)
     try:
         scan = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -55,11 +62,11 @@ def load_scan(vin, path=SCAN_FILE):
 class Reader:
     """Mesures à lire et façon de les demander, choisie à la connexion (setup), puis lues tour après tour (tick)."""
 
-    def __init__(self, conn, cmds, scan=None):
+    def __init__(self, conn, cmds, car, scan=None):
         """cmds : (clé, commande, conversion, lecture espacée ou None, requête forcée), comme acquisition.py ;
-        scan : résultat de scan_pid.py (load_scan), ou None."""
-        self.conn, self.elm, self.scan = conn, conn.interface, scan or {}
-        self.items = []   # [clé, commande, conversion, ford ?, période, dernière lecture]
+        car : la voiture (identifiants de ses mesures constructeur) ; scan : résultat de scan_pid.py (load_scan)."""
+        self.conn, self.elm, self.car, self.scan = conn, conn.interface, car, scan or {}
+        self.items = []   # [clé, commande, conversion, constructeur ?, période, dernière lecture]
         for key, cmd, conv, slow, _force in cmds:
             period = slow.period if slow is not None else PERIOD.get(key, 1)
             self.items.append([key, cmd, conv, slow is not None, period, 0.0])
@@ -99,7 +106,7 @@ class Reader:
             notes.append(f"jusqu'à {max_obd} PID OBD par requête")
         if len(uds_items) >= 2 and max_uds > 1 and self._answers(uds_items[:2]):
             self.max_uds = max_uds
-            notes.append(f"jusqu'à {max_uds} mesures Ford par requête")
+            notes.append(f"jusqu'à {max_uds} mesures {self.car.MAKER} par requête")
         return notes
 
     def _answers(self, group, count=None):
@@ -131,8 +138,8 @@ class Reader:
                 for it in group:
                     v = self._read([it])
                     values.update(v or {})
-            for key, cmd, conv, ford, *_ in group:
-                answered |= self._store(state, key, conv, ford, (values or {}).get(key))
+            for key, cmd, conv, maker, *_ in group:
+                answered |= self._store(state, key, conv, maker, (values or {}).get(key))
             if delay:
                 time.sleep(delay)
         return answered
@@ -145,9 +152,9 @@ class Reader:
                 + [uds_items[i:i + n_uds] for i in range(0, len(uds_items), n_uds)])
 
     @staticmethod
-    def _store(state, key, conv, ford, value):
+    def _store(state, key, conv, maker, value):
         """Range une réponse décodée ; True si le calculateur a répondu."""
-        if ford:   # mesure Ford : valeur brute, étalonnée par state
+        if maker:   # mesure constructeur : valeur brute, étalonnée par state
             state.update_raw(key, value)
             return value is not None
         if value is None:
@@ -205,7 +212,7 @@ class Reader:
         attr = "max_uds" if uds else "max_obd"
         if 1 <= n < getattr(self, attr):
             setattr(self, attr, n)
-            print(f"Lecture : le calculateur ne rend que {n} {'mesures Ford' if uds else 'PID OBD'} par requête,"
+            print(f"Lecture : le calculateur ne rend que {n} {'mesures ' + self.car.MAKER if uds else 'PID OBD'} par requête,"
                   " groupes réduits")
 
     @staticmethod
@@ -232,15 +239,15 @@ class Reader:
 
     def _split_uds(self, group, msg):
         """62 DID x x DID y … → {clé: valeur} des identifiants présents, None si la réponse est illisible."""
-        import ford
-        by_did = {bytes.fromhex(ford.FALLBACK[it[0]][0]): it for it in group}
+        fallback = self.car.FALLBACK
+        by_did = {bytes.fromhex(fallback[it[0]][0]): it for it in group}
         d, i, out = bytes(msg.data), 1, {}
         while i + 2 <= len(d) and len(out) < len(group):
             did = d[i:i + 2]
             it = by_did.get(did)
             if it is None or it[0] in out:
                 return None
-            n = ford.FALLBACK[it[0]][5]
+            n = fallback[it[0]][5]
             if i + 2 + n > len(d):
                 break
             r = it[1]([self._part(msg, b"\x62" + d[i:i + 2 + n])])

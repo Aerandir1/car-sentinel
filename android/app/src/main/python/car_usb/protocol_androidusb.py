@@ -5,7 +5,7 @@ import time
 from java import jclass
 from serial.serialutil import PortNotOpenError, SerialBase, SerialException, SerialTimeoutException
 
-Usb = jclass("fr.fiesta.sentinel.UsbSerial")
+Usb = jclass("fr.car.sentinel.UsbSerial")
 
 
 def _msg(e):

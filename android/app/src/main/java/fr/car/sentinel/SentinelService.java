@@ -1,4 +1,4 @@
-package fr.fiesta.sentinel;
+package fr.car.sentinel;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -27,9 +27,9 @@ import java.io.OutputStream;
  * continue écran éteint ou appli en arrière-plan, comme le service systemd sur le PC.
  */
 public class SentinelService extends Service {
-    static final String ACTION_STOP = "fr.fiesta.sentinel.STOP";
+    static final String ACTION_STOP = "fr.car.sentinel.STOP";
     private static final String CHANNEL = "sentinel";
-    private static final String TAG = "FiestaSentinel";
+    private static final String TAG = "CarSentinel";
     private static boolean pythonRunning;   // le Python ne s'arrête pas : un seul lancement par processus
     private PowerManager.WakeLock wakeLock;
 
@@ -44,7 +44,7 @@ public class SentinelService extends Service {
         startInForeground();
         if (wakeLock == null) {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fiesta:acquisition");
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "car:acquisition");
             wakeLock.acquire();
         }
         startPython();
@@ -60,7 +60,7 @@ public class SentinelService extends Service {
                 new Intent(this, SentinelService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
         Notification n = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.drawable.ic_notif)
-                .setContentTitle("Fiesta Sentinel")
+                .setContentTitle("Car Sentinel")
                 .setContentText("Lecture de l'ELM327 et dashboard actifs")
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(null, "Quitter", stop).build())
@@ -91,8 +91,8 @@ public class SentinelService extends Service {
         Thread t = new Thread(() -> {
             try {
                 Python.getInstance().getModule("android_main").callAttr("main",
-                        getFilesDir().getAbsolutePath(), web.getAbsolutePath(), BuildConfig.FIESTA_VERSION,
-                        BuildConfig.FIESTA_SERVER, Build.MANUFACTURER + " " + Build.MODEL);
+                        getFilesDir().getAbsolutePath(), web.getAbsolutePath(), BuildConfig.CAR_VERSION,
+                        BuildConfig.CAR_SERVER, Build.MANUFACTURER + " " + Build.MODEL);
             } catch (Throwable e) {
                 Log.e(TAG, "le dashboard Python s'est arrêté", e);
             }

@@ -17,7 +17,7 @@
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.Fiesta"
+        android:theme="@style/Theme.Car"
         android:usesCleartextTraffic="true">
 
         <activity

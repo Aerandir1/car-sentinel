@@ -1,8 +1,9 @@
-"""Envoi de la base vers clio-sentinel-server, dès que le serveur est joignable.
+"""Envoi des bases vers clio-sentinel-server, dès que le serveur est joignable.
 
-Le serveur retient, pour chaque base (reconnue à l'identifiant de sa première session), la dernière mesure
-reçue : chaque envoi reprend de là, par paquets, et un envoi coupé (réseau perdu en route) est simplement
-refait au suivant. Les trajets et événements partent en bloc quand ils ont changé. Rien n'est jamais
+Une base par voiture (data/clio.db, data/fiesta.db), chacune envoyée comme une origine à part, avec sa voiture
+déclarée (« clio », « fiesta » : le serveur vérifie avec le VIN). Le serveur retient, pour chaque base (reconnue à
+l'identifiant de sa première session), la dernière mesure reçue : chaque envoi reprend de là, par paquets, et un
+envoi coupé (réseau perdu en route) est simplement refait au suivant. Les trajets et événements partent en bloc quand ils ont changé. Rien n'est jamais
 modifié ni effacé dans la base locale.
 
 Vérification (au lancement puis toutes les VERIFY_S secondes) : les mesures déjà envoyées sont comparées par
@@ -29,7 +30,8 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 import donnees
-from etat import DERIVED, METRICS, derived_meta
+import voitures
+from etat import derived_meta
 
 BATCH = 5000          # mesures par envoi
 EVERY_S = 60          # entre deux synchronisations
@@ -39,18 +41,17 @@ TIMEOUT_S = 15
 CONNECT_S = 3         # une adresse qui ne répond pas est vite abandonnée pour la suivante
 PING_TIMEOUT_S = 2    # vérification : connexion et réponse
 DEFAULT_PORT = 8207   # port de clio-sentinel-server
-VEHICLE = "fiesta"    # voiture déclarée au serveur, qui reçoit aussi la Clio (il vérifie avec le VIN)
 
 
 class SyncError(Exception):
     pass
 
 
-def meta():
-    """Libellés et unités des métriques, pour que la page du serveur les affiche comme le dashboard."""
+def meta(car):
+    """Libellés et unités des métriques de la voiture, pour que la page du serveur les affiche comme le dashboard."""
     out = [{"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold}
-           for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS]
-    return out + [derived_meta(d) for d in DERIVED]
+           for k, lbl, u, _cmd, _conv, rng, warn, cold in car.METRICS]
+    return out + [derived_meta(d) for d in car.DERIVED]
 
 
 class Client:
@@ -125,7 +126,7 @@ def ping(client):
 def hello(client, state, name, version):
     """Présence : ce PC, son adresse et l'état de l'ELM327, affichés sur la page du serveur.
     Serveur d'avant /api/hello (404) : simple vérification qu'il répond."""
-    body = {"name": name, "host": socket.gethostname(), "version": version, "vehicle": VEHICLE,
+    body = {"name": name, "host": socket.gethostname(), "version": version, "vehicle": state.car.ID,
             "obd": {"adapter": state.adapter, "status": state.status, "source": state.source, "vin": state.vin}}
     code, _ = client.request("POST", "/api/hello", body, timeout_s=PING_TIMEOUT_S)
     if code == 404:
@@ -148,8 +149,10 @@ def trips_payload(db):
     return trips, events, h
 
 
-def sync_once(db_path, client, name=None, version=None):
-    """Envoie tout ce que le serveur n'a pas encore. Renvoie le nombre de mesures envoyées."""
+def sync_once(db_path, client, name=None, version=None, car=None):
+    """Envoie tout ce que le serveur n'a pas encore de la base de cette voiture. Renvoie le nombre de mesures
+    envoyées."""
+    car = car or voitures.get(None)
     db = donnees.connect(db_path)
     try:
         origin = fingerprint(db)
@@ -163,14 +166,14 @@ def sync_once(db_path, client, name=None, version=None):
         while True:
             rows = db.execute("SELECT rowid, session_id, t_ms, key, value FROM samples WHERE rowid > ?"
                               " ORDER BY rowid LIMIT ?", (cursor, BATCH)).fetchall()
-            body = {"origin": origin, "name": name, "version": version, "vehicle": VEHICLE, "after": cursor,
+            body = {"origin": origin, "name": name, "version": version, "vehicle": car.ID, "after": cursor,
                     "last": rows[-1][0] if rows else cursor, "samples": [list(r[1:]) for r in rows]}
             sids = sorted({r[1] for r in rows})
             body["sessions"] = [list(s) for s in db.execute(
                 f"SELECT id, start_ms, end_ms, source, vin, version, metrics FROM sessions"
                 f" WHERE id IN ({','.join('?' * len(sids))})", sids)] if sids else []
             if not sent:
-                body["meta"] = meta()
+                body["meta"] = meta(car)
             if len(rows) < BATCH:   # dernier paquet : les trajets partent avec, s'ils ont changé
                 trips, events, h = trips_payload(db)
                 if h != st.get("trips_hash"):
@@ -238,13 +241,13 @@ def verify_once(db_path, client):
         db.close()
 
 
-def sync_loop(state, db_path, version):
+def sync_loop(state, bases, version):
     """Thread de fond : envoie sa présence toutes les PING_S secondes (le serveur répond-il ?) et synchronise
     toutes les EVERY_S secondes, ou dès qu'il revient. Hors réseau, réessaie sans bruit.
 
     Adresse et nom sont relus à chaque tour dans les réglages (server, server_name : onglet Réglages, ou
-    SERVEUR et NOM_PC de fiesta.conf) : un changement est pris tout de suite, une adresse vide arrête l'envoi.
-    La base de la démo n'est jamais envoyée.
+    SERVEUR et NOM_PC de car.conf) : un changement est pris tout de suite, une adresse vide arrête l'envoi.
+    bases() : [(base, voiture)] des voitures qui ont une base. La base de la démo n'est jamais envoyée.
 
     state.sync (témoin du dashboard) : None sans serveur ; sinon ok, t (dernier contact ou essai), url, error,
     et du dernier envoi réussi : synced (heure) et sent (mesures envoyées)."""
@@ -270,14 +273,14 @@ def sync_loop(state, db_path, version):
         try:
             hello(client, state, name, version)
             if time.time() >= next_sync:
-                n = sync_once(db_path, client, name, version)
+                n = sum(sync_once(db, client, name, version, car) for db, car in bases())
                 next_sync = time.time() + EVERY_S
                 last = {"synced": time.time(), "sent": n}
                 if n or was_ok is not True:
                     print(f"Synchro serveur ({client.url}) : {n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}"
                           if n else f"Synchro serveur ({client.url}) : à jour")
                 if time.time() >= next_verify:
-                    f = verify_once(db_path, client)
+                    f = sum(verify_once(db, client) for db, _car in bases())
                     next_verify = time.time() + VERIFY_S
                     if f:
                         print(f"Synchro serveur : {f} groupe{'s' if f > 1 else ''} de mesures corrigé{'s' if f > 1 else ''}")
@@ -296,10 +299,10 @@ def sync_loop(state, db_path, version):
 
 
 def add_arguments(p):
-    p.add_argument("--server", metavar="URL[,URL…]", default=os.environ.get("FIESTA_SERVER"),
-                   help="clio-sentinel-server où envoyer la base, une ou plusieurs adresses séparées par des virgules,"
-                        " ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (ou FIESTA_SERVER)")
-    p.add_argument("--server-name", default=os.environ.get("FIESTA_SERVER_NAME") or socket.gethostname(),
+    p.add_argument("--server", metavar="URL[,URL…]", default=os.environ.get("CAR_SERVER"),
+                   help="clio-sentinel-server où envoyer les bases, une ou plusieurs adresses séparées par des virgules,"
+                        " ex. http://192.168.1.13:8207,http://10.100.0.1:8207 (ou CAR_SERVER)")
+    p.add_argument("--server-name", default=os.environ.get("CAR_SERVER_NAME") or socket.gethostname(),
                    help="nom de ce PC sur la page du serveur (défaut : nom de la machine)")
 
 
@@ -310,16 +313,20 @@ def make_client(args):
 def main():
     here = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--db", default=here / "data" / "fiesta.db", help="base SQLite (défaut data/fiesta.db)")
+    p.add_argument("--voiture", choices=sorted(voitures.CARS), default=voitures.DEFAULT,
+                   help=f"voiture dont on envoie la base (défaut {voitures.DEFAULT})")
+    p.add_argument("--db", help="base SQLite (défaut data/<voiture>.db)")
     add_arguments(p)
     args = p.parse_args()
     if not args.server:
         p.error("--server manquant")
-    from dashboard_fiesta import version
+    car = voitures.get(args.voiture)
+    db = args.db or here / "data" / f"{car.ID}.db"
+    from car_sentinel import version
     try:
         client = make_client(args)
-        n = sync_once(args.db, client, args.server_name, version())
-        f = verify_once(args.db, client)
+        n = sync_once(db, client, args.server_name, version(), car)
+        f = verify_once(db, client)
     except (OSError, http.client.HTTPException, SyncError) as e:
         raise SystemExit(f"Synchro impossible : {e}")
     print(f"{n} mesure{'s' if n > 1 else ''} envoyée{'s' if n > 1 else ''}, {f} groupe{'s' if f > 1 else ''}"

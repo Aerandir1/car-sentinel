@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<title>Fiesta 1.0 EcoBoost</title>
-<link rel="icon" type="image/svg+xml" href="/logo/ford-ovale.svg">
+<title>Car Sentinel</title>
+<link rel="icon" type="image/svg+xml" href="/logo/ford-ovale.svg" id="favicon">
 <style>
   /* Thème nuit (style Fiesta : bleu nuit, blanc, accent bleu, angles vifs) et thème jour, lisible en plein soleil.
      data-theme posé par le script : choix de Réglages → Affichage, ou celui du système (Auto) */
@@ -24,6 +24,15 @@
     --ok: #1c7d3c; --warn: #a66a00;
     color-scheme: light;
   }
+  /* Clio : style Renault, noir, blanc et jaune (data-car posé par le script d'après la voiture en cours) */
+  :root[data-car="clio"]:not([data-theme="day"]) {
+    --bg: #000; --panel: #0d0d0d; --panel-2: #171717; --line: #272727; --line-2: #3d3d3d;
+    --dim: #ababab; --faint: #737373; --accent: #efdf00; --on-accent: #000;
+  }
+  :root[data-car="clio"][data-theme="day"] {
+    --bg: #f1f1ee; --panel: #fff; --panel-2: #f6f6f3; --line: #dbdbd5; --line-2: #b7b7af;
+    --text: #111; --dim: #46463f; --faint: #75756d; --accent: #8a7b00; --on-accent: #fff;
+  }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body { margin: 0; background: var(--bg); color: var(--text); min-height: 100dvh; display: flex; flex-direction: column;
@@ -34,11 +43,15 @@
   button, input, select { font: inherit; color: inherit; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-  /* ---------- En-tête : ovale Ford, titre, témoins de connexion ---------- */
+  /* ---------- En-tête : logo de la marque, titre, témoins de connexion ---------- */
   header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px 16px;
            padding: max(10px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 10px max(20px, env(safe-area-inset-left));
            background: var(--bg); border-bottom: 1px solid var(--line); }
+  /* Logo de la marque : ovale Ford en couleurs ; losange Renault en masque, à la couleur du texte */
   .r-mark { flex: none; height: 30px; aspect-ratio: 1000 / 360; background: url(/logo/ford-ovale.svg) center / contain no-repeat; }
+  :root[data-car="clio"] .r-mark { height: 34px; aspect-ratio: 1000 / 1307; background: var(--text);
+    -webkit-mask: url(/logo/Renault_2021_Logo.svg) center / contain no-repeat;
+    mask: url(/logo/Renault_2021_Logo.svg) center / contain no-repeat; }
   header h1 { margin: 0; padding-left: 16px; border-left: 1px solid var(--line); white-space: nowrap;
               font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .14em; }
   .status { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 10px; }
@@ -139,6 +152,14 @@
     --k-screen1: #ffffff; --k-screen2: #edf1f7; --k-edge: rgba(23, 86, 200, .25); --k-glow: rgba(23, 86, 200, .35);
     --k-needle: #e2401a; --k-off: rgba(63, 76, 102, .14);
   }
+  :root[data-car="clio"]:not([data-theme="day"]) {
+    --k-bg: #1b1a10; --k-face1: #1b1b1b; --k-face2: #030303; --k-bezel1: #6e6e6e; --k-bezel2: #151515; --k-bezel3: #939393;
+    --k-screen1: #131313; --k-screen2: #050505; --k-edge: rgba(239, 223, 0, .22); --k-glow: rgba(239, 223, 0, .6);
+  }
+  :root[data-car="clio"][data-theme="day"] {
+    --k-bg: #fff; --k-face1: #fff; --k-face2: #e5e5df; --k-bezel1: #ececea; --k-bezel2: #93938b; --k-bezel3: #cfcfc8;
+    --k-screen1: #fff; --k-screen2: #efefeb; --k-edge: rgba(0, 0, 0, .18); --k-glow: rgba(138, 123, 0, .35);
+  }
   #view-dash[data-mode="drive"] :is(.gauges, #alerts, .dash-tools, #tiles, .foot) { display: none; }
   #view-dash[data-mode="dash"] #cluster { display: none; }
   body.drive { background: radial-gradient(ellipse 75% 65% at 50% 48%, var(--k-bg), var(--bg) 72%) fixed; }
@@ -153,7 +174,8 @@
               padding: 16px 18px 12px;
               border-radius: 22px; border: 1px solid var(--k-edge); text-align: center;
               background: linear-gradient(180deg, var(--k-screen1), var(--k-screen2));
-              box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--k-edge), inset 0 0 50px rgba(61, 139, 255, .07),
+              box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--k-edge),
+                          inset 0 0 50px color-mix(in srgb, var(--accent) 7%, transparent),
                           0 24px 60px rgba(0, 0, 0, .45); }
   .k-tells { display: flex; justify-content: center; gap: 14px; }
   .k-tells svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round;
@@ -255,7 +277,7 @@
   /* Origine de la mesure : rien pour l'OBD standard, étiquette pour le constructeur (UDS) et le calculé */
   .src { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; line-height: 1;
          padding: 3px 5px; border-radius: 2px; border: 1px solid currentColor; white-space: nowrap; }
-  .src.ford { color: var(--cold); }
+  .src.maker { color: var(--cold); }
   .src.calc { color: var(--dim); border-style: dashed; }
   .foot { color: var(--dim); font-size: 13px; line-height: 1.9; }
   .foot .src { margin-right: 4px; }
@@ -414,11 +436,34 @@
   .c-msg.err { color: var(--hot); }
   .c-msg.ok { color: var(--ok); }
 
+  /* ---------- Onglet Diagnostic : codes défaut et scan des calculateurs en lecture seule (diagnostic.py) ---------- */
+  #diag { display: grid; gap: 16px; max-width: 1100px; width: 100%; margin: 0 auto; }
+  #diag .note { margin: 0; }
+  #diag .note.warn { color: var(--warn); }
+  #diag details summary { cursor: pointer; color: var(--dim); font-size: 14px; margin-top: 8px; }
+  #diag details ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+  #diag .step > h3 { display: block; font-size: 17px; }
+  .g-job { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  .g-bar { flex: 1 1 200px; height: 8px; background: var(--line); overflow: hidden; }
+  .g-bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+  .g-bar.indet i { width: 30%; animation: sp-slide 1.1s ease-in-out infinite; }
+  .g-ext { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .g-ext input { width: 20px; height: 20px; accent-color: var(--accent); }
+  .g-hex { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .g-scroll { max-height: 460px; overflow: auto; }
+  .g-scroll table { min-width: 100%; }
+  #g-list td:first-child { width: 1%; }
+  #g-list input { width: 18px; height: 18px; accent-color: var(--accent); }
+  #g-view h3 { font-size: 15px; margin: 8px 0 4px; }
+
   /* ---------- Écran de démarrage : pictogramme tracé puis effacé à la première réponse du script ---------- */
   #splash { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; cursor: pointer;
             background: var(--bg); transition: opacity .6s ease, visibility .6s; }
   #splash.out { opacity: 0; visibility: hidden; }
   #splash .sp-box { display: grid; justify-items: center; gap: 22px; color: var(--text); }
+  :root[data-car="clio"] #splash .sp-fiesta, :root:not([data-car="clio"]) #splash .sp-clio { display: none; }
+  #splash .sp-mark { fill: transparent; stroke: currentColor; stroke-width: 3; stroke-dasharray: 1; stroke-dashoffset: 1;
+                     animation: sp-draw 1.1s cubic-bezier(.6, 0, .3, 1) forwards, sp-fill .5s ease 1s forwards; }
   #splash svg { width: min(46vw, 260px); height: auto; overflow: visible; }
   #splash .sp-word-box { margin-top: -6px; }
   #splash .sp-logo { width: min(60vw, 300px); height: auto; clip-path: inset(0 100% 0 0);
@@ -431,6 +476,8 @@
   #splash .sp-bar i { display: block; width: 40%; height: 100%; background: var(--accent);
                       animation: sp-slide 1.1s ease-in-out infinite; }
   @keyframes sp-wipe { to { clip-path: inset(0 0 0 0); } }
+  @keyframes sp-draw { to { stroke-dashoffset: 0; } }
+  @keyframes sp-fill { to { fill: currentColor; stroke-width: 0; } }
   @keyframes sp-rise { to { opacity: 1; transform: none; } }
   @keyframes sp-slide { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
   @media (prefers-reduced-motion: reduce) {
@@ -462,8 +509,24 @@
 </style>
 </head>
 <body>
-<div id="splash" role="img" aria-label="Ford Fiesta">
-  <div class="sp-box">
+<div id="splash" role="img" aria-label="Car Sentinel">
+  <div class="sp-box sp-clio">
+    <svg viewBox="0 0 500 437.5" aria-hidden="true">
+      <path class="sp-mark" pathLength="1" d="m 208.9847,0 -83.7801,156.00918 83.7801,156.00793 h 23.1817 L 316.8576,156.00918 262.8999,55.53194 250.7151,78.22095 292.4896,156.00918 220.4372,290.17711 148.3861,156.00918 232.1664,0 Z m 48.0051,0 -84.6924,156.00918 53.9591,100.47714 12.1845,-22.68908 -41.7744,-77.78806 72.0524,-134.16799 72.0512,134.16799 -83.7814,156.00793 h 23.1826 L 363.9517,156.00918 280.1714,0 Z"/>
+      <g class="sp-word" fill="currentColor">
+        <path d="m 79.9942,374.10754 v 62.23127 h 54.2125 V 423.79185 H 96.1104 V 411.1899 h 33.3725 V 398.80857 H 96.1104 v -12.31994 h 37.3091 v -12.38109 z"/>
+        <path d="m 0,374.10754 v 62.23127 h 16.1162 v -19.49003 h 19.4006 l 11.2528,19.49003 h 18.5865 l -13.496,-22.89223 c 6.5534,-3.61768 11.2722,-10.20709 11.2722,-18.31429 0,-16.64605 -12.6179,-21.02475 -22.8701,-21.02475 z m 16.1162,12.38109 h 22.8561 c 2.9512,0 6.2357,2.29429 6.2357,9.38713 0,2.40483 -0.702,8.59169 -6.2357,8.59169 H 16.1162 Z" fill-rule="evenodd"/>
+        <path d="m 148.8468,374.10754 v 62.23127 h 16.1162 v -40.08544 l 35.6286,40.08544 h 16.116 v -62.23127 h -16.116 v 39.7587 l -35.6286,-39.7587 z"/>
+        <path d="m 253.3119,374.10754 -27.4231,62.23127 h 18.4797 l 4.1814,-10.59523 h 31.3448 l 4.1814,10.59523 h 18.4797 l -27.4231,-62.23127 z m 10.9103,11.92151 10.7866,27.33332 h -21.5729 z"/>
+        <path d="m 391.7109,374.10754 v 62.23127 H 443.34 v -12.54696 h -35.5131 v -49.68431 z"/>
+        <path d="m 435.4432,374.10754 v 12.38109 h 24.2204 v 49.85018 h 16.1161 V 386.48863 H 500 v -12.38109 z"/>
+        <path d="m 310.1242,374.10754 v 42.05703 c 0,17.62353 17.8765,21.35867 32.0531,21.35867 14.1766,0 32.0533,-3.73514 32.0533,-21.35867 v -42.05703 h -16.1162 v 41.26999 c 0,6.40728 -9.6883,8.55893 -15.9371,8.55893 -6.2488,0 -15.937,-2.15165 -15.937,-8.55893 v -41.26999 z"/>
+      </g>
+    </svg>
+    <div class="sp-sub">Clio 4 dCi 90</div>
+    <div class="sp-bar"><i></i></div>
+  </div>
+  <div class="sp-box sp-fiesta">
     <img class="sp-logo" src="/logo/ford-ovale.svg" alt="">
     <svg class="sp-word-box" viewBox="0 0 500 90" aria-hidden="true">
       <text class="sp-word" x="250" y="74" text-anchor="middle" fill="currentColor"
@@ -474,8 +537,8 @@
   </div>
 </div>
 <header>
-  <span class="r-mark" role="img" aria-label="Ford Fiesta"></span>
-  <h1>Fiesta 1.0 EcoBoost</h1>
+  <span class="r-mark" role="img" aria-label="Logo de la marque" id="brand"></span>
+  <h1 id="car-title">Car Sentinel</h1>
   <div class="status">
     <div id="link">
       <span id="c-elm" class="chip" data-st="wait"><i></i><b>ELM327</b><small>chargement…</small></span>
@@ -495,6 +558,9 @@
   <button id="tab-trips">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3.5 3.5 0 0 0 0-7h-7a3.5 3.5 0 0 1 0-7H16"/></svg>
     Trajets</button>
+  <button id="tab-diag">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg>
+    Diagnostic</button>
   <button id="tab-cal">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
     Étalonnage</button>
@@ -588,7 +654,7 @@
 <main id="view-cal" hidden>
   <section id="calib">
     <div class="cal-intro">
-      <h2>Étalonnage des mesures Ford</h2>
+      <h2>Étalonnage des mesures <span class="maker">constructeur</span></h2>
       <p class="note">Valeur affichée = valeur brute × gain + décalage. On compare la mesure à l'ordinateur de bord pour
         trouver le gain et le décalage. Les trajets enregistrés se rejouent ici à l'arrêt.</p>
     </div>
@@ -644,6 +710,65 @@
     </section>
   </section>
 </main>
+<main id="view-diag" hidden>
+  <section id="diag">
+    <div class="cal-intro">
+      <h2>Diagnostic</h2>
+      <p class="note">Lecture seule : codes défaut et identifiants des calculateurs, rien n'est jamais écrit ni effacé.
+        Pendant un diagnostic, le dashboard laisse l'adaptateur et l'enregistrement est en pause ; il reprend tout
+        seul après.</p>
+      <details>
+        <summary>Requêtes autorisées (liste blanche)</summary>
+        <ul id="g-allow"></ul>
+        <p class="note">Tout le reste est refusé avant l'envoi : 10 02 (programmation), 27 (déverrouillage),
+          2E (écriture), 2F (actionneurs), 31 (routines), 11 (redémarrage), 14 / 04 (effacement des défauts)…</p>
+      </details>
+    </div>
+    <section class="panel step">
+      <div class="c-form">
+        <label for="g-veh">Véhicule</label>
+        <select id="g-veh" class="field"></select>
+      </div>
+      <p class="note" id="g-veh-note"></p>
+      <div class="g-job" id="g-job" hidden>
+        <div class="g-bar" id="g-barw"><i id="g-bar"></i></div>
+        <span id="g-phase"></span>
+        <button class="btn" id="g-stop">Arrêter</button>
+      </div>
+      <p class="c-msg" id="g-msg"></p>
+    </section>
+    <section class="panel step">
+      <h3>Codes défaut</h3>
+      <p class="note">OBD 03 (mémorisés) et 07 (en attente) à tous les calculateurs, puis <span id="g-dtc-svc">UDS 19 02</span>
+        sur <span id="g-dtc-ecus">le moteur</span>. Contact mis suffit.</p>
+      <div class="c-form"><button class="btn primary" id="g-dtc">Lire les codes défaut</button></div>
+      <table class="c-refs" id="g-dtc-out"></table>
+    </section>
+    <section class="panel step">
+      <h3>Scan des identifiants (<span id="g-read">UDS 22</span>)</h3>
+      <p class="note">Chaque identifiant (DID) de la plage est lu ; ceux qui répondent sont enregistrés. Comparer des
+        scans faits dans des états différents (contact mis, ralenti, 2500 tr/min) montre ce qui bouge.</p>
+      <div class="c-form">
+        <select id="g-ecu" class="field" aria-label="Calculateur"></select>
+        <input id="g-ecu-x" class="field" size="5" placeholder="ex. 744" aria-label="Adresse du calculateur" hidden>
+        <input id="g-ranges" class="field" size="36" aria-label="Plages de DID (hexa)">
+        <label class="g-ext"><input type="checkbox" id="g-ext"> <span>Session étendue (<span id="g-open">10 03</span>)</span></label>
+        <button class="btn primary" id="g-scan">Lancer le scan</button>
+      </div>
+      <p class="note" id="g-ext-note">Session étendue : certains identifiants ne répondent qu'en session de diagnostic
+        étendue, comme avec l'outil du garage. Moteur coupé (contact mis) et voiture à l'arrêt obligatoires, vérifiés
+        juste avant ; retour en session normale à la fin, même si le scan est arrêté.</p>
+    </section>
+    <section class="panel step">
+      <h3>Scans enregistrés</h3>
+      <p class="note">Rangés dans data/diag/ (format de uds_scan.py, plus le véhicule). Cocher deux scans ou plus puis
+        « Comparer » : seuls les identifiants dont la valeur change sont listés.</p>
+      <div class="g-scroll"><table class="c-refs" id="g-list"></table></div>
+      <div class="c-form"><button class="btn" id="g-cmp" disabled>Comparer la sélection</button></div>
+      <div id="g-view"></div>
+    </section>
+  </section>
+</main>
 <main id="view-set" hidden>
   <div class="seg subtabs" id="set-tabs">
     <button data-sub="prefs">Réglages</button>
@@ -651,12 +776,23 @@
   </div>
   <div class="cards" id="sub-prefs">
     <details class="card" open>
+      <summary><span><b>Voiture</b> <span id="saved-car" class="saved">enregistré</span>
+        <small id="s-car-sum">Reconnue au VIN dès qu'elle est branchée</small></span></summary>
+      <div class="card-body">
+        <div class="row two">
+          <span class="lbl">Voiture affichée<small id="s-car-note">Sans voiture branchée : celle de la démo et du
+            dashboard. Branchée, c'est son VIN qui décide.</small></span>
+          <div class="seg" id="s-car"></div>
+        </div>
+      </div>
+    </details>
+    <details class="card" open>
       <summary><span><b>Carburant</b> <span id="saved-price" class="saved">enregistré</span>
-        <small>Prix au litre, pour le coût des trajets</small></span></summary>
+        <small>Prix au litre de la voiture affichée, pour le coût des trajets</small></span></summary>
       <div class="card-body">
         <p class="note">Gardé par le script (data/reglages.json). Un trajet terminé garde le prix de son moment.</p>
         <div class="row two">
-          <label for="s-fuel_price">Prix du carburant<small>Par litre, celui du dernier plein (E85 ou SP95)</small></label>
+          <label for="s-fuel_price">Prix du carburant<small id="s-fuel-note">Par litre, celui du dernier plein</small></label>
           <span class="price"><input type="number" id="s-fuel_price" class="field" min="0" max="10" step="0.001"
             inputmode="decimal" placeholder="ex. 0,859"> €/L</span>
         </div>
@@ -694,7 +830,7 @@
         <small>Envoi des trajets vers clio-sentinel-server</small></span></summary>
       <div class="card-body">
         <p class="note">Dès qu'il est joignable. Gardé par le script (data/reglages.json), à la place de SERVEUR et
-          NOM_PC de fiesta.conf. <span id="s-srv-msg"></span></p>
+          NOM_PC de car.conf. <span id="s-srv-msg"></span></p>
         <div class="row two">
           <label for="s-server">Adresse<small>IP ou IP:port, plusieurs séparées par des virgules (la maison, puis le
             VPN). Vide : pas d'envoi</small></label>
@@ -762,11 +898,14 @@
 // layout : disposition choisie dans Réglages ({ order, group, hidden }), null = disposition par défaut
 // theme : auto (celui du système), night ou day ; mode : drive ou dash, dernier choisi (null : selon l'écran)
 // drive : tuiles du mode Conduite (null : DRIVE_DEFAULT)
-const DEFAULTS = { poll_ms: 200, history_s: 120, theme: "auto", grouped: true, layout: null, mode: null, drive: null };
+// car : dernière voiture affichée (écran de démarrage, avant la réponse du script) ; diagVehicle : onglet Diagnostic
+const DEFAULTS = { poll_ms: 200, history_s: 120, theme: "auto", grouped: true, layout: null, mode: null, drive: null,
+                   car: "fiesta", diagVehicle: null };
 const ui = { ...DEFAULTS };
-try { Object.assign(ui, JSON.parse(localStorage.getItem("fiesta-ui") || "{}")); } catch (e) {}
+try { Object.assign(ui, JSON.parse(localStorage.getItem("car-ui") || "{}")); } catch (e) {}
 delete ui.look;   // ancien choix de style (Fiesta, classique, liquid glass)
-const saveUi = () => { try { localStorage.setItem("fiesta-ui", JSON.stringify(ui)); } catch (e) {} };
+const saveUi = () => { try { localStorage.setItem("car-ui", JSON.stringify(ui)); } catch (e) {} };
+document.documentElement.dataset.car = ui.car;
 const darkMq = matchMedia("(prefers-color-scheme: dark)");
 const applyTheme = () => {
   document.documentElement.dataset.theme = ["night", "day"].includes(ui.theme) ? ui.theme : darkMq.matches ? "night" : "day";
@@ -779,7 +918,7 @@ const GROUPS = [
   { id: "drive", label: "Conduite",            keys: ["speed", "rpm", "gear", "pedal", "load", "fuel", "l100", "fuel_lvl"] },
   { id: "temp",  label: "Températures",        keys: ["coolant", "cht", "oil", "intake", "cac", "cat", "ambient"] },
   { id: "air",   label: "Admission et turbo",  keys: ["boost", "map", "tip", "wgdc", "throttle", "maf", "baro"] },
-  { id: "fuelg", label: "Carburant (E85)",     keys: ["ethanol", "lambda", "stft", "ltft", "rail", "rail_des"] },
+  { id: "fuelg", label: "Carburant et injection", keys: ["ethanol", "lambda", "stft", "ltft", "rail", "rail_des", "egr", "egr_err"] },
   { id: "ign",   label: "Allumage",            keys: ["timing", "ign_corr", "octane"] },
   { id: "elec",  label: "Électrique et entretien", keys: ["voltage", "oil_life"] },
   { id: "other", label: "Autres",              keys: [] },
@@ -834,15 +973,16 @@ function fmt(v, unit) {
   return Math.abs(v) < 10 ? v.toFixed(1) : Math.round(v).toString();
 }
 
-// Étiquette d'origine : rien pour l'OBD standard (le cas normal), « Ford » pour une requête constructeur
+// Étiquette d'origine : rien pour l'OBD standard (le cas normal), le constructeur (Ford, Renault) pour une requête UDS
 function srcTag(m) {
   const s = m.source;
   if (!s || s.kind === "obd" || s.kind === "demo") return "";
-  if (s.kind === "ford") return `<span class="src ford" title="Mesure constructeur Ford, hors OBD standard (requête UDS ${s.cmd})">Ford</span>`;
+  if (s.kind === "maker") return `<span class="src maker" title="Mesure constructeur ${maker()}, hors OBD standard (requête UDS ${s.cmd})">${maker()}</span>`;
   return `<span class="src calc" title="Calculée à partir d'autres mesures">calculé</span>`;
 }
 const srcTip = (m) => m.source && m.source.kind === "obd" ? ` · OBD standard (${m.source.cmd})`
-  : m.source && m.source.kind === "ford" ? ` · constructeur Ford (UDS ${m.source.cmd})` : "";
+  : m.source && m.source.kind === "maker" ? ` · constructeur ${maker()} (UDS ${m.source.cmd})` : "";
+const maker = () => meta?.car?.maker || "constructeur";
 
 const tileHtml = (m) => `
     <button class="tile" id="t-${m.key}" data-key="${m.key}" title="Voir la courbe${srcTip(m)}">
@@ -893,15 +1033,15 @@ function buildTiles() {
   renderTiles();
   renderLayoutEditor();
   seedSeries();
-  const ford = meta.metrics.filter((m) => m.source && m.source.kind === "ford");
+  const own = meta.metrics.filter((m) => m.source && m.source.kind === "maker");
   $("foot").innerHTML = [
     meta.metrics.some((m) => m.source && m.source.kind === "obd") && "Sans étiquette : OBD standard (SAE J1979)",
-    ford.length && `<span class="src ford">Ford</span> mesure constructeur (UDS), lue en plus de l'OBD standard : `
-      + ford.map((m) => `${m.label} (${m.source.cmd})`).join(", "),
+    own.length && `<span class="src maker">${maker()}</span> mesure constructeur (UDS), lue en plus de l'OBD standard : `
+      + own.map((m) => `${m.label} (${m.source.cmd})`).join(", "),
     meta.metrics.some((m) => m.source && m.source.kind === "calc")
       && `<span class="src calc">calculé</span> déduit d'autres mesures (suralimentation = pression admission − pression atmo)`,
     meta.unsupported.length && "Non supporté par le calculateur : " + meta.unsupported.join(", "),
-    meta.to_calibrate?.length && "Mesures Ford lues, à étalonner avant d'être affichées (onglet Étalonnage) : "
+    meta.to_calibrate?.length && `Mesures ${maker()} lues, à étalonner avant d'être affichées (onglet Étalonnage) : `
       + meta.to_calibrate.join(", "),
   ].filter(Boolean).join("<br>");
 }
@@ -929,12 +1069,23 @@ function updateTiles(s) {
 // Combiné du mode Conduite : écran central (rapport, vitesse, témoins, message d'alerte, heure, extérieur)
 // et jauges à segments. Conso et coût : showHud
 let alertList = [];
+// Rapport le plus proche du rapport régime / vitesse (tr/min par km/h de chaque rapport, clio.py / fiesta.py)
+function estimateGear(rpm, speed) {
+  const gears = meta?.car?.gears;
+  if (!gears || rpm == null || speed == null) return null;
+  if (speed < 4 || rpm < 400) return 0;
+  const r = rpm / speed;
+  let best = 0;
+  for (let i = 1; i < gears.length; i++) if (Math.abs(Math.log(r / gears[i])) < Math.abs(Math.log(r / gears[best]))) best = i;
+  return best + 1;
+}
 function updateCluster(s) {
   const v = s.values, M = Object.fromEntries((meta?.metrics || []).map((m) => [m.key, m]));
   const over = (k) => M[k] && M[k].warn != null && v[k] != null && v[k] > M[k].warn;
   const under = (k) => M[k] && M[k].cold != null && v[k] != null && v[k] < M[k].cold;
   $("k-speed").textContent = v.speed != null ? Math.round(v.speed) : "—";
-  $("k-gear").textContent = v.gear == null ? "–" : v.gear === 0 ? "N" : v.gear;
+  const gear = v.gear ?? estimateGear(v.rpm, v.speed);
+  $("k-gear").textContent = gear == null ? "–" : gear === 0 ? "N" : gear;
   // Flèche de passage : même règle que l'éco-conduite (trajets.py : plus de 2500 tr/min sur un rapport intermédiaire)
   $("k-shift").hidden = !(v.speed >= 10 && v.rpm > 2500 && v.rpm / v.speed > 24);
   const tell = (id, cls) => { $(id).setAttribute("class", cls || ""); };
@@ -1244,10 +1395,11 @@ function drawDial(canvas, { value, min, max, redline, majors, minor, tickLabel, 
 }
 
 // Seules les jauges visibles sont dessinées : cadrans du mode Conduite, ou compte-tours et turbo du mode Détail
-const TACH = { min: 0, max: 7000, redline: 6300, majors: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000], minor: 250,
-               tickLabel: (t) => t / 1000 };
-const BOOST = { min: -0.8, max: 1.6, redline: 1.3, majors: [-0.8, -0.4, 0, 0.4, 0.8, 1.2, 1.6], minor: 0.1,
-                tickLabel: (t) => (t ? t.toFixed(1).replace("-", "−") : "0") };
+// Compte-tours et turbo de la voiture en cours (graduations, zone rouge : car.gauges de /api/meta, applyCar)
+let TACH = { min: 0, max: 7000, redline: 6300, majors: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000], minor: 250,
+             tickLabel: (t) => t / 1000 };
+let BOOST = { min: -0.8, max: 1.6, redline: 1.3, majors: [-0.8, -0.4, 0, 0.4, 0.8, 1.2, 1.6], minor: 0.1,
+              tickLabel: (t) => (t ? t.toFixed(1).replace("-", "−") : "0") };
 function drawGauges(s) {
   const v = s ? s.values : {}, mx = s ? s.max : {};
   if (tab === "drive") {
@@ -1307,11 +1459,12 @@ function showLink(s) {
   const elm = {
     recherche: ["wait", "ELM327", "recherche…", "Recherche de l'adaptateur"],
     ok: ["ok", l.name || "ELM327", port, `Adaptateur connecté : ${l.name || "ELM327"}${l.port ? ` sur ${l.port}` : ""}`],
-    absent: ["ko", "ELM327", "absent", "Aucun adaptateur ne répond : brancher la clé (ou ADAPTATEUR=… dans fiesta.conf)"],
+    absent: ["ko", "ELM327", "absent", "Aucun adaptateur ne répond : brancher la clé (ou ADAPTATEUR=… dans car.conf)"],
     refuse: ["ko", "ELM327", "accès refusé", `Pas le droit d'ouvrir ${l.port} : voir le journal du script`],
     occupe: ["warn", "ELM327", "port occupé", `${l.port} est utilisé par un autre programme (scan ?) : reprise dès qu'il le libère`],
     ko: ["ko", l.name || "ELM327", "ne répond pas", "L'adaptateur est là mais son initialisation a échoué"],
     demo: ["demo", "Démo", "", "Mode démo : l'adaptateur est laissé de côté (onglet Réglages)"],
+    diag: ["demo", "ELM327", "diagnostic", "L'adaptateur sert au diagnostic (onglet Diagnostic) : l'enregistrement reprend après"],
   }[l.elm] || ["off", "ELM327", l.elm, ""];
   const ecu = {
     off: ["off", "Calculateur", "", "En attente de l'adaptateur"],
@@ -1322,6 +1475,7 @@ function showLink(s) {
          l.vin && `VIN ${l.vin}`, l.fuel_type && `Carburant annoncé (01 51) : ${l.fuel_type}`].filter(Boolean).join("\n")],
     muet: ["warn", "Calculateur", "muet", "L'adaptateur répond, pas le calculateur : contact coupé, ou prise OBD débranchée"],
     demo: ["demo", "Valeurs simulées", `${s.hz} Hz`, "Trajet simulé, enregistré dans une base à part"],
+    diag: ["demo", "Calculateur", "diagnostic", "Diagnostic en cours (onglet Diagnostic), enregistrement en pause"],
   }[l.ecu] || ["off", "Calculateur", l.ecu, ""];
   chip("c-elm", elm[0], elm[1], elm[2], `${elm[3]}\n${s.status}`);
   chip("c-ecu", ecu[0], ecu[1], ecu[2], `${ecu[3]}\n${s.status}`);
@@ -1334,6 +1488,7 @@ async function poll() {
     // Liste des tuiles à recharger : connexion qui change, ou mesure validée dans l'onglet Étalonnage
     if (!meta || meta.metrics.length === 0 || s.status !== last?.status || s.meta_rev !== last?.meta_rev) {
       meta = await (await fetch("/api/meta")).json();
+      applyCar(meta.car);
       buildTiles();
     }
     last = s;
@@ -1352,6 +1507,37 @@ async function poll() {
 }
 
 function frame() { drawGauges(last); requestAnimationFrame(frame); }
+
+// ---------- Voiture en cours : logo, couleurs, titre, jauges, carburant ----------
+function applyCar(car) {
+  if (!car) return;
+  const root = document.documentElement, changed = root.dataset.car !== car.id;
+  root.dataset.car = car.id;
+  if (ui.car !== car.id) { ui.car = car.id; saveUi(); }
+  document.title = car.title;
+  $("car-title").textContent = car.title;
+  $("brand").setAttribute("aria-label", car.maker);
+  $("favicon").href = car.id === "clio" ? "/logo/Renault_2021_Logo.svg" : "/logo/ford-ovale.svg";
+  for (const el of document.querySelectorAll(".maker")) el.textContent = car.maker;
+  $("s-fuel-note").textContent = `Par litre, celui du dernier plein (${car.fuel})`;
+  ECO.shift[1] = car.shift_tip;
+  const t = car.gauges.tach, b = car.gauges.boost;
+  TACH = { ...TACH, max: t.max, redline: t.redline, majors: t.majors };
+  BOOST = { ...BOOST, min: b.min, max: b.max, redline: b.redline, majors: b.majors };
+  // Choix de la voiture (Réglages)
+  $("s-car").innerHTML = meta.cars.map((c) => `<button data-car="${c.id}" class="${c.id === car.id ? "on" : ""}">${c.name}</button>`).join("");
+  for (const btn of $("s-car").children) btn.onclick = () => chooseCar(btn.dataset.car);
+  $("s-car-sum").textContent = `${car.name}${meta.vin ? ` · VIN ${meta.vin}` : ""}`;
+  if (changed) { for (const k of Object.keys(series)) delete series[k]; for (const k of Object.keys(shown)) delete shown[k]; }
+}
+async function chooseCar(id) {
+  try {
+    const r = await fetch("/api/settings", { method: "POST", body: JSON.stringify({ car: id }) });
+    if (!r.ok) { $("s-car-note").textContent = await r.text(); return; }
+    $("saved-car").style.opacity = 1; setTimeout(() => ($("saved-car").style.opacity = 0), 1200);
+    meta = null;   // la liste des tuiles et l'habillage suivent au prochain relevé
+  } catch (e) {}
+}
 
 // Coins du compte-tours : conso instantanée et moyenne, coût du trajet en cours (carburant × prix au litre)
 const euros = (v) => v.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
@@ -1645,14 +1831,14 @@ addEventListener("resize", drawDetail);
 // ---------- Onglets ----------
 // Conduite et Détail : la même page (view-dash), en grand ou complète. Le dernier des deux choisis est gardé ;
 // sinon écran tactile (tablette) → Conduite, souris (PC) → Détail
-const TABS = ["drive", "dash", "trips", "cal", "set"];
+const TABS = ["drive", "dash", "trips", "diag", "cal", "set"];
 const homeTab = () => ui.mode || (matchMedia("(pointer: coarse)").matches ? "drive" : "dash");
 let tab = null, tripsTimer = null;
 function showTab(name, sub = "prefs", remember = true) {
   if (name !== tab) scrollTo(0, 0);
   tab = name;
   const view = name === "drive" ? "dash" : name;
-  for (const v of ["dash", "trips", "cal", "set"]) $("view-" + v).hidden = v !== view;
+  for (const v of ["dash", "trips", "diag", "cal", "set"]) $("view-" + v).hidden = v !== view;
   for (const t of TABS) $("tab-" + t).classList.toggle("on", t === name);
   document.body.classList.toggle("drive", name === "drive");
   if (view === "dash") {
@@ -1662,6 +1848,8 @@ function showTab(name, sub = "prefs", remember = true) {
   }
   clearInterval(tripsTimer);
   clearInterval(C.timer);
+  clearInterval(G.timer);
+  if (name === "diag") openDiag();
   if (name === "cal") openCalib();
   if (name === "set") { loadServerSettings(); showSub(sub); }
   if (name === "trips") { renderTrips(); tripsTimer = setInterval(renderTrips, 10000); }
@@ -1678,7 +1866,7 @@ for (const b of $("set-tabs").children) b.onclick = () => showSub(b.dataset.sub)
 $("go-layout").onclick = () => showTab("set", "layout");
 
 // Bouton retour d'Android (MainActivity) : ferme la courbe, sinon revient au tableau de bord ; false : rien à faire
-window.fiestaBack = () => {
+window.carBack = () => {
   if (dlg.open) { dlg.close(); return true; }
   if (tab !== homeTab()) { showTab(homeTab(), undefined, false); return true; }
   return false;
@@ -1693,7 +1881,7 @@ const num = (v, d = 0) => v == null ? "—" : v.toLocaleString("fr-FR", { maximu
 const ECO = {
   accel: ["accélérations brusques", "démarrer plus doucement : 0 → 20 km/h en 4 à 5 s plutôt qu'en 2"],
   brake: ["freinages brusques", "anticiper : lever le pied plus tôt, le frein moteur coupe l'injection"],
-  shift: ["rapports montés tard", "passer la vitesse supérieure vers 2000-2500 tr/min, le 1.0 EcoBoost a son couple dès 1500"],
+  shift: ["rapports montés tard", ""],   // conseil propre à la voiture : car.shift_tip (applyCar)
   pedal: ["pied lourd", "doser la pédale : au-delà des trois quarts, le turbo souffle et la conso s'envole"],
   idle: ["ralenti prolongé", "couper le moteur à l'arrêt au-delà d'une minute"],
 };
@@ -1890,7 +2078,7 @@ async function renderTrips() {
         textContent: "Pas encore de trajet. Un trajet commence au démarrage du moteur." })]));
 }
 
-// ---------- Étalonnage des mesures Ford ----------
+// ---------- Étalonnage des mesures constructeur ----------
 // valeur = brut × gain + décalage. Une référence, c'est la valeur lue sur l'ordinateur de bord pendant une
 // fenêtre de temps : elle donne une équation a × gain + b × décalage = référence (a, b : moyennes du brut et de
 // la vitesse sur la fenêtre). Une seule référence fixe le gain, deux ou plus le gain et le décalage.
@@ -2196,6 +2384,145 @@ async function openCalib() {
   C.timer = setInterval(() => { calLive(); if (C.src === "live") loadCalData(); }, 1000);
 }
 addEventListener("resize", drawCal);
+
+// ---------- Diagnostic (diagnostic.py) ----------
+const G = { timer: null, data: null, shown: null, vehicles: null };
+const gEsc = (t) => String(t ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const gMsg = (t, cls = "") => { $("g-msg").textContent = t || ""; $("g-msg").className = "c-msg " + cls; };
+const gHex = (h) => h ? h.match(/.{1,2}/g).join(" ") : "—";
+
+async function gPost(path, body) {
+  const r = await fetch(path, { method: "POST", body: JSON.stringify(body || {}) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function openDiag() {
+  await refreshDiag();
+  G.timer = setInterval(refreshDiag, 1000);
+}
+async function refreshDiag() {
+  let d;
+  try { d = await (await fetch("/api/diag")).json(); } catch (e) { gMsg("Le script Python ne répond pas.", "err"); return; }
+  if (!G.vehicles) {   // premier chargement : véhicules proposés et liste blanche
+    G.vehicles = d.vehicles;
+    $("g-veh").innerHTML = Object.entries(d.vehicles).map(([k, v]) => `<option value="${k}">${gEsc(v.name)}</option>`).join("");
+    $("g-veh").value = d.vehicles[ui.diagVehicle] ? ui.diagVehicle : d.default;   // sinon : la voiture en cours
+    setVehicle();
+    $("g-allow").innerHTML = d.allowed.map((a) => `<li>${gEsc(a)}</li>`).join("");
+  }
+  G.data = d;
+  renderDiagJob(d.job);
+  renderDiagList(d.scans);
+}
+// Calculateurs, requêtes et textes du véhicule choisi (gardé dans ce navigateur)
+function setVehicle() {
+  const v = G.vehicles[$("g-veh").value];
+  const kline = v.bus === "kline";
+  $("g-ecu").innerHTML = Object.entries(v.ecus).map(([k, e]) => `<option value="${k}">${gEsc(e.name)} (${k})</option>`).join("")
+    + `<option value="">Autre adresse…</option>`;
+  $("g-ecu-x").hidden = true;
+  $("g-ecu-x").placeholder = kline ? "ex. 7A" : "ex. 744";
+  $("g-ranges").value = Object.values(v.ecus)[0]?.ranges || "";
+  $("g-dtc-svc").textContent = v.dtc;
+  const names = Object.values(v.ecus).map((e) => e.name.toLowerCase());
+  $("g-dtc-ecus").textContent = names.length > 1 ? `le ${names.slice(0, -1).join(", le ")} et le ${names.at(-1)}` : `l'${names[0]}`;
+  $("g-read").textContent = v.read;
+  $("g-open").textContent = v.open;
+  $("g-veh-note").textContent = kline
+    ? "Prise OBD en K-line (pas de CAN) : requêtes KWP2000, identifiants sur 2 chiffres (01 à FF), session de diagnostic Renault 10 C0. L'adaptateur met quelques secondes à réveiller la ligne."
+    : "Prise OBD en CAN : requêtes UDS, identifiants sur 4 chiffres, session étendue 10 03.";
+}
+function renderDiagJob(j) {
+  const running = !!j?.running;
+  $("g-job").hidden = !running;
+  for (const id of ["g-dtc", "g-scan", "g-veh"]) $(id).disabled = running;
+  if (running) {
+    const scan = j.kind === "scan" && j.total;
+    $("g-barw").classList.toggle("indet", !scan);
+    $("g-bar").style.width = scan ? `${(100 * j.done / j.total).toFixed(1)}%` : "";
+    $("g-phase").textContent = j.phase + (scan ? ` · ${j.done} / ${j.total} · ${j.found} trouvé${j.found > 1 ? "s" : ""}` : "");
+    gMsg("");
+    return;
+  }
+  if (!j || G.shown === j.started) return;   // résultat déjà affiché
+  G.shown = j.started;
+  const jr = j.journal ? ` Échanges : data/diag/${j.journal}.` : "";
+  if (j.error && !j.file) { gMsg(`Diagnostic arrêté : ${j.error}.${jr}`, "err"); return; }
+  if (j.kind === "dtc" && j.result) { renderDtc(j.result); $("g-msg").textContent += jr; }
+  if (j.kind === "scan" && j.file) {
+    gMsg(`Scan enregistré : ${j.found} identifiant${j.found > 1 ? "s" : ""} sur ${j.total} lus${j.error ? ` (${j.error})` : ""}.${jr}`,
+         j.error ? "err" : "ok");
+    showScan(j.file);
+  }
+}
+function renderDtc(r) {
+  const rows = r.dtc;
+  const codes = rows.filter((x) => x.code);
+  gMsg(codes.length ? `${codes.length} code${codes.length > 1 ? "s" : ""} défaut lu${codes.length > 1 ? "s" : ""} (${r.time}).`
+                    : `Aucun code défaut (${r.time}).`, codes.length ? "" : "ok");
+  $("g-dtc-out").innerHTML = rows.length
+    ? "<tr><th>Source</th><th>Code</th><th>État</th></tr>" + rows.map((x) =>
+        `<tr><td>${gEsc(x.source)}</td><td class="g-hex">${gEsc(x.code || "—")}</td><td>${gEsc(x.state)}${x.status ? ` <small>(${gEsc(x.status)})</small>` : ""}</td></tr>`).join("")
+    : "";
+}
+function renderDiagList(scans) {
+  const checked = new Set([...document.querySelectorAll("#g-list input:checked")].map((i) => i.value));
+  $("g-list").innerHTML = scans.length
+    ? "<tr><th></th><th>Date</th><th>Véhicule</th><th>Calculateur</th><th>Session</th><th>DID</th><th></th></tr>" + scans.map((x) =>
+        `<tr><td><input type="checkbox" value="${gEsc(x.name)}" ${checked.has(x.name) ? "checked" : ""} aria-label="Sélectionner"></td>
+         <td>${gEsc(x.time)}${x.complete ? "" : " <small>(arrêté)</small>"}</td><td>${gEsc(x.vehicle)}</td>
+         <td>${gEsc(x.ecu_name || x.ecu)} (${gEsc(x.ecu)})</td>
+         <td>${gEsc(x.session)}</td><td>${x.n}</td><td><button class="btn small" data-show="${gEsc(x.name)}">Afficher</button></td></tr>`).join("")
+    : `<tr><td class="c-msg">Aucun scan pour l'instant.</td></tr>`;
+  $("g-cmp").disabled = document.querySelectorAll("#g-list input:checked").length < 2;
+}
+async function showScan(name) {
+  let b;
+  try {
+    const r = await fetch(`/api/diag/scan?name=${encodeURIComponent(name)}`);
+    if (!r.ok) throw new Error(await r.text());
+    b = await r.json();
+  } catch (e) { gMsg(`Scan illisible : ${e.message}`, "err"); return; }
+  const refused = Object.entries(b.refused || {}).map(([k, n]) => `${n} refusé${n > 1 ? "s" : ""} (${k})`).join(", ");
+  $("g-view").innerHTML = `<h3>${gEsc(b.ecu)} · ${gEsc(b.time)} · session ${gEsc(b.session || "normale")}</h3>
+    <p class="note">${b.rows.length} identifiant${b.rows.length > 1 ? "s" : ""} répondent${refused ? ` ; ${gEsc(refused)}` : ""}.</p>
+    <div class="g-scroll"><table class="c-refs"><tr><th>DID</th><th>Octets</th><th>Mesure connue</th></tr>${b.rows.map((x) =>
+      `<tr><td class="g-hex">${gEsc(x.did)}</td><td class="g-hex">${gHex(x.raw)}</td>
+       <td>${x.label ? `${gEsc(x.label)} : ${x.value}` : ""}</td></tr>`).join("")}</table></div>`;
+}
+async function compareScans() {
+  const names = [...document.querySelectorAll("#g-list input:checked")].map((i) => i.value);
+  let b;
+  try {
+    const r = await fetch("/api/diag/compare?" + names.map((n) => "f=" + encodeURIComponent(n)).join("&"));
+    if (!r.ok) throw new Error(await r.text());
+    b = await r.json();
+  } catch (e) { gMsg(`Comparaison impossible : ${e.message}`, "err"); return; }
+  $("g-view").innerHTML = `<h3>Comparaison : ${b.rows.length} identifiant${b.rows.length > 1 ? "s" : ""} qui changent sur ${b.total}</h3>
+    <div class="g-scroll"><table class="c-refs"><tr><th>DID</th>${b.scans.map((x) =>
+      `<th>${gEsc(x.ecu)} · ${gEsc(x.time)}${x.session === "étendue" ? " · étendue" : ""}</th>`).join("")}<th>Mesure connue</th></tr>
+    ${b.rows.map((x) => `<tr><td class="g-hex">${gEsc(x.did)}</td>${x.values.map((v) =>
+      `<td class="g-hex">${gHex(v)}</td>`).join("")}<td>${gEsc(x.label || "")}</td></tr>`).join("")}</table></div>`;
+}
+async function startDiag(body) {
+  gMsg("");
+  try { renderDiagJob((await gPost("/api/diag/start", body)).job); }
+  catch (e) { gMsg(e.message, "err"); }
+}
+$("g-veh").onchange = () => { ui.diagVehicle = $("g-veh").value; saveUi(); setVehicle(); };
+$("g-ecu").onchange = () => {
+  const k = $("g-ecu").value, v = G.vehicles?.[$("g-veh").value];
+  $("g-ecu-x").hidden = !!k;
+  $("g-ranges").value = v?.ecus[k]?.ranges || (v?.bus === "kline" ? "01-FF" : "2000-2FFF");
+};
+$("g-ext").onchange = () => $("g-ext-note").classList.toggle("warn", $("g-ext").checked);
+$("g-dtc").onclick = () => startDiag({ job: "dtc", vehicle: $("g-veh").value });
+$("g-scan").onclick = () => startDiag({ job: "scan", vehicle: $("g-veh").value, ecu: $("g-ecu").value || $("g-ecu-x").value.trim(),
+                                         ranges: $("g-ranges").value, extended: $("g-ext").checked });
+$("g-stop").onclick = () => gPost("/api/diag/stop").catch((e) => gMsg(e.message, "err"));
+$("g-cmp").onclick = compareScans;
+$("g-list").onchange = () => { $("g-cmp").disabled = document.querySelectorAll("#g-list input:checked").length < 2; };
+$("g-list").onclick = (e) => { const n = e.target.dataset?.show; if (n) showScan(n); };
 
 // ---------- Réglages ----------
 let pollTimer = null;

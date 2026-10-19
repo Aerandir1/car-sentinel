@@ -10,6 +10,5 @@ __pycache__/
 # Bases des mesures horodatées (données personnelles : horaires de conduite)
 data/*
 !data/.gitkeep
-# Réglages de cette machine (modèle : fiesta.conf.exemple)
-fiesta.conf
-windows-usb.id
+# Réglages de cette machine (modèle : car.conf.exemple)
+car.conf

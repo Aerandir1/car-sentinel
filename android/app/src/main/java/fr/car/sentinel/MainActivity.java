@@ -1,4 +1,4 @@
-package fr.fiesta.sentinel;
+package fr.car.sentinel;
 
 import android.Manifest;
 import android.app.Activity;
@@ -25,7 +25,7 @@ import android.window.OnBackInvokedDispatcher;
 /** Le dashboard en plein écran, servi par le Python du service (comme dans le navigateur du PC). */
 public class MainActivity extends Activity {
     // Même adresse que sur le PC : le dashboard y range ses réglages (localStorage) et y redirige 127.0.0.1
-    static final String URL = "http://fiesta-sentinel.localhost:8082/";
+    static final String URL = "http://car-sentinel.localhost:8080/";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private WebView web;
 
@@ -118,8 +118,8 @@ public class MainActivity extends Activity {
     }
 
     private void goBack() {
-        // La page ferme d'abord la courbe ouverte, ou revient au tableau de bord depuis un autre onglet (fiestaBack)
-        web.evaluateJavascript("window.fiestaBack ? fiestaBack() : false", r -> {
+        // La page ferme d'abord la courbe ouverte, ou revient au tableau de bord depuis un autre onglet (carBack)
+        web.evaluateJavascript("window.carBack ? carBack() : false", r -> {
             if (!"true".equals(r)) {
                 moveTaskToBack(true);   // la lecture continue en arrière-plan (notification « Quitter » pour l'arrêter)
             }

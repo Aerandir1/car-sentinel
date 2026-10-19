@@ -8,14 +8,15 @@ les coups. Étapes :
   2. adressage            diffusion (7DF), calculateur moteur seul (7E0), avec ou sans nombre de réponses attendu
   3. délai d'attente      ATST / ATAT : combien de temps l'ELM327 attend après la dernière réponse (200 ms d'office)
   4. mesure par mesure    temps de réponse, part de réponses ; mesures muettes, instables ou lentes
-  5. groupage OBD / Ford  2 à 6 PID (2 à 4 mesures Ford) par requête : le calculateur rend-il tout le groupe ?
+  5. groupage             2 à 6 PID OBD (2 à 4 mesures Ford ou Renault) par requête : tout le groupe est-il rendu ?
   6. tour complet         la boucle du dashboard, sans puis avec les réglages trouvés : fréquence réelle
 
-Le résultat est écrit dans data/scan-pid.json : le dashboard le reprend à la connexion suivante (requetes.py).
+La voiture est reconnue au VIN, comme par le dashboard. Le résultat est écrit dans data/scan-pid-<voiture>.json :
+le dashboard le reprend à la connexion suivante (requetes.py).
 Contact mis, moteur tournant de préférence (certaines mesures ne répondent pas moteur coupé) :
 
     ./service.sh stop                         # le dashboard tient l'adaptateur pendant qu'il tourne
-    ~/.venvs/obd/bin/python src/scan_pid.py   # --port /dev/ttyACM0, --tours 50…
+    ~/.venvs/obd/bin/python src/scan_pid.py   # --port /dev/ttyACM0, --tours 50, --voiture clio…
     ./service.sh start
 """
 
@@ -29,6 +30,7 @@ from datetime import datetime
 import acquisition
 import config
 import requetes
+import voitures
 from requetes import PERIOD
 
 ST_STEPS = ("32", "19", "10", "0A", "06")   # ATST en pas de 4 ms : 200 (défaut), 100, 64, 40, 24 ms
@@ -63,9 +65,9 @@ def fmt(v, unit=" ms"):
 
 
 class Scan:
-    def __init__(self, conn, cmds, tours):
-        self.conn, self.elm, self.cmds, self.tours = conn, conn.interface, cmds, tours
-        self.reader = requetes.Reader(conn, cmds)
+    def __init__(self, conn, cmds, car, tours):
+        self.conn, self.elm, self.cmds, self.car, self.tours = conn, conn.interface, cmds, car, tours
+        self.reader = requetes.Reader(conn, cmds, car)
         self.partial = []   # taille des réponses partielles (groupes)
         self.reader._shrink = lambda uds, n: self.partial.append(n)   # le scan note, sans réduire
 
@@ -156,14 +158,14 @@ class Scan:
             ms, ok = self.run([it], None)
             med, p90 = summary(ms)
             out[it[0]] = {"ms": med and round(med, 1), "p90": p90 and round(p90, 1), "ok": round(ok, 3),
-                          "ford": it[3]}
+                          "maker": it[3]}
         meds = [m["ms"] for m in out.values() if m["ms"]]
         typical = summary(meds)[0] or 0
         for key, m in out.items():
             flag = ("muette" if m["ok"] == 0 else "instable" if m["ok"] < 0.9 else
                     "lente" if m["ms"] and m["ms"] > SLOW_FACTOR * typical else "")
             m["etat"] = flag or "ok"
-            src = "Ford" if m["ford"] else "OBD "
+            src = f"{self.car.MAKER[:4]:<4}" if m["maker"] else "OBD "
             print(f"  {key:<10} {src} {fmt(m['ms']):>7}   90 % sous {fmt(m['p90']):>7}   réponses {m['ok']:4.0%}"
                   + (f"   ← {flag}" if flag else ""))
         return out
@@ -194,7 +196,7 @@ class Scan:
         """Boucle du dashboard pendant TOUR_S : (fréquence des tours, intervalle moyen par mesure, part de vides)."""
         self.at("ATAT1")
         self.at("ATST32")
-        reader = requetes.Reader(self.conn, self.cmds, scan)
+        reader = requetes.Reader(self.conn, self.cmds, self.car, scan)
         notes = reader.setup()
         state, ticks, end = Collect(), 0, time.time() + TOUR_S
         while time.time() < end:
@@ -215,8 +217,10 @@ def main():
     p.add_argument("--port", help="port série de l'ELM327 (auto-détection si absent)")
     p.add_argument("--baud", type=int, default=None, help="débit série (auto si absent)")
     p.add_argument("--tours", type=int, default=20, help="répétitions de chaque essai (défaut 20)")
-    p.add_argument("--sortie", default=str(requetes.SCAN_FILE), help="fichier du résultat (défaut data/scan-pid.json)")
-    args, _ = p.parse_known_args(config.argv() + sys.argv[1:])   # ADAPTATEUR, DEBIT de fiesta.conf
+    p.add_argument("--voiture", choices=sorted(voitures.CARS),
+                   help="voiture, si le VIN ne la reconnaît pas (défaut : reconnue au VIN)")
+    p.add_argument("--sortie", help="fichier du résultat (défaut data/scan-pid-<voiture>.json)")
+    args, _ = p.parse_known_args(config.argv() + sys.argv[1:])   # ADAPTATEUR, DEBIT de car.conf
 
     import obd
     logging.getLogger("obd").setLevel(logging.CRITICAL)   # « Failed to read port »… : le scan dit l'essentiel
@@ -241,11 +245,17 @@ def main():
         if conn.status() != obd.OBDStatus.CAR_CONNECTED:
             sys.exit(f"Pas de réponse du calculateur ({conn.status()}) : contact mis ?")
         print(f"Protocole : {conn.protocol_name()}")
-        cmds, missing = acquisition.find_measures(obd, conn)
         vin = acquisition.read_vin(obd, conn)
-        print(f"VIN : {vin or 'non donné'} · {len(cmds)} mesures lues"
+        found = voitures.detect(vin, acquisition.read_fuel_type(obd, conn))
+        if not (found or args.voiture):
+            sys.exit(f"Voiture non reconnue (VIN {vin or 'non donné'}) : la donner avec --voiture "
+                     + " ou ".join(sorted(voitures.CARS)))
+        car = voitures.get(found or args.voiture)
+        args.sortie = args.sortie or str(requetes.scan_file(car))
+        cmds, missing = acquisition.find_measures(obd, conn, car)
+        print(f"{car.NAME} · VIN : {vin or 'non donné'} · {len(cmds)} mesures lues"
               + (f", sans réponse : {', '.join(missing)}" if missing else "") + f" · {args.tours} essais par test\n")
-        scan = Scan(conn, cmds, args.tours)
+        scan = Scan(conn, cmds, car, args.tours)
         obd_items = [it for it in scan.reader.items if not it[3]]
         uds_items = [it for it in scan.reader.items if it[3]]
         probe = [it for it in obd_items if it[0] == "rpm"][:1] or obd_items[:1]
@@ -254,7 +264,8 @@ def main():
         base = scan.adapter()
         print("\n2. Adressage (régime)")
         addr_7e0, count = scan.addressing(probe)
-        print("\n3. Délai d'attente sans nombre de réponses (régime" + (", mesure Ford)" if uds_items else ")"))
+        print("\n3. Délai d'attente sans nombre de réponses (régime"
+              + (f", mesure {car.MAKER})" if uds_items else ")"))
         at = scan.timeout([probe, uds_items[:1]] if uds_items else [probe])
         print("\n4. Mesure par mesure")
         measures = scan.measures()
@@ -262,10 +273,10 @@ def main():
         max_obd = scan.grouping(False, measures, requetes.MAX_OBD)
         max_uds = 1
         if uds_items:
-            print("\n   Groupage Ford (22)")
+            print(f"\n   Groupage {car.MAKER} (22)")
             max_uds = scan.grouping(True, measures, requetes.MAX_UDS)
 
-        result = {"date": datetime.now().isoformat(timespec="seconds"), "vin": vin,
+        result = {"date": datetime.now().isoformat(timespec="seconds"), "voiture": car.ID, "vin": vin,
                   "protocole": conn.protocol_name(), "tours": args.tours, "adaptateur_ms": round(base, 1),
                   "adressage_7e0": addr_7e0, "nombre_reponses": count, "at": at,
                   "max_obd": max_obd, "max_uds": max_uds, "mesures": measures}
@@ -281,7 +292,7 @@ def main():
         f.write("\n")
     bad = [k for k, m in measures.items() if m["etat"] != "ok"]
     watch = ", ".join(f"{k} ({measures[k]['etat']})" for k in bad)
-    print(f"\nRetenu : {' '.join(at) or 'délai d’attente d’office'}, {max_obd} PID OBD et {max_uds} mesure{'s' if max_uds > 1 else ''} Ford"
+    print(f"\nRetenu : {' '.join(at) or 'délai d’attente d’office'}, {max_obd} PID OBD et {max_uds} mesure{'s' if max_uds > 1 else ''} {car.MAKER}"
           " par requête" + (f" ; à surveiller : {watch}" if watch else ""))
     print(f"Écrit dans {args.sortie} : repris par le dashboard à la prochaine connexion (./service.sh start)")
 

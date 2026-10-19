@@ -1,6 +1,6 @@
-"""Métriques lues sur l'ECU et état partagé entre le thread d'acquisition et le serveur HTTP.
+"""État partagé entre le thread d'acquisition et le serveur HTTP : dernières valeurs, min/max, voiture en cours.
 
-Pour alléger ou compléter les mesures, éditer la liste METRICS.
+Les mesures de chaque voiture sont dans son module (clio.py, fiesta.py) : METRICS, DERIVED.
 """
 
 import csv
@@ -10,64 +10,9 @@ import time
 from collections import deque
 
 import donnees
+import voitures
 
 BARO_DEFAULT_KPA = 101.3
-# Pédale d'accélérateur (01 49, capteur D) : le calculateur la donne en % de la tension, 15,69 % au repos et 80 % au
-# plancher sur la Fiesta (lu par pas de 0,39 %). Ramenée à la course de la pédale : 0 au repos, 100 au plancher.
-# Sous régulateur, elle reste au repos : c'est le calculateur qui ouvre le papillon.
-PEDAL_REST, PEDAL_FULL = 15.69, 80.0
-
-
-def pedal_travel(v):
-    return round(min(100.0, max(0.0, (v - PEDAL_REST) * 100 / (PEDAL_FULL - PEDAL_REST))), 1)
-
-
-# key, libellé, unité, commande python-obd (None : mesure Ford seulement, voir ford.py), conversion,
-# min/max d'affichage, seuil d'alerte (rouge au-delà), seuil "froid" (bleu en dessous)
-# Ford Fiesta VII (2022) 1.0 EcoBoost 95 FlexiFuel : 3 cylindres essence, turbo, injection directe, E85.
-METRICS = [
-    ("rpm",      "Régime",           "tr/min", "RPM",                       None,              (0, 7000),   6300, None),
-    ("speed",    "Vitesse",          "km/h",   "SPEED",                     None,              (0, 200),    None, None),
-    ("gear",     "Rapport",          "",       None,                        None,              (0, 6),      None, None),
-    ("coolant",  "Temp. eau",        "°C",     "COOLANT_TEMP",              None,              (-20, 130),  110,  70),
-    ("cht",      "Temp. culasse",    "°C",     None,                        None,              (-20, 160),  125,  70),
-    ("oil",      "Temp. huile",      "°C",     "OIL_TEMP",                  None,              (-20, 150),  130,  70),
-    ("intake",   "Temp. admission",  "°C",     "INTAKE_TEMP",               None,              (-20, 90),   60,   None),
-    ("cac",      "Temp. air suralim.", "°C",   None,                        None,              (-20, 100),  65,   None),
-    ("cat",      "Temp. catalyseur", "°C",     "CATALYST_TEMP_B1S1",        None,              (0, 1000),   900,  300),
-    ("ambient",  "Temp. extérieure", "°C",     "AMBIANT_AIR_TEMP",          None,              (-30, 50),   None, None),
-    ("map",      "Pression admission", "kPa",  "INTAKE_PRESSURE",           None,              (0, 250),    None, None),
-    ("tip",      "Pression turbo",   "kPa",    None,                        None,              (50, 250),   None, None),
-    ("baro",     "Pression atmo",    "kPa",    "BAROMETRIC_PRESSURE",       None,              (70, 110),   None, None),
-    ("wgdc",     "Wastegate",        "%",      None,                        None,              (0, 100),    None, None),
-    ("load",     "Charge moteur",    "%",      "ENGINE_LOAD",               None,              (0, 100),    None, None),
-    ("pedal",    "Pédale accél.",    "%",      "ACCELERATOR_POS_D",         pedal_travel,      (0, 100),    None, None),
-    ("throttle", "Papillon",         "%",      "THROTTLE_POS",              None,              (0, 100),    None, None),
-    ("maf",      "Débit d'air",      "g/s",    "MAF",                       None,              (0, 100),    None, None),
-    ("ethanol",  "Taux d'éthanol",   "%",      "ETHANOL_PERCENT",           None,              (0, 100),    None, None),
-    ("fuel",     "Conso. carburant", "L/h",    "FUEL_RATE",                 None,              (0, 25),     None, None),
-    ("fuel_lvl", "Niveau carburant", "%",      "FUEL_LEVEL",                None,              (0, 100),    None, None),
-    ("rail",     "Pression rail",    "bar",    "FUEL_RAIL_PRESSURE_DIRECT", lambda v: v / 100, (0, 250),    None, None),
-    ("rail_des", "Consigne rail",    "bar",    None,                        None,              (0, 250),    None, None),
-    ("lambda",   "Richesse (λ cmd)", "λ",      "COMMANDED_EQUIV_RATIO",     None,              (0.7, 1.3),  None, None),
-    ("stft",     "Correction court terme", "%", "SHORT_FUEL_TRIM_1",        None,              (-25, 25),   None, None),
-    ("ltft",     "Correction long terme", "%", "LONG_FUEL_TRIM_1",          None,              (-25, 25),   None, None),
-    ("timing",   "Avance allumage",  "°",      "TIMING_ADVANCE",            None,              (-20, 50),   None, None),
-    ("ign_corr", "Retrait cliquetis cyl. 1", "°", None,                     None,              (-15, 5),    None, None),
-    ("octane",   "Adaptation octane", "%",     None,                        None,              (-100, 100), None, None),
-    ("voltage",  "Tension batterie", "V",      "CONTROL_MODULE_VOLTAGE",    None,              (10, 16),    15.2, None),
-    ("oil_life", "Vie de l'huile",   "%",      None,                        None,              (0, 100),    None, None),
-]
-
-# Valeurs calculées, enregistrées comme les autres :
-#   suralimentation = MAP - pression atmosphérique (en bar). Moteur essence à papillon : dépression à l'admission
-#                     au ralenti et au lever de pied (≈ -0,7 bar), pression sous charge.
-#   conso instantanée = débit de carburant / vitesse × 100 (L/100 km), comme l'ordinateur de bord ; rien à l'arrêt.
-# needs : mesures dont elle dépend (la tuile n'apparaît que si le calculateur les donne)
-DERIVED = [
-    {"key": "boost", "label": "Suralimentation", "unit": "bar", "range": (-0.9, 1.6), "needs": ("map",)},
-    {"key": "l100", "label": "Conso. instantanée", "unit": "L/100 km", "range": (0, 30), "needs": ("fuel", "speed")},
-]
 L100_MIN_KMH = 5     # en dessous (arrêt, manœuvre), pas de L/100 km
 L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateur de bord
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
@@ -77,16 +22,45 @@ SETTINGS_LIMITS = {
     "max_hz": (0.5, 50.0),   # fréquence max de la boucle d'acquisition
     "delay": (0.0, 1.0),     # pause en s entre deux requêtes OBD
     "log_hz": (0.2, 50.0),   # fréquence du CSV
-    "fuel_price": (0.0, 10.0),   # prix du carburant en €/L (coût des trajets), gardé dans data/reglages.json
 }
+# Prix du carburant en €/L (coût des trajets), un par voiture (gazole, E85…) : « fuel_price » vu de la page est
+# celui de la voiture en cours, rangé sous « fuel_price_<voiture> » dans data/reglages.json
+PRICE_LIMITS = (0.0, 10.0)
+PRICE_KEYS = tuple(f"fuel_price_{c}" for c in voitures.CARS)
 # Texte : clé -> longueur max. Serveur (clio-sentinel-server, adresses séparées par des virgules) et nom de ce
-# poste sur sa page : vides tant qu'ils ne sont pas changés ici, SERVEUR et NOM_PC de fiesta.conf s'appliquent
+# poste sur sa page : vides tant qu'ils ne sont pas changés ici, SERVEUR et NOM_PC de car.conf s'appliquent
 SETTINGS_TEXT = {"server": 300, "server_name": 60}
-SETTINGS_SAVED = ("fuel_price", *SETTINGS_TEXT)   # réglages gardés d'un lancement à l'autre (les autres viennent des options)
+# Réglages gardés d'un lancement à l'autre (les autres viennent des options). car : dernière voiture vue
+SETTINGS_SAVED = (*PRICE_KEYS, *SETTINGS_TEXT, "car")
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
-# Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (fiesta-demo.db).
+# Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (<voiture>-demo.db).
 SETTINGS_FLAGS = ("fast", "demo")
+
+
+class Garage:
+    """Fichiers d'une voiture dans data/ : bases (vraie et démo) et étalonnage. Les bases sont ouvertes à la
+    première utilisation de la voiture (une voiture jamais branchée n'a pas de base vide)."""
+
+    def __init__(self, car, data_dir, version, no_db=False):
+        import etalonnage
+        self.car, self.version, self.no_db = car, version, no_db
+        self.db = None if no_db else data_dir / f"{car.ID}.db"
+        self.demo_db = None if no_db else data_dir / f"{car.ID}-demo.db"
+        self.calib = etalonnage.Store(data_dir / f"etalonnage-{car.ID}.json", car)
+        self.recorder = self.demo_recorder = None
+        self.lock = threading.Lock()
+
+    def open(self):
+        """Crée les bases au besoin et lance leur enregistrement ; renvoie self."""
+        with self.lock:
+            if self.db and self.recorder is None:
+                self.recorder = donnees.Recorder(self.db, self.version, self.car)
+                self.demo_recorder = donnees.Recorder(self.demo_db, self.version, self.car)
+        return self
+
+    def exists(self):
+        return bool(self.db) and self.db.exists()
 
 
 class State:
@@ -102,9 +76,11 @@ class State:
         self.maxs = {}
         self.supported = []
         self.unsupported = []
-        self.sources = {}     # clé → requête qui donne la mesure : {"kind": "obd" | "ford", "cmd": "01 5C"}
-        self.calib = None     # etalonnage.Store : gain et décalage des mesures Ford
-        self.raw_keys = []    # mesures Ford qui répondent : valeur brute dans « brut.<clé> » (onglet Étalonnage)
+        self.sources = {}     # clé → requête qui donne la mesure : {"kind": "obd" | "maker", "cmd": "01 5C"}
+        self.car = voitures.get(None)   # module de la voiture en cours (clio, fiesta) : voir set_car
+        self.garages = {}     # voiture → Garage (bases, étalonnage), voir set_car
+        self.calib = None     # etalonnage.Store de la voiture en cours : gain et décalage des mesures constructeur
+        self.raw_keys = []    # mesures constructeur qui répondent : valeur brute dans « brut.<clé> » (onglet Étalonnage)
         self.meta_rev = 0     # change quand la liste des tuiles change sans reconnexion (mesure validée)
         self.status = "démarrage"
         self.source = ""
@@ -117,6 +93,7 @@ class State:
         self.elm, self.ecu = "recherche", "off"
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
         self.port = None
+        self.baud = None      # débit de l'ELM327, repris par le diagnostic avec le port (diagnostic.py)
         self.protocol = None  # protocole OBD du calculateur, ex. « ISO 15765-4 (CAN 11/500) »
         self.fuel_type = None # type de carburant annoncé (01 51), ex. « Bifuel running Ethanol »
         self.trip = None      # identifiant du trajet en cours (mis à jour par trajets.py)
@@ -129,17 +106,64 @@ class State:
         self.hz = 0.0
         self.ping_ms = None   # temps de réponse moyen d'une requête au calculateur (requetes.py)
         self.sync = None      # dernier essai de synchro vers clio-sentinel-server (voir synchro.py)
-        self.settings = {}
+        self.settings = {}    # réglages donnés (options, onglet Réglages, data/reglages.json)
+        self.defaults = {}    # valeurs de car.conf tant que le réglage n'a pas été changé ici (jamais enregistrées)
+        # Onglet Diagnostic (diagnostic.py) : il demande l'adaptateur (diag_want), l'acquisition le lui laisse
+        # (port_free) et reprend quand il a fini
+        self.diag_want = threading.Event()
+        self.port_free = threading.Event()
+        self.diag = None      # diagnostic.Diag
+
+    # --- Voiture en cours ---
+
+    def set_car(self, car_id, why=""):
+        """Passe à la voiture car_id (reconnue au VIN, choisie dans Réglages, ou au lancement) : ses bases, son
+        étalonnage, son prix du carburant. Gardée comme dernière voiture vue. Renvoie True si elle a changé."""
+        car = voitures.get(car_id)
+        garage = self.garages[car.ID].open() if car.ID in self.garages else None
+        with self.lock:
+            changed = car is not self.car or self.calib is None
+            self.car = car
+            if garage:
+                self.recorder, self.demo_recorder, self.calib = garage.recorder, garage.demo_recorder, garage.calib
+            if changed:
+                self.meta_rev += 1   # le dashboard recharge la liste des tuiles et s'habille pour cette voiture
+                self.supported, self.unsupported, self.sources, self.raw_keys = [], [], {}, []
+        if self.settings.get("car") != car.ID:
+            self.set_settings({"car": car.ID})
+        if changed and why:
+            print(f"Voiture : {car.NAME} ({why})")
+        return changed
+
+    def car_db(self, demo=None):
+        """Base affichée de la voiture en cours (celle de la démo en mode démo), None avec --no-db."""
+        g = self.garages.get(self.car.ID)
+        if g is None:
+            return None
+        return g.demo_db if (self.settings.get("demo") if demo is None else demo) else g.db
 
     def get_settings(self):
+        """Réglages, plus fuel_price : celui de la voiture en cours."""
         with self.lock:
-            return dict(self.settings)
+            out = {**self.defaults, **self.settings}
+            out["fuel_price"] = out.get(f"fuel_price_{self.car.ID}")
+            return out
 
     def set_settings(self, new):
+        new = dict(new)
+        if "fuel_price" in new:   # prix réglé sur la page : celui de la voiture en cours
+            new[f"fuel_price_{self.car.ID}"] = new.pop("fuel_price")
+        if "car" in new and new["car"] not in voitures.CARS:
+            raise ValueError("voiture inconnue")
         with self.lock:
             for key, (lo, hi) in SETTINGS_LIMITS.items():
                 if key in new and new[key] is not None:
                     self.settings[key] = min(hi, max(lo, float(new[key])))
+            for key in PRICE_KEYS:
+                if key in new and new[key] is not None:
+                    self.settings[key] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(new[key])))
+            if "car" in new:
+                self.settings["car"] = new["car"]
             for key in SETTINGS_FLAGS:
                 if key in new:
                     self.settings[key] = bool(new[key])
@@ -147,12 +171,11 @@ class State:
                 if key in new:
                     self.settings[key] = str(new[key] or "").strip()[:n]
             saved = {k: self.settings[k] for k in SETTINGS_SAVED if k in self.settings}
-            out = dict(self.settings)
         if self.settings_file and any(k in new for k in SETTINGS_SAVED):
             tmp = self.settings_file.with_suffix(".tmp")
             tmp.write_text(json.dumps(saved, indent=2) + "\n", encoding="utf-8")
             tmp.replace(self.settings_file)
-        return out
+        return self.get_settings()
 
     def load_settings(self, path):
         """Réglages gardés (prix du carburant…) : lus au lancement, réécrits à chaque changement."""
@@ -161,19 +184,25 @@ class State:
             saved = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
+        if not isinstance(saved, dict):
+            return
+        car = saved.get("car") if saved.get("car") in voitures.CARS else None
+        # Réglages d'avant la fusion (clio-sentinel, fiesta-sentinel) : un seul prix, celui de cette voiture-là
+        if isinstance(saved.get("fuel_price"), (int, float)) and f"fuel_price_{car or voitures.DEFAULT}" not in saved:
+            saved[f"fuel_price_{car or voitures.DEFAULT}"] = saved["fuel_price"]
         with self.lock:
             for key in SETTINGS_SAVED:
-                if key in SETTINGS_LIMITS and isinstance(saved.get(key), (int, float)):
-                    lo, hi = SETTINGS_LIMITS[key]
-                    self.settings[key] = min(hi, max(lo, float(saved[key])))
+                if key in PRICE_KEYS and isinstance(saved.get(key), (int, float)):
+                    self.settings[key] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(saved[key])))
                 elif key in SETTINGS_TEXT and isinstance(saved.get(key), str):
                     self.settings[key] = saved[key][:SETTINGS_TEXT[key]]
+            if car:
+                self.settings["car"] = car
 
     def default_settings(self, defaults):
         """Valeurs prises tant que le réglage n'a jamais été changé dans l'onglet Réglages (pas enregistrées)."""
         with self.lock:
-            for key, value in defaults.items():
-                self.settings.setdefault(key, value)
+            self.defaults.update(defaults)
 
     def update(self, key, value, t_ms=None):
         """Nouvelle valeur, horodatée à l'appel (juste après la réponse du calculateur) sauf t_ms donné."""
@@ -190,7 +219,7 @@ class State:
             self.maxs[key] = max(self.maxs.get(key, value), value)
 
     def update_raw(self, key, raw):
-        """Valeur brute d'une mesure Ford : enregistrée telle quelle, et étalonnée si la mesure est validée."""
+        """Valeur brute d'une mesure constructeur : enregistrée telle quelle, et étalonnée si la mesure est validée."""
         self.update("brut." + key, raw)
         if self.calib is None:
             return
@@ -202,11 +231,11 @@ class State:
             self.meta_rev += 1
 
     def shown(self, key):
-        """Tuile affichée : mesure lue, et validée si c'est une mesure Ford."""
+        """Tuile affichée : mesure lue, et validée si c'est une mesure constructeur."""
         if key not in self.supported:
             return False
         src = self.sources.get(key) or {}
-        return src.get("kind") != "ford" or self.calib is None or self.calib.get(key)[2]
+        return src.get("kind") != "maker" or self.calib is None or self.calib.get(key)[2]
 
     def derive(self):
         with self.lock:
@@ -296,7 +325,8 @@ class State:
                 "ts": dict(self.times),
                 "trip": self.trip,
                 "trip_live": self._trip_live(),
-                "fuel_price": self.settings.get("fuel_price"),
+                "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
+                "car": self.car.ID,
                 "meta_rev": self.meta_rev,
                 "sync": self.sync,
                 "link": {"elm": self.elm, "ecu": self.ecu, "name": self.elm_name, "port": self.port,
@@ -307,24 +337,27 @@ class State:
             }
 
     def meta(self):
-        shown = [k for k, *_ in METRICS if self.shown(k)]
+        car = self.car
+        shown = [k for k, *_ in car.METRICS if self.shown(k)]
         with self.lock:
             metrics = [
                 {"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold,
                  "source": self.sources.get(k)}
-                for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS
+                for k, lbl, u, _cmd, _conv, rng, warn, cold in car.METRICS
                 if k in shown
             ]
-            for d in DERIVED:
+            for d in car.DERIVED:
                 if all(self.shown(k) for k in d["needs"]):
                     metrics.append({**derived_meta(d), "source": {"kind": "calc", "cmd": None}})
             return {
+                "car": voitures.info(car),
+                "cars": voitures.choices(),
                 "source": self.source,
                 "vin": self.vin,
                 "metrics": metrics,
-                "unsupported": [lbl for k, lbl, *_ in METRICS if k in self.unsupported],
-                # Mesures Ford qui répondent mais pas encore validées (onglet Étalonnage)
-                "to_calibrate": [lbl for k, lbl, *_ in METRICS if k in self.raw_keys and k not in shown],
+                "unsupported": [lbl for k, lbl, *_ in car.METRICS if k in self.unsupported],
+                # Mesures constructeur qui répondent mais pas encore validées (onglet Étalonnage)
+                "to_calibrate": [lbl for k, lbl, *_ in car.METRICS if k in self.raw_keys and k not in shown],
             }
 
 
@@ -338,7 +371,7 @@ class CsvLogger:
         self.keys = keys
         self.next_t = 0.0
         # Ajout à la fin : chaque reconnexion au calculateur reprend le même fichier
-        self.f = open(path, "a", newline="")
+        self.f = open(path, "a", newline="", encoding="utf-8")
         self.w = csv.writer(self.f)
         if self.f.tell() == 0:
             self.w.writerow(["timestamp"] + keys)

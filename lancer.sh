@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# Ouvre le dashboard Clio dans le navigateur, en le lançant s'il ne tourne pas déjà.
+# Ouvre le dashboard dans le navigateur, en le lançant s'il ne tourne pas déjà.
 #
 #   ./lancer.sh                 # service installé (service.sh) : le relance au besoin ; sinon lance le script ici
 #   ./lancer.sh --port /dev/ttyUSB0 --log trajet.csv     # lance le script ici avec ces options (sans le service)
 #
-# Réglages dans fiesta.conf ; les options passées ici vont à src/dashboard_fiesta.py et passent devant (voir README).
+# Réglages dans car.conf ; les options passées ici vont à src/car_sentinel.py et passent devant (voir README).
 # NO_BROWSER=1 ./lancer.sh  pour ne pas ouvrir le navigateur.
 
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
 VENV="${VENV:-$HOME/.venvs/obd}"
-UNIT="$HOME/.config/systemd/user/fiesta-sentinel.service"
+UNIT="$HOME/.config/systemd/user/car-sentinel.service"
 
-# Port de la page : --http s'il est passé, sinon PORT_PAGE de fiesta.conf (voir fiesta.conf.exemple)
-http_port=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' fiesta.conf 2>/dev/null | tail -n 1)
-http_port=${http_port:-8082}; prev=""
+# Port de la page : --http s'il est passé, sinon PORT_PAGE de car.conf (voir car.conf.exemple)
+http_port=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' car.conf 2>/dev/null | tail -n 1)
+http_port=${http_port:-8080}; prev=""
 for a in "$@"; do
     [[ "$prev" == "--http" ]] && http_port="$a"
     [[ "$a" == --http=* ]] && http_port="${a#--http=}"
     prev="$a"
 done
-page="http://fiesta-sentinel.localhost:$http_port"
+page="http://car-sentinel.localhost:$http_port"
 
 running() {   # le dashboard répond-il (et pas un autre programme sur ce port) ?
     curl -sf --max-time 1 "http://127.0.0.1:$http_port/api/state" 2>/dev/null | grep -q '"status"'
@@ -50,9 +50,9 @@ if [[ $# -eq 0 && -f "$UNIT" ]]; then
 fi
 
 # Deux copies se disputeraient l'ELM327 et la base
-if systemctl --user is-active -q fiesta-sentinel 2>/dev/null; then
+if systemctl --user is-active -q car-sentinel 2>/dev/null; then
     echo "Le service tourne déjà : ./service.sh stop d'abord pour lancer le script ici avec des options"
-    echo "(ou les mettre dans AUTRES_OPTIONS de fiesta.conf, puis ./service.sh restart)"
+    echo "(ou les mettre dans AUTRES_OPTIONS de car.conf, puis ./service.sh restart)"
     exit 1
 fi
 
@@ -72,4 +72,4 @@ fi
 ) &
 
 echo "→ Lancement du dashboard (Ctrl+C pour arrêter)"
-exec "$VENV/bin/python" src/dashboard_fiesta.py "$@"
+exec "$VENV/bin/python" src/car_sentinel.py "$@"

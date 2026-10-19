@@ -1,7 +1,7 @@
 """Découpage des mesures brutes en trajets, fiche de chaque trajet et événements.
 
 Tout est calculé à partir de la table samples, qui n'est jamais modifiée : changer un seuil puis
-lancer `python src/trajets.py --rebuild` recalcule tout (les identifiants et les notes sont gardés).
+lancer `python src/trajets.py --voiture clio --rebuild` recalcule tout (les identifiants et les notes sont gardés).
 
   marche moteur  régime > ENGINE_ON_RPM, sans trou de plus de RUN_GAP_S entre deux mesures ;
                  un régime bas pendant moins de ENGINE_OFF_S (lecture ratée) ne coupe pas
@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 
 import donnees
-from etat import METRICS
+import voitures
 
 ENGINE_ON_RPM = 400       # au-dessus : moteur allumé
 ENGINE_OFF_S = 3          # régime bas au moins aussi longtemps : vrai arrêt moteur
@@ -28,11 +28,9 @@ RUN_GAP_S = 10            # plus longtemps sans mesure du régime : le moteur a 
 TRIP_GAP_S = 5 * 60       # arrêt moteur plus long : fin du trajet
 MOVING_KMH = 5            # vitesse max au-dessus : la voiture a roulé
 COLD_START_C = 50         # eau plus froide au démarrage : démarrage à froid
-# Éco-conduite. Rapport engagé déduit de régime / vitesse (tr/min par km/h, mesuré sur les trajets) :
-# 1re ≈ 70, 2e ≈ 45, 3e ≈ 33, 4e ≈ 26,5, 5e ≈ 22
-TOP_GEAR_RATIO = 24       # au-dessus : 4e ou moins
-SHIFT_RPM = 2500          # au-delà, sur un rapport intermédiaire : il fallait monter (1.0 EcoBoost : couple dès 1500)
-PEDAL_HEAVY = 70          # % de la course de la pédale au-delà : pied lourd (jamais sous régulateur, pédale au repos)
+# Éco-conduite. Propres à chaque voiture (clio.py, fiesta.py) : TOP_GEAR_RATIO (régime / vitesse au-dessus duquel
+# on n'est pas sur le dernier rapport), SHIFT_RPM (au-delà, sur un rapport intermédiaire : il fallait monter),
+# PEDAL_HEAVY (% de pédale au-delà : pied lourd)
 HARD_ACCEL = 2.0          # m/s², sur ACCEL_WINDOW_S : accélération brusque (départ arrêté à 0 → 20 km/h en 2,5 s)
 HARD_BRAKE = -2.5         # m/s² : freinage brusque
 ACCEL_WINDOW_S = 2        # vitesse lue toutes les ≈ 1,3 s : accélération sur au moins 2 s
@@ -45,7 +43,11 @@ CRUISE_KMH = 50
 CRUISE_PEDAL = 1          # % de la course : au repos
 CRUISE_MIN_S = 10
 ECO_MIN_KM = 1            # trajet plus court : pas de score
-WARN = {k: (lbl, warn) for k, lbl, _u, _c, _cv, _r, warn, _cold in METRICS if warn is not None}
+
+
+def warns(car):
+    """Seuils d'alerte de la voiture : clé → (libellé, seuil)."""
+    return {k: (lbl, warn) for k, lbl, _u, _c, _cv, _r, warn, _cold in car.METRICS if warn is not None}
 
 
 def engine_runs(rows):
@@ -119,7 +121,7 @@ def accel_events(speed):
     return acc, brk
 
 
-def driving(db, start, end):
+def driving(db, start, end, car):
     """Temps passé (s) dans chaque façon de conduire, d'après les dernières valeurs lues de vitesse, régime, pédale
     et débit de carburant (chaque intervalle entre deux mesures compte pour l'état d'avant). Plus le régulateur :
     temps, km et carburant dessous, et km et carburant au-dessus de CRUISE_KMH sans lui (pour comparer)."""
@@ -161,11 +163,11 @@ def driving(db, start, end):
                         idle_fuel += fuel * dt / 3600
                 else:
                     out["drive_s"] += dt
-                    if speed >= 10 and rpm > SHIFT_RPM and rpm / speed > TOP_GEAR_RATIO:
+                    if speed >= 10 and rpm > car.SHIFT_RPM and rpm / speed > car.TOP_GEAR_RATIO:
                         out["late_shift_s"] += dt
                     if fuel is not None and speed >= COAST_KMH and fuel < COAST_LH:
                         out["coast_s"] += dt
-                if pedal is not None and pedal > PEDAL_HEAVY:
+                if pedal is not None and pedal > car.PEDAL_HEAVY:
                     out["heavy_s"] += dt
             if not (speed is not None and speed < 1 and rpm is not None and rpm > ENGINE_ON_RPM):
                 if idle_run > IDLE_LONG_S:
@@ -218,7 +220,7 @@ def eco_score(s):
     return None if p is None else round(max(0.0, 100 - sum(p.values())))
 
 
-def stats(db, start, end, runs):
+def stats(db, start, end, runs, car):
     by_key = {k: (mx, n, nv) for k, mx, n, nv in db.execute(
         "SELECT key, max(value), count(*), count(value) FROM samples WHERE t_ms BETWEEN ? AND ? GROUP BY key",
         (start, end))}
@@ -241,7 +243,7 @@ def stats(db, start, end, runs):
         "max_rpm": mx("rpm"), "max_speed": mx("speed"), "max_coolant": mx("coolant"), "max_boost": mx("boost"),
         "engine_stops": len(runs) - 1,
         "missing_ratio": round(sum(n - nv for _mx, n, nv in by_key.values()) / total, 4) if total else None,
-        **driving(db, start, end),
+        **driving(db, start, end, car),
     }
     out["eco_score"] = eco_score(out)
     return out
@@ -259,14 +261,14 @@ def trip_name(db, kind, start):
     return f"{day} · trajet {n + 1} · {hhmm}"
 
 
-def events(db, from_ms, runs, now):
+def events(db, from_ms, runs, now, car):
     """Démarrages, arrêts moteur et alertes après from_ms (recalculés à chaque passage)."""
     out = []
     for i, (a, b) in enumerate(runs):
         out.append((a, "demarrage", None, None, None))
         if i < len(runs) - 1 or now - b > RUN_GAP_S * 1000:
             out.append((b, "arret_moteur", None, None, None))
-    for key, (label, warn) in WARN.items():
+    for key, (label, warn) in warns(car).items():
         above = None
         for t, v in db.execute("SELECT t_ms, value FROM samples WHERE key = ? AND t_ms > ? AND value IS NOT NULL"
                                " ORDER BY t_ms", (key, from_ms)):
@@ -277,9 +279,10 @@ def events(db, from_ms, runs, now):
     db.executemany("INSERT INTO events (t_ms, kind, key, value, detail) VALUES (?, ?, ?, ?, ?)", out)
 
 
-def update(path, rebuild=False, price=None):
-    """Met à jour trajets et événements avec les nouvelles mesures. price : prix du carburant (€/L) du moment.
-    Renvoie la fiche du trajet en cours (ou None)."""
+def update(path, rebuild=False, price=None, car=None):
+    """Met à jour trajets et événements avec les nouvelles mesures. price : prix du carburant (€/L) du moment ;
+    car : voiture de la base (seuils d'éco-conduite et d'alerte). Renvoie la fiche du trajet en cours (ou None)."""
+    car = car or voitures.get(None)
     now = donnees.now_ms()
     db = donnees.connect(path)
     try:
@@ -301,7 +304,7 @@ def update(path, rebuild=False, price=None):
                             key=lambda e: min(e[2], end) - max(e[1], start), default=None)
                 tid, note, old_price = (match[0], match[3], match[4]) if match else (donnees.new_id(), None, None)
                 used.add(tid)
-                s = stats(db, start, end, trip_runs)
+                s = stats(db, start, end, trip_runs, car)
                 kind = "trajet" if (s["max_speed"] or 0) > MOVING_KMH else "arret"
                 closed = now - end > TRIP_GAP_S * 1000
                 # Prix du moment pour un trajet en cours ; un trajet fini garde le sien (recalcul, --rebuild)
@@ -316,7 +319,7 @@ def update(path, rebuild=False, price=None):
                 db.execute("UPDATE trips SET fuel_price = ? WHERE fuel_price IS NULL", (price,))
                 if current and current["fuel_price"] is None:
                     current["fuel_price"] = price
-            events(db, from_ms, runs, now)
+            events(db, from_ms, runs, now, car)
     finally:
         db.close()
     return current
@@ -325,11 +328,15 @@ def update(path, rebuild=False, price=None):
 def main():
     here = Path(__file__).resolve().parent.parent
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--db", default=here / "data" / "fiesta.db", help="base SQLite (défaut data/fiesta.db)")
+    p.add_argument("--voiture", choices=sorted(voitures.CARS), default=voitures.DEFAULT,
+                   help=f"voiture dont on recalcule les trajets (défaut {voitures.DEFAULT})")
+    p.add_argument("--db", help="base SQLite (défaut data/<voiture>.db)")
     p.add_argument("--rebuild", action="store_true", help="recalcule tous les trajets depuis le début")
     args = p.parse_args()
-    donnees.init(args.db)
-    update(args.db, rebuild=args.rebuild)
+    car = voitures.get(args.voiture)
+    args.db = args.db or here / "data" / f"{car.ID}.db"
+    donnees.init(args.db, car)
+    update(args.db, rebuild=args.rebuild, car=car)
     for t in reversed(donnees.trips(args.db)):
         cost = f"  {t['fuel_l'] * t['fuel_price']:6.2f} €" if t["fuel_l"] is not None and t["fuel_price"] else ""
         fuel = f"  {t['fuel_l']:6.2f} L" if t["fuel_l"] is not None else ""

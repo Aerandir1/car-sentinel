@@ -6,10 +6,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import donnees
-import ford
 import synchro
 import trajets
-from etat import DERIVED, METRICS
+import voitures
 from reseau import HOST
 
 WEB = Path(__file__).resolve().parent.parent / "web"   # pages, scripts et fichiers servis au navigateur
@@ -26,13 +25,14 @@ class QuietServer(ThreadingHTTPServer):
         super().handle_error(request, client_address)
 
 
-def make_handler(state, current_db):
-    """current_db() : base affichée (trajets, courbes), celle de la démo en mode démo ; None avec --no-db."""
+def make_handler(state):
+    """Base affichée (trajets, courbes) : celle de la voiture en cours, de sa démo en mode démo (state.car_db)."""
     pages = {"/": "dashboard.html", "/index.html": "dashboard.html", "/dashboard": "dashboard.html"}
-    labels = {k: (lbl, u) for k, lbl, u, *_ in METRICS}
+    current_db = state.car_db
 
     def calib_info():
-        """Mesures Ford pour l'onglet Étalonnage : réglage, et si le calculateur les donne (available)."""
+        """Mesures constructeur de la voiture pour l'onglet Étalonnage : réglage, et si le calculateur les donne."""
+        labels = {k: (lbl, u) for k, lbl, u, *_ in state.car.METRICS}
         out = state.calib.describe()
         for key, c in out.items():
             c["label"], c["unit"] = labels[key]
@@ -40,16 +40,17 @@ def make_handler(state, current_db):
         return out
 
     def trip_metrics(db_path, trip):
-        """Mesures d'un trajet, dans l'ordre de METRICS, avec de quoi les tracer (libellé, unité, échelle, seuils).
-        Lu dans la base : marche aussi sans la voiture. Une mesure Ford validée compte si sa valeur brute est là
-        (elle est recalculée avec l'étalonnage actuel, voir history)."""
+        """Mesures d'un trajet, dans l'ordre des METRICS de la voiture, avec de quoi les tracer (libellé, unité,
+        échelle, seuils). Lu dans la base : marche aussi sans la voiture. Une mesure constructeur validée compte si
+        sa valeur brute est là (elle est recalculée avec l'étalonnage actuel, voir history)."""
+        car = state.car
         counts = donnees.trip_keys(db_path, trip)
         out = []
-        calc = {d["key"] for d in DERIVED}
-        for k, lbl, u, _cmd, _conv, rng, warn, cold in METRICS + [
-                (d["key"], d["label"], d["unit"], None, None, d["range"], None, None) for d in DERIVED]:
+        calc = {d["key"] for d in car.DERIVED}
+        for k, lbl, u, _cmd, _conv, rng, warn, cold in car.METRICS + [
+                (d["key"], d["label"], d["unit"], None, None, d["range"], None, None) for d in car.DERIVED]:
             n = counts.get(k, 0)
-            if k in ford.FALLBACK and state.calib.get(k)[2]:
+            if k in car.FALLBACK and state.calib.get(k)[2]:
                 n = max(n, counts.get("brut." + k, 0))
             if n:
                 src = state.sources.get(k) or ({"kind": "calc", "cmd": None} if k in calc else None)
@@ -58,10 +59,10 @@ def make_handler(state, current_db):
         return out
 
     def history(db_path, trip, key, from_ms, to_ms):
-        """Courbe d'une métrique ; une mesure Ford validée est recalculée depuis sa valeur brute avec
+        """Courbe d'une métrique ; une mesure constructeur validée est recalculée depuis sa valeur brute avec
         l'étalonnage actuel (les trajets passés profitent d'un étalonnage corrigé)."""
         # (pas en démo : la démo enregistre aussi la vraie valeur, qu'on garde pour comparer)
-        if key in ford.FALLBACK and not state.get_settings().get("demo") and state.calib.get(key)[2]:
+        if key in state.car.FALLBACK and not state.get_settings().get("demo") and state.calib.get(key)[2]:
             h = donnees.history(db_path, trip, "brut." + key, from_ms, to_ms)
             if h["points"]:
                 h["key"] = key
@@ -74,7 +75,7 @@ def make_handler(state, current_db):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             # Le hub (page 3D, autre port) lit /api/state : autorisé pour les pages de cette machine seulement,
-            # en local ou, avec --lan, appelée par le même nom depuis le réseau (http://fiesta.local:8000 → :8082)
+            # en local ou, avec --lan, appelée par le même nom depuis le réseau (http://pc.local:8000 → :8080)
             origin = self.headers.get("Origin", "")
             hostname = urlsplit(origin).hostname or ""
             if (hostname in ("127.0.0.1", "localhost") or hostname.endswith(".localhost")
@@ -132,6 +133,19 @@ def make_handler(state, current_db):
                 self._send(200, json.dumps(state.get_settings()).encode(), "application/json")
             elif path == "/api/calib":
                 self._send(200, json.dumps(calib_info()).encode(), "application/json")
+            elif path in ("/api/diag", "/api/diag/scan", "/api/diag/compare"):
+                q = parse_qs(urlsplit(self.path).query)
+                try:
+                    if path == "/api/diag":
+                        body = state.diag.status()
+                    elif path == "/api/diag/scan":
+                        body = state.diag.load_scan(q.get("name", [""])[0])
+                    else:
+                        body = state.diag.compare(q.get("f", []))
+                except (ValueError, OSError) as e:
+                    self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                    return
+                self._send(200, json.dumps(body).encode(), "application/json")
             else:
                 self._send(404, b"not found", "text/plain")
 
@@ -144,6 +158,16 @@ def make_handler(state, current_db):
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
                     if str(body.get("server") or "").strip():
                         synchro.Client(str(body["server"]))   # adresse refusée avant d'être gardée
+                    car = body.pop("car", None)
+                    if car and car not in voitures.CARS:
+                        raise ValueError("voiture inconnue")
+                    if car and car != state.car.ID:
+                        # Voiture branchée : c'est son VIN qui décide (sauf en démo, qui simule la voiture choisie)
+                        if state.ecu == "ok" and not state.get_settings().get("demo"):
+                            self._send(409, "voiture reconnue au VIN : elle ne se change pas pendant qu'elle est"
+                                            " branchée".encode(), "text/plain; charset=utf-8")
+                            return
+                        state.set_car(car, "choisie dans Réglages")
                     saved = state.set_settings(body)
                 except synchro.SyncError as e:
                     self._send(400, str(e).encode(), "text/plain; charset=utf-8")
@@ -161,6 +185,17 @@ def make_handler(state, current_db):
                     return
                 state.calib_changed()
                 self._send(200, json.dumps(calib_info()).encode(), "application/json")
+            elif self.path in ("/api/diag/start", "/api/diag/stop"):
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    if self.path == "/api/diag/start":
+                        state.diag.start(body)
+                    else:
+                        state.diag.stop()
+                except (ValueError, TypeError, AttributeError) as e:
+                    self._send(400, str(e).encode(), "text/plain; charset=utf-8")
+                    return
+                self._send(200, json.dumps(state.diag.status()).encode(), "application/json")
             elif self.path == "/api/trips/note" and current_db():
                 try:
                     db_path = current_db()

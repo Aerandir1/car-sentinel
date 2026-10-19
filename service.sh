@@ -3,25 +3,25 @@
 # Il attend l'ELM327, enregistre dès que le calculateur répond, et reprend tout seul après une coupure.
 #
 #   ./service.sh install    # installe et démarre le service (une seule fois)
-#   ./service.sh restart    # relance, après un changement dans fiesta.conf
+#   ./service.sh restart    # relance, après un changement dans car.conf
 #   ./service.sh status     # tourne-t-il ? adresses de la page, ou l'erreur qui l'empêche de démarrer
 #   ./service.sh logs       # journal en direct (Ctrl+C pour quitter)
 #   ./service.sh stop       # arrête jusqu'au prochain démarrage de l'ordi (start pour relancer)
 #   ./service.sh remove     # arrête et supprime le service
 #
-# Les réglages (accès réseau, serveur, adaptateur…) sont dans fiesta.conf, créé au premier lancement.
+# Les réglages (accès réseau, serveur, adaptateur…) sont dans car.conf, créé au premier lancement.
 
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"
 
-NAME=fiesta-sentinel
+NAME=car-sentinel
 UNIT="$HOME/.config/systemd/user/$NAME.service"
 VENV="${VENV:-$HOME/.venvs/obd}"
 
-port() {   # PORT_PAGE de fiesta.conf, 8082 par défaut
+port() {   # PORT_PAGE de car.conf, 8080 par défaut
     local p
-    p=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' fiesta.conf 2>/dev/null | tail -n 1)
-    echo "${p:-8082}"
+    p=$(sed -n 's/^[[:space:]]*PORT_PAGE[[:space:]]*=[[:space:]]*\([0-9]\+\).*/\1/p' car.conf 2>/dev/null | tail -n 1)
+    echo "${p:-8080}"
 }
 
 # Journal depuis le dernier démarrage du service, sans les messages répétés de python-obd
@@ -29,7 +29,7 @@ journal() {
     local since
     since=$(systemctl --user show -p ExecMainStartTimestamp --value "$NAME" 2>/dev/null)
     journalctl --user -u "$NAME" ${since:+--since "$since"} -o cat --no-pager 2>/dev/null \
-        | grep -v -E '^\[obd\.|^(Started|Stopped|Stopping) |fiesta-sentinel.service:' || true
+        | grep -v -E '^\[obd\.|^(Started|Stopped|Stopping) |car-sentinel.service:' || true
 }
 
 # La page répond-elle ? Oui : adresses et avertissements. Non : l'erreur.
@@ -47,7 +47,7 @@ check() {
     echo "✗ Le dashboard ne démarre pas (./service.sh logs pour le journal complet) :"
     local recent errors
     recent=$(journalctl --user -u "$NAME" -n 80 -o cat --no-pager 2>/dev/null \
-        | grep -v -E '^\[obd\.|^(Started|Stopped|Stopping) |fiesta-sentinel.service:' | tac | awk '!seen[$0]++' | tac)
+        | grep -v -E '^\[obd\.|^(Started|Stopped|Stopping) |car-sentinel.service:' | tac | awk '!seen[$0]++' | tac)
     errors=$(grep -i -E 'erreur|error|exception|invalide|impossible' <<<"$recent" | tail -n 5 || true)
     sed 's/^/    /' <<<"${errors:-$(tail -n 8 <<<"$recent")}"
     return 1
@@ -89,16 +89,16 @@ install)
         python -m venv "$VENV"
         "$VENV/bin/python" -m pip install -q -r requirements.txt
     fi
-    [[ -f fiesta.conf ]] || { cp fiesta.conf.exemple fiesta.conf; echo "→ Réglages créés dans $PWD/fiesta.conf"; }
+    [[ -f car.conf ]] || { cp car.conf.exemple car.conf; echo "→ Réglages créés dans $PWD/car.conf"; }
     mkdir -p "$(dirname "$UNIT")"
     cat > "$UNIT" <<EOF
 [Unit]
-Description=Fiesta Sentinel : enregistrement OBD permanent
+Description=Car Sentinel : enregistrement OBD permanent
 After=network-online.target
 
 [Service]
 WorkingDirectory=$PWD
-ExecStart=$VENV/bin/python src/dashboard_fiesta.py
+ExecStart=$VENV/bin/python src/car_sentinel.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -109,7 +109,7 @@ EOF
     systemctl --user daemon-reload
     systemctl --user enable -q "$NAME"
     systemctl --user restart "$NAME"
-    echo "→ Service installé (réglages : $PWD/fiesta.conf)"
+    echo "→ Service installé (réglages : $PWD/car.conf)"
     check || true
     check_serial
     if [[ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != yes ]]; then

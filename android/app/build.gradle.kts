@@ -5,7 +5,7 @@ plugins {
     id("com.chaquo.python")
 }
 
-// Commit du dépôt, enregistré avec chaque session (FIESTA_VERSION, comme dans Docker)
+// Commit du dépôt, enregistré avec chaque session (CAR_VERSION)
 fun gitVersion(): String = try {
     val out = ByteArrayOutputStream()
     project.exec {
@@ -15,30 +15,30 @@ fun gitVersion(): String = try {
     out.toString().trim()
 } catch (e: Exception) { "android" }
 
-// Serveur d'office de la tablette : SERVEUR de fiesta.conf du PC qui compile (modifiable ensuite dans Paramètres)
-fun confServer(): String = rootDir.resolve("../fiesta.conf").takeIf { it.isFile }?.readLines()
+// Serveur d'office de la tablette : SERVEUR de car.conf du PC qui compile (modifiable ensuite dans Réglages)
+fun confServer(): String = rootDir.resolve("../car.conf").takeIf { it.isFile }?.readLines()
     ?.map { it.trim() }?.firstOrNull { it.startsWith("SERVEUR=") }
     ?.substringAfter("=")?.trim()?.trim('"', '\'') ?: ""
 
 android {
-    namespace = "fr.fiesta.sentinel"
+    namespace = "fr.car.sentinel"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "fr.fiesta.sentinel"
+        applicationId = "fr.car.sentinel"
         minSdk = 26
         targetSdk = 36
-        versionCode = 3
-        versionName = "1.2"
-        buildConfigField("String", "FIESTA_VERSION", "\"${gitVersion()}\"")
-        buildConfigField("String", "FIESTA_SERVER", "\"${confServer()}\"")
+        versionCode = 4
+        versionName = "2.0"
+        buildConfigField("String", "CAR_VERSION", "\"${gitVersion()}\"")
+        buildConfigField("String", "CAR_SERVER", "\"${confServer()}\"")
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }   // tablettes Samsung (arm64) et émulateur
     }
 
     buildFeatures { buildConfig = true }
 
     // Le dashboard (web/) est copié dans les assets : le service le recopie dans les fichiers de l'appli
-    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/fiesta-assets"))
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/car-assets"))
 
     buildTypes {
         release {
@@ -54,7 +54,7 @@ android {
 
 val copyWeb by tasks.registering(Sync::class) {
     from(rootDir.resolve("../web"))
-    into(layout.buildDirectory.dir("generated/fiesta-assets/web"))
+    into(layout.buildDirectory.dir("generated/car-assets/web"))
 }
 tasks.named("preBuild") { dependsOn(copyWeb) }
 

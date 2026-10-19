@@ -1,7 +1,7 @@
-"""Réglages de fiesta.conf (modèle : fiesta.conf.exemple), traduits en options du script.
+"""Réglages de car.conf (modèle : car.conf.exemple), traduits en options du script.
 
-Le fichier est créé depuis le modèle au premier lancement. Dans Docker, il n'est pas dans l'image :
-les réglages arrivent en variables d'environnement (env_file du docker-compose.yml), qui passent avant le fichier.
+Le fichier est créé depuis le modèle au premier lancement. Une variable d'environnement du même nom
+(RESEAU, PORT_PAGE…) passe avant le fichier.
 """
 
 import os
@@ -10,9 +10,8 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent.parent
-CONF = HERE / "fiesta.conf"
-EXEMPLE = HERE / "fiesta.conf.exemple"
-IN_DOCKER = Path("/.dockerenv").exists()
+CONF = HERE / "car.conf"
+EXEMPLE = HERE / "car.conf.exemple"
 
 # réglage → option du script
 OPTIONS = {"PORT_PAGE": "--http", "ADAPTATEUR": "--port", "DEBIT": "--baud", "SERVEUR": "--server",
@@ -21,8 +20,10 @@ FLAGS = {"RESEAU": ("--lan", None)}
 KEYS = [*OPTIONS, *FLAGS, "AUTRES_OPTIONS"]
 
 
-def read(path=CONF):
-    """KEY=VALUE par ligne, # pour les commentaires ; guillemets autour de la valeur facultatifs."""
+def read(path=None):
+    """KEY=VALUE par ligne, # pour les commentaires ; guillemets autour de la valeur facultatifs.
+    Sans chemin : CONF tel qu'il est à l'appel (l'appli Android le remplace par le sien, android_main.py)."""
+    path = path or CONF
     conf = {}
     if path.is_file():
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -41,14 +42,14 @@ def _yes(key, value):
     if v in ("oui", "o", "yes", "y", "1", "true", "vrai"):
         return True
     if v not in ("non", "n", "no", "0", "false", "faux"):
-        print(f"Attention : fiesta.conf : {key}={value} (attendu : oui ou non), compris comme non")
+        print(f"Attention : car.conf : {key}={value} (attendu : oui ou non), compris comme non")
     return False
 
 
 def argv():
-    """Options du script tirées de fiesta.conf (et de l'environnement dans Docker), à mettre avant celles de la
+    """Options du script tirées de car.conf (et de l'environnement), à mettre avant celles de la
     ligne de commande : celles-ci passent devant."""
-    if not IN_DOCKER and not CONF.exists() and EXEMPLE.is_file():
+    if not CONF.exists() and EXEMPLE.is_file():
         shutil.copyfile(EXEMPLE, CONF)
         print(f"Réglages créés dans {CONF} (à modifier, puis relancer)")
     conf = read()
@@ -65,5 +66,5 @@ def argv():
     try:
         return out + shlex.split(conf.get("AUTRES_OPTIONS", ""))
     except ValueError as e:   # guillemet non fermé…
-        print(f"Attention : fiesta.conf : AUTRES_OPTIONS illisible ({e}), ignoré")
+        print(f"Attention : car.conf : AUTRES_OPTIONS illisible ({e}), ignoré")
         return out

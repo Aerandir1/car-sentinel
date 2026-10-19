@@ -1,4 +1,4 @@
-package fr.fiesta.sentinel;
+package fr.car.sentinel;
 
 import android.app.PendingIntent;
 import android.content.Context;
@@ -18,12 +18,12 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Port série de la clé ELM327 USB, pour le Python (fiesta_usb/protocol_androidusb.py) : Android ne donne pas
+ * Port série de la clé ELM327 USB, pour le Python (car_usb/protocol_androidusb.py) : Android ne donne pas
  * de /dev/ttyACM0 aux applis, il faut passer par l'API USB host (usb-serial-for-android).
  * Un thread lit la clé en continu et garde ce qui arrive en mémoire (in_waiting de pyserial).
  */
 public final class UsbSerial {
-    static final String ACTION_PERMISSION = "fr.fiesta.sentinel.USB_PERMISSION";
+    static final String ACTION_PERMISSION = "fr.car.sentinel.USB_PERMISSION";
 
     private static Context context;
     private static final Object lock = new Object();

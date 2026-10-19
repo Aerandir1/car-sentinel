@@ -113,8 +113,9 @@ def connect(path):
     return db
 
 
-def init(path):
-    """Crée la base, ou la met au format actuel (reprend les mesures de l'ancien format : un trajet par lancement)."""
+def init(path, car=None):
+    """Crée la base, ou la met au format actuel (reprend les mesures de l'ancien format : un trajet par lancement).
+    car : voiture de la base (module fiesta, clio), pour les conversions qui ne concernent qu'elle."""
     db = connect(path)
     try:
         with db:
@@ -142,16 +143,19 @@ def init(path):
                 for col, kind in TRIP_ADDED:
                     if col not in trip_cols:
                         db.execute(f"ALTER TABLE trips ADD COLUMN {col} {kind}")
-                # Version 4 : pédale ramenée à sa course (0 au repos, 100 au plancher, voir etat.pedal_travel) au lieu
-                # du % de tension lu. Les mesures déjà enregistrées sont converties, celles de la Fiesta seulement (pas
-                # la démo, déjà en course, ni une autre voiture branchée par erreur) ; la vérification de synchro.py
-                # renvoie les groupes corrigés au serveur
+                # Version 4 : pédale de la Fiesta ramenée à sa course (0 au repos, 100 au plancher, voir
+                # fiesta.pedal_travel) au lieu du % de tension lu. Les mesures déjà enregistrées sont converties, celles
+                # de la Fiesta seulement (VIN WF0, dans n'importe quelle base : avant la fusion, chaque dashboard a pu
+                # enregistrer l'autre voiture), pas la démo, déjà en course ; sans VIN, seulement dans la base de la
+                # Fiesta (la pédale de la Clio est déjà en %). La vérification de synchro.py renvoie les groupes
+                # corrigés au serveur.
                 if 1 <= version < 4:
-                    from etat import PEDAL_FULL, PEDAL_REST
+                    import fiesta
                     db.execute("UPDATE samples SET value = round(max(0.0, min(100.0, (value - ?) * 100 / ?)), 1)"
                                " WHERE key = 'pedal' AND value IS NOT NULL AND session_id IN"
-                               " (SELECT id FROM sessions WHERE vin IS NULL OR (vin LIKE 'WF0%' AND vin NOT LIKE 'WF0DEMO%'))",
-                               (PEDAL_REST, PEDAL_FULL - PEDAL_REST))
+                               " (SELECT id FROM sessions WHERE (vin LIKE 'WF0%' AND vin NOT LIKE 'WF0DEMO%')"
+                               + (" OR vin IS NULL" if car is fiesta else "") + ")",
+                               (fiesta.PEDAL_REST, fiesta.PEDAL_FULL - fiesta.PEDAL_REST))
                 if version >= 1:
                     db.execute("UPDATE trips SET closed = 0")
                 db.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
@@ -162,12 +166,12 @@ def init(path):
 class Recorder:
     """File d'attente des mesures, vidée dans la base par un thread toutes les FLUSH_S secondes."""
 
-    def __init__(self, path, version=None):
+    def __init__(self, path, version=None, car=None):
         self.path = path
         self.version = version
         self.queue = queue.Queue()
         self.session_id = None
-        init(path)
+        init(path, car)
         threading.Thread(target=self._run, daemon=True).start()
 
     def start_session(self, source, vin, metrics):

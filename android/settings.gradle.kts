@@ -13,5 +13,5 @@ dependencyResolutionManagement {
         maven("https://jitpack.io")   // usb-serial-for-android
     }
 }
-rootProject.name = "fiesta-sentinel"
+rootProject.name = "car-sentinel"
 include(":app")
