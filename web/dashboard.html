@@ -1092,7 +1092,8 @@ function updateCluster(s) {
   tell("tl-cool", over("coolant") || over("cht") ? "red" : under("coolant") ? "blue" : "");
   tell("tl-oil", over("oil") ? "red" : "");
   tell("tl-bat", over("voltage") ? "red" : "");
-  tell("tl-eng", ["ok", "demo"].includes(s.link?.ecu) ? "" : "amber");
+  // Témoin moteur : seulement un vrai souci d'adaptateur (pas une voiture garée, contact coupé)
+  tell("tl-eng", ["ko", "refuse", "occupe"].includes(s.link?.elm) ? "amber" : "");
   tell("tl-warn", Object.keys(M).some((k) => !["rpm", "coolant", "cht", "oil", "voltage"].includes(k) && over(k)) ? "amber" : "");
   $("k-msg").hidden = !alertList.length;
   $("k-msg").textContent = "⚠ " + alertList.join(" · ");
@@ -1465,6 +1466,8 @@ function showLink(s) {
     ko: ["ko", l.name || "ELM327", "ne répond pas", "L'adaptateur est là mais son initialisation a échoué"],
     demo: ["demo", "Démo", "", "Mode démo : l'adaptateur est laissé de côté (onglet Réglages)"],
     diag: ["demo", "ELM327", "diagnostic", "L'adaptateur sert au diagnostic (onglet Diagnostic) : l'enregistrement reprend après"],
+    reconnexion: ["wait", "ELM327", "reconnexion…", "L'adaptateur a quitté l'USB en pleine lecture : il redémarre quand la tension de la"
+      + " prise OBD saute, au démarrage ou à l'arrêt du moteur, et revient en quelques secondes. Au-delà d'une minute : débranché"],
   }[l.elm] || ["off", "ELM327", l.elm, ""];
   const ecu = {
     off: ["off", "Calculateur", "", "En attente de l'adaptateur"],
@@ -1473,7 +1476,7 @@ function showLink(s) {
          [`Calculateur connecté · ${s.hz} tours de lecture/s`
           + (s.ping_ms != null ? ` · ${s.ping_ms} ms par requête` : ""), l.protocol,
          l.vin && `VIN ${l.vin}`, l.fuel_type && `Carburant annoncé (01 51) : ${l.fuel_type}`].filter(Boolean).join("\n")],
-    muet: ["warn", "Calculateur", "muet", "L'adaptateur répond, pas le calculateur : contact coupé, ou prise OBD débranchée"],
+    muet: ["off", "Calculateur", "contact coupé", "L'adaptateur répond, pas le calculateur : contact coupé (normal voiture garée), ou prise OBD débranchée"],
     demo: ["demo", "Valeurs simulées", `${s.hz} Hz`, "Trajet simulé, enregistré dans une base à part"],
     diag: ["demo", "Calculateur", "diagnostic", "Diagnostic en cours (onglet Diagnostic), enregistrement en pause"],
   }[l.ecu] || ["off", "Calculateur", l.ecu, ""];

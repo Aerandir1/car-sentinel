@@ -88,9 +88,12 @@ class State:
         self.adapter = "absent"   # ELM327 : "absent", "elm" (branché, calculateur muet), "car" (calculateur répond)
         # Témoins du dashboard, plus détaillés (adapter, lui, part tel quel au serveur) :
         #   elm : "recherche", "ok", "absent" (aucun ELM327), "refuse" (port interdit),
-        #         "occupe" (réservé par un autre programme, un scan par exemple), "ko" (ne répond pas bien), "demo"
-        #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé ?), "demo"
+        #         "occupe" (réservé par un autre programme, un scan par exemple), "ko" (ne répond pas bien), "demo",
+        #         "reconnexion" (perdu en pleine lecture : il redémarre quand la tension de la prise OBD saute,
+        #         au démarrage ou à l'arrêt du moteur, et revient en quelques secondes)
+        #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé), "demo"
         self.elm, self.ecu = "recherche", "off"
+        self.lost_ms = None   # adaptateur perdu en pleine lecture à cet instant (ms), None une fois revenu
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
         self.port = None
         self.baud = None      # débit de l'ELM327, repris par le diagnostic avec le port (diagnostic.py)

@@ -22,6 +22,11 @@ except ImportError:
 
 WINDOWS = sys.platform == "win32"
 MUTE_S = 10   # plus aucune réponse du calculateur depuis ce temps (contact coupé) : fin de la session
+# L'ELM327 redémarre quand la tension de la prise OBD saute (démarreur, arrêt du moteur) : il quitte l'USB quelques
+# secondes, même alimenté par l'USB. Disparu juste après une voiture qui répondait : « reconnexion », cherché toutes
+# les RETRY_S secondes, pendant RECONNECT_S ; au-delà, il a vraiment été débranché
+RECONNECT_S = 60
+RETRY_S = 1
 BAUDS = (38400, 9600, 115200, 230400, 57600)   # débits courants des ELM327 (sans effet sur les clés USB en ttyACM)
 # Puces USB-série des ELM327 : CH340/CH341, FTDI, CP210x, Prolific, QBD (essayées en premier sous Windows)
 USB_VIDS = (0x1A86, 0x0403, 0x10C4, 0x067B, 0x0918)
@@ -289,12 +294,24 @@ def _obd_loop_locked(state, args, logger_factory, held):
             port, found, name, fd = find_adapter(args.dev, lambda: _busy(state))
             denied, busy = ([], []) if port else (found, name)
             if port:
+                state.lost_ms = None
                 held.append(fd)
                 baud = baud or found
                 state.elm, state.elm_name, state.port = "ok", name, port
                 if (port, name) != seen:
                     print(f"Adaptateur trouvé : {name} sur {port}")
                     seen = (port, name)
+            elif not denied and not busy and state.lost_ms and time.time() * 1000 - state.lost_ms < RECONNECT_S * 1000:
+                # Disparu juste après une voiture qui répondait : il redémarre (moteur coupé ou démarré)
+                state.source = "auto"
+                state.status = "l'adaptateur redémarre (tension de la prise OBD au démarrage ou à l'arrêt du moteur), reconnexion…"
+                state.adapter = "reconnexion"
+                state.elm, state.ecu, state.port, state.elm_name = "reconnexion", "off", None, None
+                if seen != "reconnexion":
+                    print("Adaptateur parti de l'USB (redémarrage au démarrage ou à l'arrêt du moteur) : reconnexion…")
+                    seen = "reconnexion"
+                _pause(state, RETRY_S)
+                continue
             elif not denied and not busy:
                 where = "les ports COM" if WINDOWS else args.dev
                 state.source = "auto"
@@ -347,17 +364,27 @@ def _obd_loop_locked(state, args, logger_factory, held):
         conn = obd.OBD(portstr=port, baudrate=baud, fast=fast, timeout=1)
         state.adapter = {obd.OBDStatus.CAR_CONNECTED: "car", obd.OBDStatus.ELM_CONNECTED: "elm",
                          obd.OBDStatus.OBD_CONNECTED: "elm"}.get(conn.status(), "absent")
-        if state.adapter == "absent":
+        if state.adapter == "absent" and state.lost_ms and time.time() * 1000 - state.lost_ms < RECONNECT_S * 1000:
+            # Port donné (car.conf, tablette Android) mais plus d'adaptateur derrière, juste après une voiture qui
+            # répondait : il redémarre (moteur coupé ou démarré)
+            state.adapter = "reconnexion"
+            state.elm, state.ecu = "reconnexion", "off"
+        elif state.adapter == "absent":
             # Port trouvé par ATI mais l'initialisation a échoué ; port donné dans car.conf : rien à cet endroit
             state.elm, state.ecu = ("ko" if state.elm_name else "absent"), "off"
         else:
             state.elm = "ok"
             state.port = conn.port_name() or port
             state.ecu = "ok" if state.adapter == "car" else "muet"
+            state.lost_ms = None
         if conn.status() != obd.OBDStatus.CAR_CONNECTED or _busy(state):
-            state.status = f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s"
+            if state.adapter == "reconnexion":
+                state.status = "l'adaptateur redémarre (tension de la prise OBD au démarrage ou à l'arrêt du moteur), reconnexion…"
+            else:
+                state.status = (f"contact coupé : l'adaptateur répond, pas le calculateur ({conn.status()})"
+                                if state.adapter == "elm" else f"pas de réponse ECU ({conn.status()}), nouvel essai dans 5 s")
             close_conn(state, conn)
-            _pause(state, 5)
+            _pause(state, RETRY_S if state.adapter == "reconnexion" else 5)
             continue
 
         state.protocol = conn.protocol_name()
@@ -413,7 +440,11 @@ def _obd_loop_locked(state, args, logger_factory, held):
         if state.get_settings()["fast"] != fast or _busy(state):
             continue
         if not state.status.startswith("calculateur muet"):
+            # Connexion perdue en pleine lecture : l'adaptateur a quitté l'USB (il redémarre au démarrage ou à
+            # l'arrêt du moteur) ou a été débranché
             state.status = "connexion perdue, reconnexion…"
-            state.adapter = "absent"
-            state.elm, state.ecu = "recherche", "off"
-        time.sleep(2)
+            state.adapter = "reconnexion"
+            state.elm, state.ecu = "reconnexion", "off"
+            state.lost_ms = time.time() * 1000
+            print("Adaptateur perdu en pleine lecture (redémarrage au démarrage ou à l'arrêt du moteur ?) : reconnexion…")
+        time.sleep(RETRY_S)
