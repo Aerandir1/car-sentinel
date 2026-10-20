@@ -3,6 +3,7 @@
 // Réglages, bases et journal dans %APPDATA%\Car Sentinel (voir python/desktop_main.py).
 
 const { app, BrowserWindow, Menu, Notification, Tray, nativeImage, shell } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -14,6 +15,7 @@ const POLL_MS = 2000;
 const RELANCE_MS = 5000;        // le service s'est arrêté : relancé au plus tôt ce délai après le lancement précédent
 const ARRIVEE_MS = 3000;        // voiture reconnue depuis ce temps : bulle « branchée » (VIN lu entre-temps)
 const DEPART_MS = 20000;        // calculateur muet depuis ce temps : bulle « débranchée » (pas au démarrage du moteur)
+const MAJ_MS = 6 * 3600 * 1000; // mise à jour cherchée sur le serveur dès qu'il répond, puis toutes les 6 h
 
 const USER = app.getPath("userData");
 const CONF = path.join(USER, "car.conf");
@@ -27,6 +29,7 @@ let externe = false;      // un dashboard tournait déjà sur le port (service.p
 let titres = {};          // id de voiture → titre (/api/meta)
 let icone = "", infobulle = "", menuTexte = "";
 let annonce = { voiture: null, depuis: null, ok: false };   // voiture annoncée par bulle
+let maj = { etat: "", version: null, cherchee: 0, manuelle: false };   // mise à jour (voir « Mise à jour »)
 
 // ——— Réglages ———
 
@@ -88,12 +91,88 @@ async function verifier() {
     demarrer();
   }
   etat = s;
+  majAuto();
   if (s && s.car && !titres[s.car]) {
     const m = await api("/api/meta");
     for (const c of (m && m.cars) || []) titres[c.id] = titres[c.id] || c.name;
     if (m && m.car) titres[m.car.id] = m.car.title;
   }
   afficher();
+}
+
+// ——— Mise à jour ———
+// Le serveur de la maison (clio-sentinel-server, /maj/) garde le dernier installeur, publié par
+// npm run publier (scripts/publier.py). On le cherche à l'adresse qui répond à la synchro (maison ou VPN) :
+// téléchargé en fond, installé à la fermeture de l'appli, ou tout de suite depuis la bulle ou le menu.
+
+autoUpdater.autoDownload = true;
+autoUpdater.autoInstallOnAppQuit = true;
+autoUpdater.disableDifferentialDownload = true;   // le serveur n'envoie pas de morceaux (Range) : fichier entier
+autoUpdater.logger = null;
+
+autoUpdater.on("checking-for-update", () => majEtat("recherche"));
+autoUpdater.on("update-not-available", () => {
+  majEtat("aucune");
+  if (maj.manuelle) notifier("Car Sentinel est à jour", `Version ${app.getVersion()}`);
+  maj.manuelle = false;
+});
+autoUpdater.on("update-available", i => { maj.version = i.version; majEtat("telechargement"); });
+autoUpdater.on("update-downloaded", i => {
+  maj.version = i.version;
+  maj.manuelle = false;
+  majEtat("prete");
+  notifier(`Mise à jour ${i.version} prête`, "Cliquer pour l'installer maintenant (sinon : à la fermeture de l'appli).",
+           installerMaj);
+});
+autoUpdater.on("error", e => {
+  console.error(`Mise à jour : ${e.message}`);
+  if (maj.manuelle) notifier("Mise à jour impossible", e.message.split("\n")[0].slice(0, 200));
+  maj.manuelle = false;
+  majEtat(maj.etat === "prete" ? "prete" : "erreur");
+});
+
+function majEtat(e) {
+  maj.etat = e;
+  afficher();
+}
+
+// Adresse du serveur qui répond (celle de la synchro), null s'il ne répond pas ou n'est pas réglé
+const adresseServeur = () => (etat && etat.sync && etat.sync.ok === true && etat.sync.url) || null;
+
+function chercherMaj(manuelle = false) {
+  if (!app.isPackaged || ["recherche", "telechargement", "prete"].includes(maj.etat)) {
+    if (manuelle && !app.isPackaged) notifier("Mise à jour", "Seulement dans l'appli installée (pas avec npm start).");
+    return;
+  }
+  const url = adresseServeur();
+  if (!url) {
+    if (manuelle) notifier("Mise à jour impossible", "Le serveur ne répond pas (Wi-Fi de la maison ou VPN ?).");
+    return;
+  }
+  maj.cherchee = Date.now();
+  maj.manuelle = manuelle;
+  autoUpdater.setFeedURL({ provider: "generic", url: `${url}/maj/` });
+  autoUpdater.checkForUpdates().catch(() => {});   // erreur déjà passée par l'événement « error »
+}
+
+// Automatique : dès que le serveur répond, puis toutes les MAJ_MS
+function majAuto() {
+  if (adresseServeur() && Date.now() - maj.cherchee >= MAJ_MS) chercherMaj();
+}
+
+function installerMaj() {
+  quitter = true;
+  arreter();   // le Python embarqué libéré avant que l'installeur ne le remplace
+  autoUpdater.quitAndInstall(true, true);   // sans fenêtre, puis relance l'appli
+}
+
+function ligneMaj() {
+  switch (maj.etat) {
+    case "recherche": return { label: "Recherche d'une mise à jour…", enabled: false };
+    case "telechargement": return { label: `Téléchargement de la version ${maj.version}…`, enabled: false };
+    case "prete": return { label: `Installer la version ${maj.version} et redémarrer`, click: installerMaj };
+    default: return { label: "Rechercher une mise à jour", click: () => chercherMaj(true) };
+  }
 }
 
 // ——— Ce qu'on montre ———
@@ -149,7 +228,7 @@ function afficher() {
     infobulle = texte;
     tray.setToolTip(texte.length > 127 ? texte.slice(0, 126) + "…" : texte);   // limite de Windows
   }
-  const menu = texte + externe + auDemarrage();
+  const menu = texte + externe + auDemarrage() + maj.etat + maj.version;
   if (menu !== menuTexte) {
     menuTexte = menu;
     tray.setContextMenu(construireMenu(titre, lignes(etat)));
@@ -177,10 +256,10 @@ function bulles() {
   }
 }
 
-function notifier(titre, corps) {
+function notifier(titre, corps, clic = montrer) {
   if (!Notification.isSupported()) return;
   const n = new Notification({ title: titre, body: corps, icon: image("appli"), silent: true });
-  n.on("click", montrer);
+  n.on("click", clic);
   n.show();
 }
 
@@ -243,6 +322,9 @@ function construireMenu(titre, etats) {
       label: "Lancer à l'ouverture de session", type: "checkbox", checked: auDemarrage(),
       click: m => { lancerAuDemarrage(m.checked); menuTexte = ""; afficher(); },
     },
+    { type: "separator" },
+    { label: `Version ${app.getVersion()}`, enabled: false },
+    ligneMaj(),
     { type: "separator" },
     { label: "Quitter Car Sentinel", click: () => { quitter = true; app.quit(); } },
   ]);

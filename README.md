@@ -263,6 +263,24 @@ npm start         # essai sur ce PC, avec le Python du PC (CAR_PYTHON=~/.venvs/o
 
 Les icônes de `desktop/icones/` se redessinent par `npm run icones` (rsvg-convert et ImageMagick).
 
+### Mises à jour de l'appli
+
+L'appli se met à jour depuis clio-sentinel-server (route `/maj/`), à l'adresse qui répond à la synchro (Wi-Fi de
+la maison ou VPN) : elle cherche une nouvelle version dès que le serveur répond, puis toutes les 6 h, la
+télécharge en fond, propose de l'installer par une bulle, sinon l'installe à sa fermeture. Le menu de l'icône
+donne la version installée et « Rechercher une mise à jour ». Sans serveur réglé (`SERVEUR`), pas de mise à jour.
+
+Publier une version (une fois : le même jeton dans `MAJ_JETON` du serveur et dans `desktop/.maj-jeton`) :
+
+```bash
+cd desktop
+npm version patch --no-git-tag-version   # 1.0.0 → 1.0.1 dans package.json (minor, major : plus grand saut)
+npm run dist          # dist/car-sentinel-setup-1.0.1.exe, .blockmap et latest.yml (Wine sous Linux, ou Windows)
+npm run publier       # envoyés au serveur (SERVEUR de car.conf, ou -- --server 10.100.0.1)
+```
+
+Seul l'installeur NSIS se met à jour (pas le zip). Une version déjà sur le serveur, ou plus ancienne, est refusée.
+
 ## Tablette Android (APK)
 
 `android/` fait de la tablette un dashboard autonome, sans PC : l'appli **Car Sentinel** embarque le code Python

@@ -10,7 +10,8 @@
     "start": "electron .",
     "icones": "python3 scripts/icones.py",
     "python": "python3 scripts/python-embarque.py",
-    "dist": "npm run python && electron-builder --win --x64"
+    "dist": "npm run python && electron-builder --win --x64",
+    "publier": "python3 scripts/publier.py"
   },
   "devDependencies": {
     "electron": "^39.8.2",
@@ -65,11 +66,19 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "Car Sentinel",
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "artifactName": "car-sentinel-setup-${version}.${ext}"
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "http://10.100.0.1:8207/maj/"
     }
   },
   "allowScripts": {
     "electron@39.8.10": true,
     "electron-winstaller": false
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }
