@@ -46,6 +46,7 @@ src/
 web/dashboard.html    le dashboard
 web/logo/             ovales Ford, losange et texte Renault
 android/              l'appli Android (tablette autonome, ELM327 en USB)
+desktop/              l'appli Windows (Electron) : service en fond, icône d'état dans la zone de notification
 data/                 bases, étalonnages, réglages (pas dans git)
 car.conf.exemple      modèle des réglages : copié en car.conf (pas dans git) au premier lancement
 lancer.sh             Linux : lancement en local (venv + navigateur)
@@ -227,6 +228,40 @@ et `http://<IP>:8080` pour chaque adresse réseau.
   Wi‑Fi de la voiture ou de la maison, protégé par mot de passe, jamais un Wi‑Fi public.
 - **Hub** : une page servie par la même machine sur un autre port (clio-hub) et ouverte par le même nom
   (`http://10.42.0.1:8000`) peut lire `/api/state`.
+
+## Appli Windows (zone de notification)
+
+`desktop/` emballe le dashboard en une appli Windows 11 installable, **Car Sentinel**, sans rien d'autre à
+installer : elle embarque son Python (3.14, distribution « embeddable » de python.org, avec `obd` et `pyserial`),
+le code de `src/` et le dashboard de `web/`. Elle remplace `lancer.bat` et `service.ps1` :
+
+- elle fait tourner le dashboard en fond, sans fenêtre, et l'affiche dans sa propre fenêtre (clic sur l'icône,
+  ou « Ouvrir dans le navigateur » dans le menu). Fermer la fenêtre la cache : l'enregistrement continue ;
+- elle se lance à l'ouverture de session (icône seule), ce qui se décoche dans le menu de l'icône ;
+- l'**icône** (le compte-tours de l'appli Android) montre l'état d'un coup d'œil. L'arc donne la liaison avec la
+  voiture : gris = pas d'ELM327, orange = ELM327 branché mais calculateur muet (contact coupé), vert = le
+  calculateur répond, bleu = démo, rouge = le dashboard ne répond pas (relancé tout seul). La pastille en bas
+  à droite donne le serveur : verte = connecté, rouge = injoignable, grise = connexion, aucune = pas de serveur.
+  Le survol donne le détail (adaptateur et port, protocole, heure de la dernière synchro) ;
+- une notification quand une voiture est reconnue (« Fiesta 1.0 EcoBoost branchée ») et quand son calculateur
+  se tait depuis 20 s ;
+- réglages, bases et journal sont dans `%APPDATA%\Car Sentinel` (menu : « Réglages (car.conf) », « Journal »,
+  « Dossier des données », puis « Redémarrer le service » après un changement de `car.conf`). Pour reprendre les
+  bases du dashboard lancé par `service.ps1` : `service.ps1 remove`, puis copier son `data\` dans
+  `%APPDATA%\Car Sentinel\data` avant le premier lancement de l'appli ;
+- si un dashboard tourne déjà sur le port (`service.ps1`), l'appli s'en sert au lieu d'en lancer un second.
+
+Compilation (Node.js, Python 3 pour préparer le Python embarqué ; depuis Linux, **Wine** pour l'installeur) :
+
+```bash
+cd desktop
+npm install
+npm run dist      # dist/Car Sentinel Setup 1.0.0.exe (installeur, pour l'utilisateur seulement)
+npx electron-builder --win zip --x64   # sans Wine : dist/Car Sentinel-1.0.0-win.zip, à dézipper et lancer
+npm start         # essai sur ce PC, avec le Python du PC (CAR_PYTHON=~/.venvs/obd/bin/python)
+```
+
+Les icônes de `desktop/icones/` se redessinent par `npm run icones` (rsvg-convert et ImageMagick).
 
 ## Tablette Android (APK)
 

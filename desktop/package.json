@@ -1,0 +1,75 @@
+{
+  "name": "car-sentinel",
+  "productName": "Car Sentinel",
+  "version": "1.0.0",
+  "description": "Dashboard OBD de la Clio et de la Fiesta, en fond avec son icône dans la zone de notification",
+  "author": "Lilian Conan",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "icones": "python3 scripts/icones.py",
+    "python": "python3 scripts/python-embarque.py",
+    "dist": "npm run python && electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^39.8.2",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "fr.car.sentinel",
+    "productName": "Car Sentinel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "attente.html",
+      "icones/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../src",
+        "to": "src",
+        "filter": [
+          "**/*.py"
+        ]
+      },
+      {
+        "from": "../web",
+        "to": "web"
+      },
+      {
+        "from": "../car.conf.exemple",
+        "to": "car.conf.exemple"
+      },
+      {
+        "from": "python/desktop_main.py",
+        "to": "python/desktop_main.py"
+      },
+      {
+        "from": "build/python",
+        "to": "python"
+      },
+      {
+        "from": "build/version.txt",
+        "to": "version.txt"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icones/appli.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Car Sentinel",
+      "runAfterFinish": true
+    }
+  },
+  "allowScripts": {
+    "electron@39.8.10": true,
+    "electron-winstaller": false
+  }
+}
