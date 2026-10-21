@@ -4,11 +4,17 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.Manifest;
 import android.app.Service;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
 import android.content.res.AssetManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
+import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.PowerManager;
 import android.util.Log;
@@ -32,6 +38,8 @@ public class SentinelService extends Service {
     private static final String TAG = "CarSentinel";
     private static boolean pythonRunning;   // le Python ne s'arrête pas : un seul lancement par processus
     private PowerManager.WakeLock wakeLock;
+    private LocationListener gps;           // positions GPS, passées au dashboard (src/gps.py)
+    private HandlerThread gpsThread;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -48,7 +56,65 @@ public class SentinelService extends Service {
             wakeLock.acquire();
         }
         startPython();
+        startGps();
         return START_STICKY;
+    }
+
+    private boolean locationAllowed() {
+        return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /**
+     * Une position par seconde (GPS seul : le réseau ne donne ni vitesse ni cap fiables), passée au Python sur son
+     * propre fil. Rien sans l'autorisation de localisation : MainActivity relance le service une fois donnée.
+     */
+    private synchronized void startGps() {
+        if (gps != null || !locationAllowed()) {
+            return;
+        }
+        LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+        if (lm == null || !lm.getAllProviders().contains(LocationManager.GPS_PROVIDER)) {
+            Log.i(TAG, "pas de GPS sur cet appareil");
+            return;
+        }
+        gpsThread = new HandlerThread("gps");
+        gpsThread.start();
+        // Classe complète : avant Android 11, les autres méthodes de LocationListener n'ont pas de version par défaut
+        gps = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location l) {
+                if (!Python.isStarted()) {
+                    return;
+                }
+                try {
+                    Python.getInstance().getModule("gps").callAttr("fix", l.getLatitude(), l.getLongitude(),
+                            l.hasSpeed() ? l.getSpeed() : Double.NaN, l.hasAltitude() ? l.getAltitude() : Double.NaN,
+                            l.hasBearing() ? l.getBearing() : Double.NaN,
+                            l.hasAccuracy() ? l.getAccuracy() : Double.NaN, l.getTime());
+                } catch (Throwable e) {
+                    Log.e(TAG, "position GPS", e);
+                }
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, android.os.Bundle extras) {
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+            }
+        };
+        try {
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 0, gps, gpsThread.getLooper());
+            Log.i(TAG, "GPS : positions demandées");
+        } catch (SecurityException e) {
+            Log.e(TAG, "GPS refusé", e);
+            gps = null;
+        }
     }
 
     private void startInForeground() {
@@ -67,7 +133,10 @@ public class SentinelService extends Service {
                 .setOngoing(true)
                 .build();
         if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(1, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE);
+            // Localisation en plus seulement une fois autorisée (sinon Android 14 refuse le service)
+            int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                    | (locationAllowed() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION : 0);
+            startForeground(1, n, types);
         } else {
             startForeground(1, n);
         }
@@ -121,6 +190,10 @@ public class SentinelService extends Service {
 
     @Override
     public void onDestroy() {
+        if (gps != null) {
+            ((LocationManager) getSystemService(LOCATION_SERVICE)).removeUpdates(gps);
+            gpsThread.quitSafely();
+        }
         if (wakeLock != null && wakeLock.isHeld()) {
             wakeLock.release();
         }

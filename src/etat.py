@@ -5,6 +5,7 @@ Les mesures de chaque voiture sont dans son module (clio.py, fiesta.py) : METRIC
 
 import csv
 import json
+import math
 import threading
 import time
 from collections import deque
@@ -19,6 +20,22 @@ L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateu
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
 LABEL_EVERY_MS = 1000  # étiquettes « sport », « road », « section » enregistrées une fois par seconde (lecture)
 UNDO_S = 15           # un appui sur un bouton de tronçon s'annule pendant ce temps
+# GPS (tablette Android : gps.py) : position enregistrée comme les mesures, une par seconde au plus
+GPS_KEYS = ("gps_lat", "gps_lon", "gps_speed", "gps_alt", "gps_head", "gps_acc")
+GPS_EVERY_MS = 900
+GPS_RECENT_MS = 5000      # position plus ancienne : GPS perdu (témoin du dashboard)
+# Points de passage (réglés sur la page du serveur, synchro.sync_waypoints) : en y passant dans le bon sens, un
+# nouveau tronçon de leur type commence, comme un appui sur son bouton
+WAYPOINT_RADIUS_M = 40    # rayon par défaut
+WAYPOINT_HEADING = 60     # écart toléré (°) avec le sens de passage du point
+WAYPOINT_REARM = 2.5      # ressorti à plus de 2,5 rayons : le point peut se déclencher à nouveau
+MANUAL_PRIORITY_S = 60    # bouton appuyé depuis moins d'une minute : le point de passage ne change rien
+
+
+def distance_m(lat1, lon1, lat2, lon2):
+    """Distance au sol entre deux positions (m), assez juste à l'échelle d'un carrefour."""
+    k = math.cos(math.radians((lat1 + lat2) / 2))
+    return 6_371_000 * math.radians(math.hypot(lat2 - lat1, (lon2 - lon1) * k))
 
 # Réglages modifiables à chaud depuis l'onglet Réglages : clé -> (min, max)
 SETTINGS_LIMITS = {
@@ -129,6 +146,12 @@ class State:
         # {"n", "road", "t_ms", "trip", "prev"}, prev : le tronçon d'avant (Annuler). Fini avec le trajet
         self.section = None
         self.section_seen = set()   # trajets dont le dernier tronçon a été repris de la base (relance en route)
+        self.manual_ms = 0          # dernier appui sur un bouton de tronçon (priorité sur les points de passage)
+        self.gps = None             # dernière position : {"t", "lat", "lon", "speed", "alt", "head", "acc"}
+        self.gps_ms = 0             # dernière position enregistrée
+        self.waypoints = []         # points de passage : [{"id", "lat", "lon", "head", "radius", "road", "name"}]
+        self.waypoints_file = None  # data/points.json : les derniers reçus du serveur (pour rouler hors réseau)
+        self.wp_inside = set()      # points où l'on est passé, pas encore ressorti
 
     # --- Voiture en cours ---
 
@@ -335,11 +358,14 @@ class State:
             self.update("road", sec["road"], t)
             self.update("section", sec["n"], t)
 
-    def new_section(self, road):
-        """Bouton de tronçon : un nouveau tronçon de ce type commence maintenant (numéro suivant dans le trajet)."""
+    def new_section(self, road, auto=None):
+        """Bouton de tronçon : un nouveau tronçon de ce type commence maintenant (numéro suivant dans le trajet).
+        auto : nom du point de passage qui l'a déclenché (None : appui sur le bouton)."""
         if road not in trajets.ROAD_LABELS:
             raise ValueError("type de route inconnu")
         t = donnees.now_ms()
+        if auto is None:
+            self.manual_ms = t
         with self.lock:
             prev, trip = self.section, self.trip
         if prev:
@@ -347,7 +373,7 @@ class State:
         else:   # premier appui du trajet, ou relance du script en route : les appuis déjà dans la base comptent
             n = 1 + self._presses_in_trip(trip, t)
         with self.lock:
-            self.section = {"n": n, "road": road, "t_ms": t, "trip": trip, "prev": prev}
+            self.section = {"n": n, "road": road, "t_ms": t, "trip": trip, "prev": prev, "auto": auto}
         self.update("troncon", road, t)
         self.record_labels(force=True, t=t)
 
@@ -407,7 +433,71 @@ class State:
         if not sec:
             return None
         return {"n": sec["n"], "road": sec["road"], "label": trajets.ROAD_LABELS[sec["road"]], "t_ms": sec["t_ms"],
-                "undo_until": sec["t_ms"] + UNDO_S * 1000}
+                "undo_until": sec["t_ms"] + UNDO_S * 1000, "auto": sec.get("auto")}
+
+    # --- GPS et points de passage ---
+
+    def gps_fix(self, lat, lon, speed=None, alt=None, head=None, acc=None, t_ms=None):
+        """Nouvelle position (speed en km/h, head : cap en °, acc : précision en m). Enregistrée une fois par
+        seconde au plus ; déclenche les points de passage."""
+        t = t_ms or donnees.now_ms()
+        with self.lock:
+            self.gps = {"t": t, "lat": lat, "lon": lon, "speed": speed, "alt": alt, "head": head, "acc": acc}
+            record = t - self.gps_ms >= GPS_EVERY_MS
+            if record:
+                self.gps_ms = t
+        if record:
+            for key, v, nd in zip(GPS_KEYS, (lat, lon, speed, alt, head, acc), (6, 6, 1, 1, 0, 1)):
+                if v is not None:
+                    self.update(key, round(v, nd), t)
+        self._check_waypoints(lat, lon, speed, head)
+
+    def _check_waypoints(self, lat, lon, speed, head):
+        for wp in list(self.waypoints):
+            r = wp.get("radius") or WAYPOINT_RADIUS_M
+            d = distance_m(lat, lon, wp["lat"], wp["lon"])
+            if d > WAYPOINT_REARM * r:
+                self.wp_inside.discard(wp["id"])
+                continue
+            if d > r or wp["id"] in self.wp_inside:
+                continue
+            # Sens de passage : seulement en roulant (le cap d'une voiture arrêtée ne veut rien dire)
+            if wp.get("head") is not None and head is not None and (speed or 0) > 5:
+                if abs((head - wp["head"] + 180) % 360 - 180) > WAYPOINT_HEADING:
+                    continue
+            self.wp_inside.add(wp["id"])
+            sec = self.section
+            if donnees.now_ms() - self.manual_ms < MANUAL_PRIORITY_S * 1000 or (sec and sec["road"] == wp["road"]):
+                continue
+            print(f"Point de passage « {wp.get('name') or wp['id']} » : tronçon {trajets.ROAD_LABELS[wp['road']]}")
+            self.new_section(wp["road"], auto=wp.get("name") or "point de passage")
+
+    def load_waypoints(self, path):
+        self.waypoints_file = path
+        try:
+            self.set_waypoints(json.loads(path.read_text(encoding="utf-8")), save=False)
+        except (OSError, ValueError):
+            pass
+
+    def set_waypoints(self, points, save=True):
+        """Points de passage reçus du serveur : gardés s'ils sont valides, et enregistrés pour rouler hors réseau."""
+        out = []
+        for p in points if isinstance(points, list) else []:
+            try:
+                wp = {"id": str(p["id"]), "lat": float(p["lat"]), "lon": float(p["lon"]), "road": int(p["road"]),
+                      "head": None if p.get("head") is None else float(p["head"]),
+                      "radius": float(p.get("radius") or WAYPOINT_RADIUS_M), "name": str(p.get("name") or "")[:80]}
+            except (KeyError, TypeError, ValueError):
+                continue
+            if wp["road"] in trajets.ROAD_LABELS:
+                out.append(wp)
+        changed = out != self.waypoints
+        self.waypoints = out
+        if save and changed and self.waypoints_file:
+            tmp = self.waypoints_file.with_suffix(".tmp")
+            tmp.write_text(json.dumps(out, indent=1), encoding="utf-8")
+            tmp.replace(self.waypoints_file)
+        return changed
 
     def derive(self):
         self.record_labels()
@@ -514,6 +604,9 @@ class State:
                 "trip": self.trip,
                 "sport": self.sport,
                 "section": self.section_info(),
+                "gps": self.gps and {"t": self.gps["t"], "acc": self.gps["acc"],
+                                     "ok": time.time() * 1000 - self.gps["t"] < GPS_RECENT_MS},
+                "waypoints": len(self.waypoints),
                 "trip_live": self._trip_live(),
                 "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
                 "price": next((p for p in self._prices_unlocked() if p["current"]), None),

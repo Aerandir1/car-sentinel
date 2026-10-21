@@ -58,12 +58,25 @@ LABELS = [
 ]
 
 
+# Mesures GPS de la tablette (gps.py) : vitesse et altitude se tracent ; position, cap et précision servent à la
+# carte du serveur (« map_only » : pas de courbe)
+GPS = [
+    {"key": "gps_lat", "label": "Latitude", "unit": "°", "range": (-90, 90), "map_only": True},
+    {"key": "gps_lon", "label": "Longitude", "unit": "°", "range": (-180, 180), "map_only": True},
+    {"key": "gps_speed", "label": "Vitesse GPS", "unit": "km/h", "range": (0, 200)},
+    {"key": "gps_alt", "label": "Altitude", "unit": "m", "range": (0, 500)},
+    {"key": "gps_head", "label": "Cap", "unit": "°", "range": (0, 360), "map_only": True},
+    {"key": "gps_acc", "label": "Précision GPS", "unit": "m", "range": (0, 50), "map_only": True},
+]
+
+
 def meta(car):
     """Libellés et unités des métriques de la voiture, pour que la page du serveur les affiche comme le dashboard."""
     out = [{"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold}
            for k, lbl, u, _cmd, _conv, rng, warn, cold in car.METRICS]
     return (out + [derived_meta(d) for d in car.DERIVED]
-            + [{**x, "warn": None, "cold": None, "label_only": True} for x in LABELS])
+            + [{**x, "warn": None, "cold": None, "label_only": True} for x in LABELS]
+            + [{**x, "warn": None, "cold": None} for x in GPS])
 
 
 class Client:
@@ -265,6 +278,17 @@ def sync_calib(client, garage, name=None):
     return taken, True
 
 
+def sync_waypoints(client, state):
+    """Points de passage réglés sur la page du serveur : repris tels quels (le serveur fait foi). Renvoie True s'ils
+    ont changé ; False avec un serveur qui n'en a pas (404)."""
+    code, st = client.request("GET", "/api/waypoints")
+    if code == 404:
+        return False
+    if code != 200:
+        raise SyncError(f"le serveur a répondu {code} : {st}")
+    return state.set_waypoints(st)
+
+
 def sync_prices(client, state):
     """Prix du carburant de chaque voiture, avec ceux du serveur (table prices : par voiture, à partir d'une date,
     réglés sur sa page ou envoyés par un dashboard). Un prix réglé ici part au serveur, daté du moment du réglage ;
@@ -414,6 +438,8 @@ def sync_loop(state, bases, version, garages=lambda: []):
                 n = sum(sync_once(db, client, name, version, car) for db, car in bases())
                 for line in sync_prices(client, state):
                     print(f"Prix du carburant, {line}")
+                if sync_waypoints(client, state):
+                    print(f"Points de passage : {len(state.waypoints)} repris du serveur")
                 if state.diag is not None:
                     nd = sync_diag(client, state.diag.dir, name)
                     if nd:

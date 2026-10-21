@@ -14,6 +14,7 @@ import constructeur
 import demo
 import requetes
 import voitures
+from etat import GPS_KEYS
 
 try:
     import fcntl   # verrou du port série (Linux) ; absent sous Windows, où un port COM n'est ouvert que par un seul programme
@@ -403,6 +404,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
         if extra:
             print(f"Mesures {car.MAKER} lues en plus de l'OBD standard : " + ", ".join(extra))
         keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys] + ["sport", "road", "section"]
+        keys += list(GPS_KEYS) if state.gps else []   # tablette avec GPS (gps.py)
         print(f"Type de carburant annoncé (01 51) : {state.fuel_type or 'non donné'}"
               + ("" if "ethanol" in state.supported or "ethanol" not in car.FORCE_PROBE
                  else " ; taux d'éthanol (01 52) : pas de réponse"))

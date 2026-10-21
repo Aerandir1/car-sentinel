@@ -20,6 +20,7 @@ from pathlib import Path
 
 import config
 import diagnostic
+import gps
 import synchro
 import trajets
 import voitures
@@ -106,6 +107,9 @@ def main():
     state = State()
     # Prix du carburant de chaque voiture, dernière voiture vue (onglet Réglages)
     state.load_settings(data / "reglages.json")
+    # Points de passage (page du serveur), les derniers reçus ; positions GPS de la tablette (gps.py)
+    state.load_waypoints(data / "points.json")
+    gps.STATE = state
     # Serveur de car.conf, tant qu'il n'a pas été changé dans l'onglet Réglages
     state.default_settings({"server": args.server or "", "server_name": args.server_name or ""})
     # Chaque voiture a ses bases et son étalonnage dans data/ (ouverts à sa première utilisation)

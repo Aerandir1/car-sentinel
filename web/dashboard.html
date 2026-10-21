@@ -206,6 +206,12 @@
             font-weight: 600; font-variant-numeric: tabular-nums; }
   .k-foot > span { flex: 1 1 0; }
   .k-foot > span:last-child { text-align: right; }
+  /* Témoin GPS (tablette) : vert avec une position récente, gris sinon */
+  .k-foot > .k-gps { flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800;
+                     letter-spacing: .12em; }
+  .k-gps::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--k-off); }
+  .k-gps.ok { color: var(--ok); }
+  .k-gps.ok::before { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
   /* Commandes au-dessus de l'écran central : Sport et tronçons, étiquettes de la conduite enregistrées avec les
      mesures pour l'apprentissage. Lunette métallique et fond bombé des cadrans */
   .k-mid { align-self: center; max-height: 100%; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
@@ -749,7 +755,7 @@
         <div><small>Moyenne</small><b id="k-avg">—</b><span>L/100 km</span></div>
         <div><small>Trajet</small><b id="k-cost">—</b><span id="k-dist"></span><span class="k-price" id="k-price"></span></div>
       </div>
-      <div class="k-foot"><span id="k-clock"></span><span id="k-ext"></span></div>
+      <div class="k-foot"><span id="k-clock"></span><span class="k-gps" id="k-gps" hidden>GPS</span><span id="k-ext"></span></div>
     </div>
     </div>
     <div class="k-dial" id="k-boost-box" title="Voir la courbe du turbo"><canvas id="k-boost"></canvas></div>
@@ -1246,7 +1252,12 @@ function updateCluster(s) {
   if (!sportBusy) $("k-sport").setAttribute("aria-pressed", String(s.sport === 1));
   const sec = s.section;
   $("k-sec-now").innerHTML = sec ? `Tronçon <b>${sec.n}</b> · ${sec.label} · ${duree(Math.max(0, s.t * 1000 - sec.t_ms))}`
-    : "Tronçon : choisir le type de route";
+    + (sec.auto ? " · auto" : "") : "Tronçon : choisir le type de route";
+  $("k-sec-now").title = sec?.auto ? `Déclenché par le point de passage « ${sec.auto} »` : "";
+  $("k-gps").hidden = !s.gps;
+  $("k-gps").classList.toggle("ok", !!s.gps?.ok);
+  $("k-gps").title = !s.gps ? "" : s.gps.ok ? `GPS : position à ${Math.round(s.gps.acc ?? 0)} m près`
+    + (s.waypoints ? ` · ${s.waypoints} point${s.waypoints > 1 ? "s" : ""} de passage` : "") : "GPS : pas de position récente";
   $("k-undo").hidden = !sec || s.t * 1000 > sec.undo_until;
   for (const b of $("k-roads").children) b.setAttribute("aria-pressed", String(sec?.road === +b.dataset.road));
   for (const el of $("k-bars").children) {

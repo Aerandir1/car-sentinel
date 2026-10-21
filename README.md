@@ -301,7 +301,10 @@ passe d'une voiture à l'autre : elle reconnaît celle où on la branche.
   tablette se déclare sous son modèle (ex. « samsung SM-X200 ») ; les deux se changent dans l'onglet Réglages.
   Sur la route, le serveur n'est joignable que par le VPN (WireGuard sur la tablette) ;
 - le bouton retour ferme la courbe ouverte, puis revient au tableau de bord ; le thème « Auto » suit le mode
-  sombre d'Android.
+  sombre d'Android ;
+- GPS (autorisation demandée au premier lancement) : une position par seconde enregistrée avec les mesures
+  (`gps_lat`, `gps_lon`, `gps_speed`, `gps_alt`, `gps_head`, `gps_acc`), carte du trajet sur le serveur, et
+  points de passage (voir « Tronçons »). Témoin « GPS » en bas de l'écran central du mode Conduite.
 
 Car Sentinel est une autre appli que l'ancienne Fiesta Sentinel (autre identifiant, `fr.car.sentinel`) : les
 deux s'installent côte à côte, mais une seule doit garder la clé USB. Désinstaller Fiesta Sentinel une fois Car
@@ -623,6 +626,20 @@ Un trajet est clos quand le moteur est arrêté depuis 5 min. Il porte un identi
 vitesse, carburant consommé et prix au litre, démarrage à froid ou à chaud, maximums, arrêts moteur, part sans
 réponse, VIN, éco-conduite) et une note libre saisie dans l'onglet **Trajets**. Les événements (démarrage, arrêt
 moteur, passage d'un seuil d'alerte) sont gardés à part. L'onglet montre les trajets de la voiture en cours.
+
+### Mode sport et tronçons
+
+Étiquettes pour l'apprentissage, enregistrées avec les mesures et exportées par le serveur en colonnes du CSV :
+
+- **Sport** (gros bouton du mode Conduite) : `sport` = 1 en conduite sportive, 0 sinon, chaque seconde ;
+- **tronçons** : `road` (1 ville, 2 route, 3 voie rapide, 4 bouchons) et `section` (numéro dans le trajet),
+  chaque seconde ; `troncon` à chaque début. Un tronçon commence par un appui sur une touche de type de route
+  (Annuler pendant 15 s), ou tout seul en passant un **point de passage** (tablette avec GPS) : réglés sur la
+  page du serveur (depuis la trace d'un trajet, ils retiennent le sens de passage), repris à chaque synchro et
+  gardés dans `data/points.json` pour rouler hors réseau. Un appui dans la minute d'avant passe devant.
+
+Après le trajet, la page du serveur montre la trace sur une carte et permet de corriger les tronçons, ou de les
+déterminer d'après OpenStreetMap ; les tronçons corrigés remplacent ceux d'ici dans son CSV.
 
 Les seuils sont en haut de `src/trajets.py`. Après un changement, tout se recalcule depuis le brut, identifiants
 et notes gardés :

@@ -8,10 +8,14 @@ Tout se passe comme avec la voiture : une session, des mesures horodatées, des 
 data/<voiture>-demo.db efface la démo locale.
 """
 
+import math
 import random
 import time
 
+from etat import GPS_KEYS
+
 HZ = 10
+GPS_START = (48.1113, -1.6800)   # départ de la position simulée (Rennes)
 BARO = 101.3
 AMBIENT = 16.0
 # Le trajet : (durée en s, pédale en %, freinage en km/h par s)
@@ -42,7 +46,10 @@ def run(state, still_on):
     state.sources = {k: {"kind": "demo", "cmd": None} for k in state.supported}
     state.raw_keys = list(car.DEMO_RAW)
     state.start_session("démo · valeurs simulées", car.DEMO_VIN,
-                        state.supported + ["boost"] + [f"brut.{k}" for k in car.DEMO_RAW] + ["sport", "road", "section"])
+                        state.supported + ["boost"] + [f"brut.{k}" for k in car.DEMO_RAW] + ["sport", "road", "section"]
+                        + list(GPS_KEYS))
+    # GPS simulé : la voiture avance avec la vitesse simulée et tourne à chaque étape du trajet
+    pos = {"lat": GPS_START[0], "lon": GPS_START[1], "head": 75.0, "t": 0.0}
     state.status = "connecté (démo, valeurs simulées)"
     dt = sim["dt"]
     while still_on():
@@ -51,6 +58,7 @@ def run(state, still_on):
         t_step += dt
         if t_step >= dur:
             step, t_step = (step + 1) % len(SCRIPT), 0.0
+            pos["head"] = (pos["head"] + rnd.choice((-90, -40, 0, 30, 90))) % 360
         engine_off = pedal_target is None
         pedal = max(0.0, noise(pedal_target, 3) if pedal_target else 0.0)
 
@@ -78,5 +86,13 @@ def run(state, still_on):
         for key, (gain, offset) in car.DEMO_RAW.items():
             state.update(f"brut.{key}", round((values[key] - offset) / gain))
         state.derive()
+        # Position : déplacement à la vitesse simulée, une position GPS par seconde
+        d = speed / 3.6 * dt
+        pos["lat"] += d * math.cos(math.radians(pos["head"])) / 111_320
+        pos["lon"] += d * math.sin(math.radians(pos["head"])) / (111_320 * math.cos(math.radians(pos["lat"])))
+        pos["t"] += dt
+        if pos["t"] >= 1:
+            pos["t"] = 0.0
+            state.gps_fix(pos["lat"], pos["lon"], speed, noise(52, 1), pos["head"] if speed > 3 else None, noise(5, 1))
         time.sleep(max(0.0, dt - (time.time() - t0)))
         state.hz = 1.0 / max(time.time() - t0, 1e-3)

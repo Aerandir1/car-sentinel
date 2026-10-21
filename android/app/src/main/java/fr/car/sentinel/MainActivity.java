@@ -34,9 +34,20 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
+        // Notifications (service) et localisation (GPS des tronçons) d'un coup, puis la batterie
+        java.util.List<String> ask = new java.util.ArrayList<>();
         if (Build.VERSION.SDK_INT >= 33
                 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);   // puis la batterie
+            ask.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && !getPreferences(MODE_PRIVATE).getBoolean("gps_demande", false)) {
+            getPreferences(MODE_PRIVATE).edit().putBoolean("gps_demande", true).apply();
+            ask.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            ask.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (!ask.isEmpty()) {
+            requestPermissions(ask.toArray(new String[0]), 1);
         } else {
             askBatteryExemption();
         }
@@ -69,7 +80,10 @@ public class MainActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
-        askBatteryExemption();   // après la fenêtre des notifications, pour ne pas les empiler
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startForegroundService(new Intent(this, SentinelService.class));   // le service prend le GPS
+        }
+        askBatteryExemption();   // après la fenêtre des autorisations, pour ne pas les empiler
     }
 
     /**
