@@ -58,7 +58,36 @@ def make_handler(state):
                             "source": src, "n": n})
         return out
 
+    def trip_sections(db_path, trips):
+        """Tronçons de chaque trajet (boutons de type de route du mode Conduite), ajoutés à sa fiche."""
+        db = donnees.connect(db_path)
+        try:
+            for t in trips:
+                # En cours : le dernier tronçon dure jusqu'à maintenant (fin à None pour la page)
+                t["sections"] = trajets.sections(db, t["start_ms"], t["end_ms"] if t["closed"] else donnees.now_ms())
+                if t["sections"] and not t["closed"]:
+                    t["sections"][-1]["end_ms"] = None
+        finally:
+            db.close()
+
+    def section_marks(db_path, trip):
+        """Début de chaque tronçon d'un trajet, pour les repères des courbes : [[t_ms, numéro, libellé]]."""
+        if trip is None:
+            return []
+        db = donnees.connect(db_path)
+        try:
+            row = db.execute("SELECT start_ms, end_ms, closed FROM trips WHERE id = ?", (trip,)).fetchone()
+            secs = trajets.sections(db, row[0], row[1] if row[2] else 2**62, detail=False) if row else []
+        finally:
+            db.close()
+        return [[s["start_ms"], s["n"], s["label"]] for s in secs]
+
     def history(db_path, trip, key, from_ms, to_ms):
+        h = curve(db_path, trip, key, from_ms, to_ms)
+        h["marks"] = section_marks(db_path, h["trip_id"])
+        return h
+
+    def curve(db_path, trip, key, from_ms, to_ms):
         """Courbe d'une métrique ; une mesure constructeur validée est recalculée depuis sa valeur brute avec
         l'étalonnage actuel (les trajets passés profitent d'un étalonnage corrigé)."""
         # (pas en démo : la démo enregistre aussi la vraie valeur, qu'on garde pour comparer)
@@ -115,6 +144,7 @@ def make_handler(state):
                     num = lambda k: int(q[k]) if q.get(k) else None
                     if path == "/api/trips":
                         body = donnees.trips(db_path, num("limit") or 200)
+                        trip_sections(db_path, body)
                         for t in body:   # détail du score d'éco-conduite : points perdus sur chaque défaut
                             p = trajets.eco_penalties(t) if t["drive_s"] is not None else None
                             t["eco_penalties"] = p and {k: round(v, 1) for k, v in p.items()}
@@ -188,6 +218,21 @@ def make_handler(state):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps({"sport": state.sport}).encode(), "application/json")
+            elif self.path in ("/api/section", "/api/section/undo"):
+                # Boutons de tronçon du mode Conduite : nouveau tronçon d'un type de route, ou dernier appui annulé
+                try:
+                    if self.path == "/api/section":
+                        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                        state.new_section(int(body["road"]))
+                    elif not state.undo_section():
+                        self._send(409, "plus rien à annuler".encode(), "text/plain; charset=utf-8")
+                        return
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    self._send(400, b"JSON invalide", "text/plain")
+                    return
+                with state.lock:
+                    sec = state.section_info()
+                self._send(200, json.dumps({"section": sec}).encode(), "application/json")
             elif self.path == "/api/calib":
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")

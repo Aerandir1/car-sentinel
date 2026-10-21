@@ -10,13 +10,15 @@ import time
 from collections import deque
 
 import donnees
+import trajets
 import voitures
 
 BARO_DEFAULT_KPA = 101.3
 L100_MIN_KMH = 5     # en dessous (arrêt, manœuvre), pas de L/100 km
 L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateur de bord
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
-SPORT_EVERY_MS = 1000  # étiquette « sport » enregistrée au moins une fois par seconde pendant la lecture
+LABEL_EVERY_MS = 1000  # étiquettes « sport » et « road » enregistrées une fois par seconde pendant la lecture
+UNDO_S = 15           # un appui sur un bouton de tronçon s'annule pendant ce temps
 
 # Réglages modifiables à chaud depuis l'onglet Réglages : clé -> (min, max)
 SETTINGS_LIMITS = {
@@ -122,7 +124,11 @@ class State:
         # Étiquette pour l'apprentissage (bouton Sport du mode Conduite) : 1 conduite sportive, 0 normale. Enregistrée
         # dans samples sous la clé « sport », comme une mesure ; repart à 0 à chaque lancement
         self.sport = 0
-        self.sport_ms = 0     # dernier enregistrement de l'étiquette
+        self.label_ms = 0     # dernier enregistrement des étiquettes
+        # Tronçon en cours (boutons de type de route du mode Conduite, voir trajets.sections) :
+        # {"n", "road", "t_ms", "trip", "prev"}, prev : le tronçon d'avant (Annuler). Fini avec le trajet
+        self.section = None
+        self.section_seen = set()   # trajets dont le dernier tronçon a été repris de la base (relance en route)
 
     # --- Voiture en cours ---
 
@@ -315,18 +321,94 @@ class State:
         """Bouton Sport : enregistré tout de suite, puis chaque seconde par derive."""
         with self.lock:
             self.sport = 1 if on else 0
-        self.record_sport(force=True)
+        self.record_labels(force=True)
 
-    def record_sport(self, force=False):
+    def record_labels(self, force=False, t=None):
+        t = t or donnees.now_ms()
+        with self.lock:
+            if not force and t - self.label_ms < LABEL_EVERY_MS:
+                return
+            self.label_ms = t
+            road = self.section and self.section["road"]
+        self.update("sport", self.sport, t)
+        if road:
+            self.update("road", road, t)
+
+    def new_section(self, road):
+        """Bouton de tronçon : un nouveau tronçon de ce type commence maintenant (numéro suivant dans le trajet)."""
+        if road not in trajets.ROAD_LABELS:
+            raise ValueError("type de route inconnu")
         t = donnees.now_ms()
         with self.lock:
-            if not force and t - self.sport_ms < SPORT_EVERY_MS:
-                return
-            self.sport_ms = t
-        self.update("sport", self.sport, t)
+            prev, trip = self.section, self.trip
+        if prev:
+            n, trip = prev["n"] + 1, prev["trip"]
+        else:   # premier appui du trajet, ou relance du script en route : les appuis déjà dans la base comptent
+            n = 1 + self._presses_in_trip(trip, t)
+        with self.lock:
+            self.section = {"n": n, "road": road, "t_ms": t, "trip": trip, "prev": prev}
+        self.update("troncon", road, t)
+        self.record_labels(force=True, t=t)
+
+    def undo_section(self):
+        """Annule le dernier appui (moins de UNDO_S secondes) : effacé de la base, le tronçon d'avant reprend (ses
+        étiquettes « road » couvrent aussi le temps de l'appui annulé)."""
+        t = donnees.now_ms()
+        with self.lock:
+            sec = self.section
+            if not sec or t - sec["t_ms"] > UNDO_S * 1000:
+                return False
+            self.section = sec["prev"]
+        rec = self.active_recorder()
+        if rec:
+            rec.relabel("troncon", sec["t_ms"], t)
+            rec.relabel("road", sec["t_ms"], t, sec["prev"] and sec["prev"]["road"])
+        self.record_labels(force=True, t=t + 1)
+        return True
+
+    def _presses_in_trip(self, trip, t):
+        db_path = self.car_db()
+        if not db_path or not db_path.exists():
+            return 0
+        db = donnees.connect(db_path)
+        try:
+            row = trip and db.execute("SELECT start_ms FROM trips WHERE id = ?", (trip,)).fetchone()
+            if row:
+                lo = row[0] - trajets.SECTION_EARLY_S * 1000
+            else:   # trajet pas encore calculé (premières secondes) : depuis la fin du dernier trajet fini
+                lo = db.execute("SELECT coalesce(max(end_ms), 0) + 1 FROM trips WHERE closed = 1").fetchone()[0]
+            return len(trajets.presses(db, lo, t))
+        finally:
+            db.close()
+
+    def _resume_section(self, row):
+        """Relance du script en plein trajet : reprend le dernier tronçon enregistré (une fois par trajet)."""
+        self.section_seen.add(row["id"])
+        db_path = self.car_db()
+        if not db_path:
+            return
+        db = donnees.connect(db_path)
+        try:
+            secs = trajets.sections(db, row["start_ms"], 2**62, detail=False)
+        finally:
+            db.close()
+        if secs:
+            last = secs[-1]
+            with self.lock:
+                if self.section is None:
+                    self.section = {"n": last["n"], "road": last["road"], "t_ms": last["start_ms"],
+                                    "trip": row["id"], "prev": None}
+
+    def section_info(self):
+        """Tronçon en cours pour la page. Appelé sous self.lock."""
+        sec = self.section
+        if not sec:
+            return None
+        return {"n": sec["n"], "road": sec["road"], "label": trajets.ROAD_LABELS[sec["road"]], "t_ms": sec["t_ms"],
+                "undo_until": sec["t_ms"] + UNDO_S * 1000}
 
     def derive(self):
-        self.record_sport()
+        self.record_labels()
         with self.lock:
             m = self.values.get("map")
             t_map = self.times.get("map")
@@ -361,12 +443,23 @@ class State:
 
     def set_trip(self, row):
         """Fiche du trajet en cours (trajets.update), None sans trajet en cours."""
+        resume = False
         with self.lock:
+            # Tronçon : fini avec son trajet ; un appui des premières secondes (trajet pas encore calculé) rejoint
+            # le trajet qui apparaît
+            sec = self.section
+            if sec and sec["trip"] is None and row:
+                sec["trip"] = row["id"]
+            elif sec and (row is None or row["id"] != sec["trip"]):
+                self.section = None
+            resume = row is not None and self.section is None and row["id"] not in self.section_seen
             self.trip = row["id"] if row else None
             self.trip_base = row and {k: row[k] for k in ("id", "end_ms", "fuel_l", "distance_km")}
             if row:
                 while self.increments and self.increments[0][0] <= row["end_ms"]:
                     self.increments.popleft()
+        if resume:
+            self._resume_section(row)
 
     def _trip_live(self):
         """Carburant et distance du trajet en cours, à jour de la dernière mesure. Appelé sous self.lock."""
@@ -396,6 +489,7 @@ class State:
                 d.clear()
             self.increments.clear()
             self.trip, self.trip_base = None, None   # l'autre base : sa fiche arrive au prochain passage de trajets.py
+            self.section = None
             self.hz, self.ping_ms = 0.0, None
 
     def reset_minmax(self):
@@ -414,6 +508,7 @@ class State:
                 "ts": dict(self.times),
                 "trip": self.trip,
                 "sport": self.sport,
+                "section": self.section_info(),
                 "trip_live": self._trip_live(),
                 "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
                 "price": next((p for p in self._prices_unlocked() if p["current"]), None),
@@ -443,6 +538,7 @@ class State:
             return {
                 "car": voitures.info(car),
                 "cars": voitures.choices(),
+                "roads": [{"code": c, "key": k, "label": lbl} for c, k, lbl in trajets.ROADS],
                 "source": self.source,
                 "vin": self.vin,
                 "metrics": metrics,

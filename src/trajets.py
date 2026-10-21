@@ -13,6 +13,8 @@ lancer `python src/trajets.py --voiture clio --rebuild` recalcule tout (les iden
   éco-conduite   voir driving() et eco_score() : accélérations et freinages brusques, rapports montés tard, pied
                  lourd, ralenti prolongé, frein moteur ; un score sur 100 pour les trajets d'au moins ECO_MIN_KM.
                  Et le régulateur (temps, km et carburant), hors score
+  tronçons       boutons de type de route du mode Conduite : chaque appui (mesure « troncon », valeur : code de
+                 ROADS) ouvre un tronçon, numéroté à partir de 1 dans le trajet ; voir sections()
 """
 
 import argparse
@@ -43,6 +45,11 @@ CRUISE_KMH = 50
 CRUISE_PEDAL = 1          # % de la course : au repos
 CRUISE_MIN_S = 10
 ECO_MIN_KM = 1            # trajet plus court : pas de score
+# Tronçons : type de route choisi à chaque appui, (code enregistré, clé, libellé). Code aussi enregistré chaque
+# seconde sous « road » tant que le tronçon dure (etat.py), comme étiquette des mesures
+ROADS = ((1, "ville", "Ville"), (2, "route", "Route"), (3, "rapide", "Voie rapide"), (4, "bouchons", "Bouchons"))
+ROAD_LABELS = {code: label for code, _k, label in ROADS}
+SECTION_EARLY_S = 60      # appui jusqu'à une minute avant le démarrage du moteur : compte dans le trajet
 
 
 def warns(car):
@@ -246,6 +253,34 @@ def stats(db, start, end, runs, car):
         **driving(db, start, end, car),
     }
     out["eco_score"] = eco_score(out)
+    return out
+
+
+def presses(db, lo, hi):
+    """Appuis sur un bouton de tronçon entre lo et hi : [(t_ms, code de ROADS)]."""
+    return db.execute("SELECT t_ms, value FROM samples WHERE key = 'troncon' AND value IS NOT NULL"
+                      " AND t_ms BETWEEN ? AND ? ORDER BY t_ms", (lo, hi)).fetchall()
+
+
+def sections(db, start, end, detail=True):
+    """Tronçons d'un trajet (end : dernière mesure pour un trajet en cours), dans l'ordre. detail : durée, distance,
+    carburant, vitesses ; sinon seulement numéro, type et début (repères des courbes)."""
+    p = presses(db, start - SECTION_EARLY_S * 1000, end)
+    out = []
+    for i, (t0, code) in enumerate(p):
+        t1 = p[i + 1][0] if i + 1 < len(p) else end
+        sec = {"n": i + 1, "road": int(code), "label": ROAD_LABELS.get(int(code), "?"), "start_ms": t0, "end_ms": t1}
+        if detail:
+            series = lambda key: db.execute("SELECT t_ms, value FROM samples WHERE key = ? AND t_ms BETWEEN ? AND ?"
+                                            " ORDER BY t_ms", (key, t0, t1)).fetchall()
+            speed, fuel = series("speed"), series("fuel")
+            km = integrate(speed)
+            hours = max(t1 - t0, 1) / 3_600_000
+            sec.update(duration_s=round((t1 - t0) / 1000), distance_km=round(km, 2),
+                       fuel_l=round(integrate(fuel), 3) if any(v is not None for _t, v in fuel) else None,
+                       avg_speed=round(km / hours, 1),
+                       max_speed=max((v for _t, v in speed if v is not None), default=None))
+        out.append(sec)
     return out
 
 

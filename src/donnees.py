@@ -183,6 +183,11 @@ class Recorder:
         if self.session_id:
             self.queue.put(("sample", self.session_id, t_ms, key, value))
 
+    def relabel(self, key, lo, hi, value=None):
+        """Remplace par value les mesures key entre lo et hi (ms), ou les efface (value None), après l'écriture de
+        celles déjà en file (appui annulé)."""
+        self.queue.put(("relabel", key, lo, hi, value))
+
     def _run(self):
         db = connect(self.path)
         items = []
@@ -218,6 +223,12 @@ class Recorder:
             db.executemany("INSERT INTO samples (session_id, t_ms, key, value) VALUES (?, ?, ?, ?)", samples)
             for sid, end in ends.items():
                 db.execute("UPDATE sessions SET end_ms = max(end_ms, ?) WHERE id = ?", (end, sid))
+            for _op, key, lo, hi, value in (i for i in items if i[0] == "relabel"):
+                if value is None:
+                    db.execute("DELETE FROM samples WHERE key = ? AND t_ms BETWEEN ? AND ?", (key, lo, hi))
+                else:
+                    db.execute("UPDATE samples SET value = ? WHERE key = ? AND t_ms BETWEEN ? AND ?",
+                               (value, key, lo, hi))
 
 
 TRIP_FIELDS = ("id", "kind", "name", "start_ms", "end_ms", "closed", "vin", "distance_km", "coolant_start",

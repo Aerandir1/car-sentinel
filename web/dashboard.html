@@ -210,6 +210,21 @@
   .k-sport { min-height: 40px; padding: 6px 18px; border-radius: 20px; border: 2px solid var(--line-2); background: none;
              color: var(--dim); font: inherit; font-size: 14px; font-weight: 800; letter-spacing: .14em; cursor: pointer;
              transition: color .2s, background .2s, border-color .2s, box-shadow .2s; }
+  /* Tronçons : un bouton par type de route, chaque appui ouvre un nouveau tronçon (numéroté dans le trajet) */
+  .k-sec { display: grid; gap: 6px; border-top: 1px solid var(--k-edge); padding-top: 10px; }
+  .k-sec-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 30px; }
+  .k-sec-head span { color: var(--dim); font-size: 13px; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: .1em; text-align: left; flex: 1 1 0; width: 0; white-space: nowrap; overflow: hidden;
+                     text-overflow: ellipsis; }
+  .k-sec-head span b { color: var(--text); }
+  .k-undo { min-height: 30px; padding: 2px 12px; border-radius: 15px; border: 1px solid var(--line-2); background: none;
+            color: var(--text); font: inherit; font-size: 13px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+  .k-roads { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .k-roads button { min-height: 44px; padding: 4px 6px; border-radius: 10px; border: 2px solid var(--line-2);
+                    background: none; color: var(--dim); font: inherit; font-size: 14px; font-weight: 700;
+                    line-height: 1.1; cursor: pointer; transition: color .2s, background .2s, border-color .2s; }
+  .k-roads button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
+  .k-roads button:active { transform: scale(.96); }
   .k-sport[aria-pressed="true"] { border-color: var(--hot); background: var(--hot); color: #fff;
                                   box-shadow: 0 0 14px color-mix(in srgb, var(--hot) 70%, transparent); }
   /* Jauges à segments sous les cadrans (mesures cochées « Mode conduite ») */
@@ -241,6 +256,22 @@
     body.drive #view-dash { flex: 1 1 0; min-height: 0; grid-template-rows: minmax(0, 1fr); }
     body.drive #cluster { min-height: 0; height: 100%; }
   }
+  /* Paysage peu haut (petite tablette, 1024 × 600) : écran central resserré pour que les boutons de tronçon et
+     Sport y tiennent */
+  @media (orientation: landscape) and (min-height: 460px) and (max-height: 720px) {
+    .k-screen { gap: 7px; padding: 10px 14px 8px; }
+    .k-tells svg { width: 22px; height: 22px; }
+    .k-speed b { font-size: clamp(50px, 10vmin, 110px); }
+    .k-speed small { margin-top: 0; font-size: 13px; }
+    .k-info { padding-top: 6px; }
+    .k-info span:not(#k-dist) { display: none; }
+    .k-sec { padding-top: 6px; gap: 4px; }
+    .k-sec-head { min-height: 26px; }
+    .k-sec-head span { font-size: 12px; letter-spacing: .06em; }
+    .k-roads { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+    .k-roads button { min-height: 38px; padding: 2px 3px; font-size: 12.5px; }
+    .k-sport { min-height: 32px; padding: 2px 14px; }
+  }
   /* Portrait (tablette, téléphone) : cadrans côte à côte, écran central et jauges dessous ; sur tablette, le tout
      tient dans l'écran et l'écran central prend la hauteur restante */
   @media (orientation: portrait) and (min-width: 600px) and (min-height: 800px) {
@@ -254,6 +285,7 @@
     .k-dial { height: auto; aspect-ratio: 1; }
     .k-screen { grid-column: 1 / -1; grid-row: 2; }
     .k-bars { grid-row: 3; }
+    .k-roads { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   }
 
   /* ---------- Mode Détail : toutes les tuiles, rangées par catégorie ---------- */
@@ -330,6 +362,9 @@
   .t-note { flex: 1 1 240px; }
   .t-saved { color: var(--ok); font-size: 13px; opacity: 0; transition: opacity .3s; }
   /* Éco-conduite : score sur 100 (vert dès 80, jaune dès 60, rouge en dessous) et points perdus par défaut */
+  .t-secs { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 14px;
+            font-variant-numeric: tabular-nums; color: var(--dim); }
+  .t-secs b { color: var(--text); font-weight: 600; }
   .t-eco { display: flex; gap: 14px; align-items: center; font-size: 14px; }
   .score { flex: none; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%;
            border: 3px solid var(--lvl, var(--line-2)); color: var(--lvl, var(--dim)); font-variant-numeric: tabular-nums;
@@ -654,6 +689,11 @@
         <div><small>Conso</small><b id="k-l100">—</b><span>L/100 km</span></div>
         <div><small>Moyenne</small><b id="k-avg">—</b><span>L/100 km</span></div>
         <div><small>Trajet</small><b id="k-cost">—</b><span id="k-dist"></span><span class="k-price" id="k-price"></span></div>
+      </div>
+      <div class="k-sec" aria-label="Tronçons du trajet">
+        <div class="k-sec-head"><span id="k-sec-now"></span>
+          <button class="k-undo" id="k-undo" hidden title="Annule le dernier appui">↶ Annuler</button></div>
+        <div class="k-roads" id="k-roads"></div>
       </div>
       <div class="k-foot"><span id="k-clock"></span>
         <button class="k-sport" id="k-sport" aria-pressed="false"
@@ -1152,6 +1192,11 @@ function updateCluster(s) {
   $("k-clock").textContent = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
   $("k-ext").textContent = v.ambient != null ? `${fmt(v.ambient, "°C")} °C ext.` : "";
   if (!sportBusy) $("k-sport").setAttribute("aria-pressed", String(s.sport === 1));
+  const sec = s.section;
+  $("k-sec-now").innerHTML = sec ? `Tronçon <b>${sec.n}</b> · ${sec.label} · ${duree(Math.max(0, s.t * 1000 - sec.t_ms))}`
+    : "Tronçon : choisir le type de route";
+  $("k-undo").hidden = !sec || s.t * 1000 > sec.undo_until;
+  for (const b of $("k-roads").children) b.setAttribute("aria-pressed", String(sec?.road === +b.dataset.road));
   for (const el of $("k-bars").children) {
     const m = M[el.dataset.key], x = v[el.dataset.key];
     if (!m) continue;
@@ -1546,6 +1591,7 @@ async function poll() {
       meta = await (await fetch("/api/meta")).json();
       applyCar(meta.car);
       buildTiles();
+      buildRoads();
     }
     last = s;
     for (const [k, v] of Object.entries(s.values)) if (s.ts[k]) pushPoint(k, s.ts[k], v);
@@ -1688,6 +1734,25 @@ function toast(msg, kind = "") {
 $("reset").onclick = () => fetch("/api/reset", { method: "POST" });
 // Bouton Sport : bascule l'étiquette côté script (partagée par toutes les pages ouvertes) ; affiché tout de suite,
 // et la lecture suivante de l'état ne le contredit pas pendant l'envoi (sportBusy)
+// Boutons de tronçon : un appui = un nouveau tronçon de ce type (même type que l'actuel compris), numéroté
+// dans le trajet ; Annuler pendant 15 s efface l'appui de la base
+function buildRoads() {
+  const box = $("k-roads"), roads = meta?.roads || [];
+  if (box.dataset.roads === roads.map((r) => r.code).join()) return;
+  box.dataset.roads = roads.map((r) => r.code).join();
+  box.replaceChildren(...roads.map((r) => {
+    const b = document.createElement("button");
+    b.dataset.road = r.code; b.textContent = r.label; b.setAttribute("aria-pressed", "false");
+    b.title = `Nouveau tronçon : ${r.label}`;
+    b.onclick = () => sectionPost("/api/section", { road: r.code });
+    return b;
+  }));
+}
+async function sectionPost(path, body) {
+  try { await fetch(path, { method: "POST", body: JSON.stringify(body || {}) }); } catch (e) {}
+  poll();
+}
+$("k-undo").onclick = () => sectionPost("/api/section/undo");
 $("k-sport").onclick = async () => {
   const btn = $("k-sport"), on = btn.getAttribute("aria-pressed") !== "true";
   btn.setAttribute("aria-pressed", String(on));
@@ -1749,13 +1814,13 @@ async function loadDetail() {
   $("d-chart").classList.add("loading");
   try {
     const h = await (await fetch(q)).json();
-    D.pts = h.points; D.step = h.step_ms;
+    D.pts = h.points; D.step = h.step_ms; D.marks = h.marks || [];
     if (D.range_s && !live && D.pts.length) {   // trajet passé : les dernières minutes du trajet
       const end = D.pts[D.pts.length - 1][0];
       D.pts = D.pts.filter((p) => p[0] >= end - D.range_s * 1000);
     }
   } catch (e) {   // pas de base : ce que la page a vu depuis son ouverture
-    D.pts = (series[D.key] || []).slice(); D.step = null;
+    D.pts = (series[D.key] || []).slice(); D.step = null; D.marks = [];
   }
   $("d-chart").classList.remove("loading");
   // Fenêtre de temps : jusqu'à maintenant en direct, sinon jusqu'à la fin du trajet
@@ -1815,6 +1880,21 @@ function drawDetail() {
     ctx.globalAlpha = 1; ctx.fillStyle = css("--dim"); ctx.textAlign = "left"; ctx.textBaseline = "bottom";
     ctx.fillText(`${txt} ${fmt(thr, m.unit)} ${m.unit}`, L + 6, y(thr) - 3);
   }
+
+  // Début de chaque tronçon : trait pointillé, numéro et type de route en haut (le numéro seul s'il n'y a pas la
+  // place avant le repère suivant)
+  ctx.font = "12px system-ui"; ctx.textAlign = "left"; ctx.textBaseline = "top";
+  const marks = (D.marks || []).filter(([t]) => t >= D.x0 && t <= D.x1);
+  marks.forEach(([t, n, label], i) => {
+    const xm = Math.round(x(t)) + 0.5, room = (i + 1 < marks.length ? x(marks[i + 1][0]) : w - R) - xm - 8;
+    ctx.strokeStyle = css("--dim"); ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(xm, T); ctx.lineTo(xm, T + ph); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = css("--text");
+    const txt = [`${n} · ${label}`, `${n}`].find((s) => ctx.measureText(s).width <= room);
+    if (txt) ctx.fillText(txt, xm + 4, T + 2);
+  });
+  ctx.font = "13px system-ui";
 
   // Courbe : voile de 10 % sous la ligne, ligne de 2 px ; coupée sur les trous
   const gap = Math.max(5000, (D.step || 0) * 3);
@@ -2083,6 +2163,21 @@ function tripCard(t, usual) {
   }
 
   if (t.kind === "trajet" && t.drive_s != null) card.append(ecoBlock(t, el));
+
+  if (t.sections?.length) {   // tronçons (boutons du mode Conduite) : type, heure, durée, distance, vitesse, conso
+    const ul = el("ul", "t-secs");
+    for (const sc of t.sections) {
+      const li = el("li");
+      li.append(el("b", null, `${sc.n} · ${sc.label}`));
+      const parts = [hhmm(sc.start_ms), duree(sc.duration_s * 1000) + (sc.end_ms == null ? " (en cours)" : ""), fmtKm(sc.distance_km),
+                     `${num(sc.avg_speed)} km/h moy.`];
+      if (sc.max_speed != null) parts.push(`max ${num(sc.max_speed)}`);
+      if (sc.fuel_l != null && sc.distance_km >= 0.5) parts.push(`${num(100 * sc.fuel_l / sc.distance_km, 1)} L/100 km`);
+      li.append(" · " + parts.join(" · "));
+      ul.append(li);
+    }
+    card.append(ul);
+  }
 
   card.append(el("div", "t-max", "max : " + [
     `${num(t.max_rpm)} tr/min`, `${num(t.max_speed)} km/h`, `eau ${num(t.max_coolant)} °C`,
