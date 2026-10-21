@@ -16,6 +16,7 @@ BARO_DEFAULT_KPA = 101.3
 L100_MIN_KMH = 5     # en dessous (arrêt, manœuvre), pas de L/100 km
 L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateur de bord
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
+SPORT_EVERY_MS = 1000  # étiquette « sport » enregistrée au moins une fois par seconde pendant la lecture
 
 # Réglages modifiables à chaud depuis l'onglet Réglages : clé -> (min, max)
 SETTINGS_LIMITS = {
@@ -118,6 +119,10 @@ class State:
         self.diag_want = threading.Event()
         self.port_free = threading.Event()
         self.diag = None      # diagnostic.Diag
+        # Étiquette pour l'apprentissage (bouton Sport du mode Conduite) : 1 conduite sportive, 0 normale. Enregistrée
+        # dans samples sous la clé « sport », comme une mesure ; repart à 0 à chaque lancement
+        self.sport = 0
+        self.sport_ms = 0     # dernier enregistrement de l'étiquette
 
     # --- Voiture en cours ---
 
@@ -306,7 +311,22 @@ class State:
         src = self.sources.get(key) or {}
         return src.get("kind") != "maker" or self.calib is None or self.calib.get(key)[2]
 
+    def set_sport(self, on):
+        """Bouton Sport : enregistré tout de suite, puis chaque seconde par derive."""
+        with self.lock:
+            self.sport = 1 if on else 0
+        self.record_sport(force=True)
+
+    def record_sport(self, force=False):
+        t = donnees.now_ms()
+        with self.lock:
+            if not force and t - self.sport_ms < SPORT_EVERY_MS:
+                return
+            self.sport_ms = t
+        self.update("sport", self.sport, t)
+
     def derive(self):
+        self.record_sport()
         with self.lock:
             m = self.values.get("map")
             t_map = self.times.get("map")
@@ -393,6 +413,7 @@ class State:
                 "values": dict(self.values),
                 "ts": dict(self.times),
                 "trip": self.trip,
+                "sport": self.sport,
                 "trip_live": self._trip_live(),
                 "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
                 "price": next((p for p in self._prices_unlocked() if p["current"]), None),

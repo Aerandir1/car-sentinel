@@ -402,7 +402,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             extra.append(f"{key} (22 {car.FALLBACK[key][0]}{'' if validated else ', à étalonner'})")
         if extra:
             print(f"Mesures {car.MAKER} lues en plus de l'OBD standard : " + ", ".join(extra))
-        keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys]
+        keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys] + ["sport"]
         print(f"Type de carburant annoncé (01 51) : {state.fuel_type or 'non donné'}"
               + ("" if "ethanol" in state.supported or "ethanol" not in car.FORCE_PROBE
                  else " ; taux d'éthanol (01 52) : pas de réponse"))

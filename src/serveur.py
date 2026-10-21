@@ -179,6 +179,15 @@ def make_handler(state):
                     self._send(400, b"JSON invalide", "text/plain")
                     return
                 self._send(200, json.dumps(saved).encode(), "application/json")
+            elif self.path == "/api/sport":
+                # Bouton Sport du mode Conduite : étiquette de la conduite (1 sportive, 0 normale), voir State.sport
+                try:
+                    body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                    state.set_sport(bool(body["sport"]))
+                except (ValueError, TypeError, KeyError, AttributeError):
+                    self._send(400, b"JSON invalide", "text/plain")
+                    return
+                self._send(200, json.dumps({"sport": state.sport}).encode(), "application/json")
             elif self.path == "/api/calib":
                 try:
                     body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
