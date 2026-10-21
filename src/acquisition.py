@@ -12,6 +12,7 @@ import traceback
 
 import constructeur
 import demo
+import panneaux
 import requetes
 import voitures
 from etat import GPS_KEYS
@@ -404,6 +405,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
         if extra:
             print(f"Mesures {car.MAKER} lues en plus de l'OBD standard : " + ", ".join(extra))
         keys = state.supported + (["boost"] if "map" in state.supported else []) + [f"brut.{k}" for k in state.raw_keys] + ["sport", "road", "section"]
+        keys += ["limite", "panneau_brut"] if getattr(car, "SIGN_CAN", None) else []
         keys += list(GPS_KEYS) if state.gps else []   # tablette avec GPS (gps.py)
         print(f"Type de carburant annoncé (01 51) : {state.fuel_type or 'non donné'}"
               + ("" if "ethanol" in state.supported or "ethanol" not in car.FORCE_PROBE
@@ -411,6 +413,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", vin, keys)
         state.status = "connecté (rapide)" if fast else "connecté"
         reader = requetes.Reader(conn, cmds, car, requetes.load_scan(vin, car))
+        signs = panneaux.SignListener(conn, car.SIGN_CAN) if getattr(car, "SIGN_CAN", None) else None
         notes = reader.setup()
         print("Lecture : " + (", ".join(notes) if notes else "une requête par mesure (rien de plus rapide accepté)"))
         logger = logger_factory(keys)
@@ -424,6 +427,8 @@ def _obd_loop_locked(state, args, logger_factory, held):
                 if reader.tick(state, state.get_settings()["delay"]):
                     last_ok = time.time()
                 state.ping_ms = reader.ping_ms
+                if signs:
+                    signs.maybe_listen(state)
                 state.derive()
                 if time.time() - last_ok > MUTE_S:
                     state.status = "calculateur muet (contact coupé ?), attente…"

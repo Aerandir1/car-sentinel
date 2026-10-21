@@ -170,7 +170,7 @@
   .k-dial { position: relative; height: 100%; min-height: 0; cursor: pointer; }
   .k-dial canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
   /* Écran central : dalle sombre, bord lumineux, comme l'écran couleur entre les cadrans */
-  .k-screen { align-self: center; max-height: 100%; display: grid; grid-template-rows: auto 1fr auto auto; gap: 12px;
+  .k-screen { position: relative; align-self: center; max-height: 100%; display: grid; grid-template-rows: auto 1fr auto auto; gap: 12px;
               padding: 16px 18px 12px;
               border-radius: 22px; border: 1px solid var(--k-edge); text-align: center;
               background: linear-gradient(180deg, var(--k-screen1), var(--k-screen2));
@@ -193,10 +193,27 @@
   .k-speed { display: grid; justify-items: center; line-height: 1; }
   .k-speed b { font-size: clamp(72px, 15vmin, 190px); font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
   .k-speed small { color: var(--dim); font-size: 16px; font-weight: 600; letter-spacing: .12em; margin-top: 4px; }
-  .k-msg { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
-           background: var(--hot); color: #fff; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
-  .k-info { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--k-edge); padding-top: 10px; }
+  /* Alerte : bandeau posé sur la ligne des témoins (la hauteur de l'écran ne bouge pas) */
+  .k-msg { position: absolute; top: 10px; left: 12px; right: 12px; z-index: 1;
+           display: flex; align-items: center; justify-content: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
+           background: var(--hot); color: #fff; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums;
+           box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+  .k-msg[hidden] { display: none; }
+  .k-info { display: grid; grid-template-columns: auto repeat(3, 1fr); align-items: center; border-top: 1px solid var(--k-edge);
+            padding-top: 10px; }
   .k-info > div { display: grid; gap: 1px; }
+  /* Limitation lue par la caméra de la voiture (panneaux.py) : panneau rond, rouge et pulsant au-delà */
+  .k-info > .k-sign { display: grid; place-items: center; padding-right: 12px; }
+  .k-info > .k-sign[hidden] { display: none; }
+  .k-info > .k-sign + div { border-left: 0; }
+  .k-sign i { --s: clamp(44px, 6vmin, 58px); display: grid; place-items: center; width: var(--s); height: var(--s);
+              border-radius: 50%; background: #fff; border: calc(var(--s) * .13) solid #e2231a; color: #111;
+              font-style: normal; font-weight: 800; font-size: calc(var(--s) * .38); letter-spacing: -.03em;
+              font-variant-numeric: tabular-nums; box-shadow: 0 2px 8px rgba(0, 0, 0, .35); transition: opacity .3s, box-shadow .3s; }
+  .k-sign.old i { opacity: .4; }
+  .k-sign.over i { animation: k-over 1s ease-in-out infinite; }
+  @keyframes k-over { 50% { box-shadow: 0 0 0 4px rgba(226, 35, 26, .35), 0 0 18px rgba(226, 35, 26, .9); } }
+  @media (prefers-reduced-motion: reduce) { .k-sign.over i { animation: none; box-shadow: 0 0 14px rgba(226, 35, 26, .9); } }
   .k-info > div + div { border-left: 1px solid var(--k-edge); }
   .k-info small { color: var(--dim); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; }
   .k-info b { font-size: clamp(19px, 2vw, 26px); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -292,6 +309,8 @@
     /* Commandes : Sport à gauche, tronçons en 2 × 2 à sa droite (moins haut que l'un sous l'autre) */
     .k-ctrl { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 12px; }
     .k-roads { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .k-roads button { min-height: clamp(44px, 6.5vmin, 60px); }
+    .k-start { --d: clamp(92px, 14.5vmin, 150px); }
     .k-sec-head { grid-column: 1 / -1; }
     .k-mid .k-screen { flex-shrink: 0; }
   }
@@ -751,6 +770,7 @@
       </div>
       <div class="k-msg" id="k-msg" role="alert" hidden></div>
       <div class="k-info">
+        <div class="k-sign" id="k-sign" hidden title="Limitation lue par la caméra de la voiture"><i id="k-sign-v"></i></div>
         <div><small>Conso</small><b id="k-l100">—</b><span>L/100 km</span></div>
         <div><small>Moyenne</small><b id="k-avg">—</b><span>L/100 km</span></div>
         <div><small>Trajet</small><b id="k-cost">—</b><span id="k-dist"></span><span class="k-price" id="k-price"></span></div>
@@ -1254,6 +1274,15 @@ function updateCluster(s) {
   $("k-sec-now").innerHTML = sec ? `Tronçon <b>${sec.n}</b> · ${sec.label} · ${duree(Math.max(0, s.t * 1000 - sec.t_ms))}`
     + (sec.auto ? " · auto" : "") : "Tronçon : choisir le type de route";
   $("k-sec-now").title = sec?.auto ? `Déclenché automatiquement : ${sec.auto}` : "";
+  // Limitation lue par la caméra : panneau rond, grisé si ancien, pulsant si l'on roule au-delà
+  const sg = s.sign;
+  $("k-sign").hidden = !sg || sg.limit == null;
+  if (sg && sg.limit != null) {
+    $("k-sign-v").textContent = sg.limit;
+    $("k-sign").classList.toggle("old", !sg.ok);
+    $("k-sign").classList.toggle("over", !!sg.ok && v.speed != null && v.speed > sg.limit + 3);
+    $("k-sign").title = `Limitation lue par la caméra : ${sg.limit} km/h` + (sg.ok ? "" : " (lecture ancienne)");
+  }
   $("k-gps").hidden = !s.gps;
   $("k-gps").classList.toggle("ok", !!s.gps?.ok);
   $("k-gps").title = !s.gps ? "" : s.gps.ok ? `GPS : position à ${Math.round(s.gps.acc ?? 0)} m près`

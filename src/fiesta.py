@@ -101,6 +101,9 @@ TRUSTED = {"oil", "voltage", "pedal", "fuel_lvl"}
 # PID standard essayés même si le calculateur ne les annonce pas (PID 00, 20, 40…) : le taux d'éthanol (01 52)
 # d'une FlexiFuel peut répondre sans être annoncé. Gardé seulement s'il répond.
 FORCE_PROBE = {"ethanol"}
+# Limitation de vitesse lue par la caméra (reconnaissance des panneaux) : message CAN diffusé par l'IPMA vers le
+# combiné, écouté entre deux tours de lecture (panneaux.py)
+SIGN_CAN = 0x3CD
 
 # Éco-conduite (trajets.py). Rapport engagé déduit de régime / vitesse (tr/min par km/h, mesuré sur les trajets) :
 # 1re ≈ 70, 2e ≈ 45, 3e ≈ 33, 4e ≈ 26,5, 5e ≈ 22 (100 km/h ≈ 2200 tr/min en 5e)

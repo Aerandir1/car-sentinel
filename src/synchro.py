@@ -55,6 +55,7 @@ LABELS = [
     {"key": "road", "label": "Type de route (" + ", ".join(f"{c} {lbl.lower()}" for c, _k, lbl in trajets.ROADS) + ")",
      "unit": "", "range": (0, len(trajets.ROADS))},
     {"key": "section", "label": "Tronçon (numéro dans le trajet)", "unit": "", "range": (0, 20)},
+    {"key": "limite", "label": "Limitation lue par la caméra", "unit": "km/h", "range": (0, 130)},
 ]
 
 
@@ -161,7 +162,10 @@ def hello(client, state, name, version):
     if gps:
         body["gps"] = {**{k: gps[k] for k in ("lat", "lon", "speed", "head", "acc")},
                        "age_ms": max(0, int(time.time() * 1000) - gps["t"])}
+    with state.lock:
+        sign = state.sign
     body["drive"] = {"speed": speed, "sport": state.sport,
+                     "limit": sign and sign["limit"] if sign and time.time() * 1000 - sign["t"] < 60_000 else None,
                      "section": sec and {k: sec[k] for k in ("n", "road", "label", "auto")}}
     code, _ = client.request("POST", "/api/hello", body, timeout_s=PING_TIMEOUT_S)
     if code == 404:

@@ -640,7 +640,12 @@ moteur, passage d'un seuil d'alerte) sont gardés à part. L'onglet montre les t
 - **bouchons détectés en roulant** : sur un tronçon Route ou Voie rapide, sous 30 km/h 90 % du temps sur 1 min 30
   en avançant au moins 30 % du temps (ni un feu rouge, ni une pause), un tronçon Bouchons commence, daté du vrai
   début du ralentissement ; le type d'avant reprend quand on roule au-dessus de 45 km/h pendant 30 s. Seuils en
-  haut de `src/etat.py` (`JAM_…`).
+  haut de `src/etat.py` (`JAM_…`) ;
+- **limitation lue par la caméra** (Fiesta, reconnaissance des panneaux) : le message que la caméra envoie au
+  combiné (`0x3CD`, Traffic_RecognitnData d'après opendbc) est écouté toutes les 10 s entre deux tours de lecture
+  (`src/panneaux.py`, ATMA filtré, ≈ 0,5 s) ; panneau rond dans le cadre de la conso du mode Conduite (pulsant
+  au-delà), `limite` en km/h chaque seconde et `panneau_brut` (valeur brute, codage à confirmer sur la voiture).
+  Rien entendu après 6 écoutes (prise OBD derrière une passerelle ?) : nouvel essai toutes les 5 min.
 
 Après le trajet, la page du serveur montre la trace sur une carte et permet de corriger les tronçons, ou de les
 déterminer d'après OpenStreetMap ; les tronçons corrigés remplacent ceux d'ici dans son CSV.

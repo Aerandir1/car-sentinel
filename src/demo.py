@@ -16,6 +16,7 @@ from etat import GPS_KEYS
 
 HZ = 10
 GPS_START = (48.1113, -1.6800)   # départ de la position simulée (Rennes)
+DEMO_SIGNS = {1: 50, 5: 110, 7: 70, 9: 50}   # étape du trajet → limitation lue par la caméra simulée
 BARO = 101.3
 AMBIENT = 16.0
 # Le trajet : (durée en s, pédale en %, freinage en km/h par s)
@@ -47,7 +48,7 @@ def run(state, still_on):
     state.raw_keys = list(car.DEMO_RAW)
     state.start_session("démo · valeurs simulées", car.DEMO_VIN,
                         state.supported + ["boost"] + [f"brut.{k}" for k in car.DEMO_RAW] + ["sport", "road", "section"]
-                        + list(GPS_KEYS))
+                        + list(GPS_KEYS) + (["limite", "panneau_brut"] if getattr(car, "SIGN_CAN", None) else []))
     # GPS simulé : la voiture avance avec la vitesse simulée et tourne à chaque étape du trajet
     pos = {"lat": GPS_START[0], "lon": GPS_START[1], "head": 75.0, "t": 0.0}
     state.status = "connecté (démo, valeurs simulées)"
@@ -59,6 +60,8 @@ def run(state, still_on):
         if t_step >= dur:
             step, t_step = (step + 1) % len(SCRIPT), 0.0
             pos["head"] = (pos["head"] + rnd.choice((-90, -40, 0, 30, 90))) % 360
+            if getattr(car, "SIGN_CAN", None) and step in DEMO_SIGNS:   # panneau lu par la caméra simulée
+                state.set_sign({"limit": DEMO_SIGNS[step], "raw": DEMO_SIGNS[step], "status": 3})
         engine_off = pedal_target is None
         pedal = max(0.0, noise(pedal_target, 3) if pedal_target else 0.0)
 

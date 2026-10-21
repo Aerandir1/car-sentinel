@@ -38,6 +38,7 @@ MANUAL_PRIORITY_S = 60    # bouton appuyé depuis moins d'une minute : le point 
 JAM_KMH, JAM_WINDOW_S, JAM_SLOW, JAM_MOVING = 30, 90, 0.9, 0.3
 JAM_END_KMH, JAM_END_S = 45, 30
 JAM_AUTO, JAM_END_AUTO = "bouchons détectés", "fin des bouchons"
+SIGN_VALID_S = 60         # limitation lue par la caméra (panneaux.py) : gardée sans nouvelle lecture
 
 
 def distance_m(lat1, lon1, lat2, lon2):
@@ -163,6 +164,7 @@ class State:
         self.speed_hist = deque()   # (t_ms, km/h) des 2 dernières minutes : bouchons détectés en roulant
         self.jam_prev = None        # type de route d'avant les bouchons (repris à leur fin)
         self.jam_check_ms = 0
+        self.sign = None            # dernière lecture de la caméra : {"t", "limit", "raw", "status"} (panneaux.py)
 
     # --- Voiture en cours ---
 
@@ -364,7 +366,10 @@ class State:
                 return
             self.label_ms = t
             sec = self.section
+            sign = self.sign
         self.update("sport", self.sport, t)
+        if sign and sign["limit"] and t - sign["t"] < SIGN_VALID_S * 1000:
+            self.update("limite", sign["limit"], t)
         if sec:
             self.update("road", sec["road"], t)
             self.update("section", sec["n"], t)
@@ -490,6 +495,13 @@ class State:
                 continue
             print(f"Point de passage « {wp.get('name') or wp['id']} » : tronçon {trajets.ROAD_LABELS[wp['road']]}")
             self.new_section(wp["road"], auto=wp.get("name") or "point de passage")
+
+    def set_sign(self, d, frame=None):
+        """Lecture de la caméra (panneaux.py) : limitation en km/h (None : levée, inconnue), valeur brute gardée."""
+        t = donnees.now_ms()
+        with self.lock:
+            self.sign = {"t": t, "limit": d.get("limit"), "raw": d.get("raw"), "status": d.get("status")}
+        self.update("panneau_brut", d.get("raw"), t)
 
     def _check_jam(self):
         """Bouchons détectés à la vitesse lue (appelé à chaque tour de lecture, vérifié toutes les 2 s)."""
@@ -671,6 +683,8 @@ class State:
                 "gps": self.gps and {"t": self.gps["t"], "acc": self.gps["acc"],
                                      "ok": time.time() * 1000 - self.gps["t"] < GPS_RECENT_MS},
                 "waypoints": len(self.waypoints),
+                "sign": self.sign and {"limit": self.sign["limit"],
+                                       "ok": time.time() * 1000 - self.sign["t"] < SIGN_VALID_S * 1000},
                 "trip_live": self._trip_live(),
                 "fuel_price": self.settings.get(f"fuel_price_{self.car.ID}"),
                 "price": next((p for p in self._prices_unlocked() if p["current"]), None),
