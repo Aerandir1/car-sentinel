@@ -153,6 +153,16 @@ def hello(client, state, name, version):
     Serveur d'avant /api/hello (404) : simple vérification qu'il répond."""
     body = {"name": name, "host": socket.gethostname(), "version": version, "vehicle": state.car.ID,
             "obd": {"adapter": state.adapter, "status": state.status, "source": state.source, "vin": state.vin}}
+    # Position en direct (tablette avec GPS) pour la carte du serveur : son âge plutôt que son heure (horloges
+    # pas forcément d'accord), et ce qui se passe dans la voiture
+    with state.lock:
+        gps, sec = state.gps, state.section_info()
+        speed = state.values.get("speed")
+    if gps:
+        body["gps"] = {**{k: gps[k] for k in ("lat", "lon", "speed", "head", "acc")},
+                       "age_ms": max(0, int(time.time() * 1000) - gps["t"])}
+    body["drive"] = {"speed": speed, "sport": state.sport,
+                     "section": sec and {k: sec[k] for k in ("n", "road", "label", "auto")}}
     code, _ = client.request("POST", "/api/hello", body, timeout_s=PING_TIMEOUT_S)
     if code == 404:
         ping(client)
