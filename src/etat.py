@@ -17,7 +17,7 @@ BARO_DEFAULT_KPA = 101.3
 L100_MIN_KMH = 5     # en dessous (arrêt, manœuvre), pas de L/100 km
 L100_MAX = 99.0      # pied au plancher en 1re : plafonné comme sur l'ordinateur de bord
 TRIP_GAP_MS = 10_000  # plus longtemps entre deux mesures : le trou ne compte pas (comme trajets.RUN_GAP_S)
-LABEL_EVERY_MS = 1000  # étiquettes « sport » et « road » enregistrées une fois par seconde pendant la lecture
+LABEL_EVERY_MS = 1000  # étiquettes « sport », « road », « section » enregistrées une fois par seconde (lecture)
 UNDO_S = 15           # un appui sur un bouton de tronçon s'annule pendant ce temps
 
 # Réglages modifiables à chaud depuis l'onglet Réglages : clé -> (min, max)
@@ -329,10 +329,11 @@ class State:
             if not force and t - self.label_ms < LABEL_EVERY_MS:
                 return
             self.label_ms = t
-            road = self.section and self.section["road"]
+            sec = self.section
         self.update("sport", self.sport, t)
-        if road:
-            self.update("road", road, t)
+        if sec:
+            self.update("road", sec["road"], t)
+            self.update("section", sec["n"], t)
 
     def new_section(self, road):
         """Bouton de tronçon : un nouveau tronçon de ce type commence maintenant (numéro suivant dans le trajet)."""
@@ -352,7 +353,7 @@ class State:
 
     def undo_section(self):
         """Annule le dernier appui (moins de UNDO_S secondes) : effacé de la base, le tronçon d'avant reprend (ses
-        étiquettes « road » couvrent aussi le temps de l'appui annulé)."""
+        étiquettes « road » et « section » couvrent aussi le temps de l'appui annulé)."""
         t = donnees.now_ms()
         with self.lock:
             sec = self.section
@@ -363,6 +364,7 @@ class State:
         if rec:
             rec.relabel("troncon", sec["t_ms"], t)
             rec.relabel("road", sec["t_ms"], t, sec["prev"] and sec["prev"]["road"])
+            rec.relabel("section", sec["t_ms"], t, sec["prev"] and sec["prev"]["n"])
         self.record_labels(force=True, t=t + 1)
         return True
 

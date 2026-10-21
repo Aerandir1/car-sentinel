@@ -46,7 +46,7 @@ CRUISE_PEDAL = 1          # % de la course : au repos
 CRUISE_MIN_S = 10
 ECO_MIN_KM = 1            # trajet plus court : pas de score
 # Tronçons : type de route choisi à chaque appui, (code enregistré, clé, libellé). Code aussi enregistré chaque
-# seconde sous « road » tant que le tronçon dure (etat.py), comme étiquette des mesures
+# seconde sous « road », et le numéro du tronçon sous « section », tant qu'il dure (etat.py) : étiquettes des mesures
 ROADS = ((1, "ville", "Ville"), (2, "route", "Route"), (3, "rapide", "Voie rapide"), (4, "bouchons", "Bouchons"))
 ROAD_LABELS = {code: label for code, _k, label in ROADS}
 SECTION_EARLY_S = 60      # appui jusqu'à une minute avant le démarrage du moteur : compte dans le trajet

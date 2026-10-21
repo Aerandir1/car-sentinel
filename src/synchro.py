@@ -30,6 +30,7 @@ from pathlib import Path
 from urllib.parse import urlencode, urlsplit
 
 import donnees
+import trajets
 import voitures
 from etat import derived_meta
 
@@ -47,11 +48,22 @@ class SyncError(Exception):
     pass
 
 
+# Étiquettes des boutons du mode Conduite (etat.py), déclarées au serveur comme des mesures pour qu'il les exporte
+# en CSV ; « label » : il les reporte telles quelles (dernière valeur, prolongée) au lieu de les moyenner
+LABELS = [
+    {"key": "sport", "label": "Conduite sportive (1 oui, 0 non)", "unit": "", "range": (0, 1)},
+    {"key": "road", "label": "Type de route (" + ", ".join(f"{c} {lbl.lower()}" for c, _k, lbl in trajets.ROADS) + ")",
+     "unit": "", "range": (0, len(trajets.ROADS))},
+    {"key": "section", "label": "Tronçon (numéro dans le trajet)", "unit": "", "range": (0, 20)},
+]
+
+
 def meta(car):
     """Libellés et unités des métriques de la voiture, pour que la page du serveur les affiche comme le dashboard."""
     out = [{"key": k, "label": lbl, "unit": u, "range": rng, "warn": warn, "cold": cold}
            for k, lbl, u, _cmd, _conv, rng, warn, cold in car.METRICS]
-    return out + [derived_meta(d) for d in car.DERIVED]
+    return (out + [derived_meta(d) for d in car.DERIVED]
+            + [{**x, "warn": None, "cold": None, "label_only": True} for x in LABELS])
 
 
 class Client:
