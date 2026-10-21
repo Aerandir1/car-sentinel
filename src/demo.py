@@ -42,7 +42,7 @@ def run(state, still_on):
     state.sources = {k: {"kind": "demo", "cmd": None} for k in state.supported}
     state.raw_keys = list(car.DEMO_RAW)
     state.start_session("démo · valeurs simulées", car.DEMO_VIN,
-                        state.supported + ["boost"] + [f"brut.{k}" for k in car.DEMO_RAW] + ["sport"])
+                        state.supported + ["boost"] + [f"brut.{k}" for k in car.DEMO_RAW] + ["sport", "road", "section"])
     state.status = "connecté (démo, valeurs simulées)"
     dt = sim["dt"]
     while still_on():
