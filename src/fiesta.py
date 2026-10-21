@@ -9,6 +9,9 @@ D'après le relevé OBDb d'une Fiesta 2022, le PCM annonce en OBD standard le r�
 eau / admission / huile / extérieure, la pression d'admission et atmo, la charge, le papillon, la pédale, la conso,
 la richesse, les corrections de carburant, l'avance, le cat et la tension. Il n'annonce pas le débit d'air, la
 pression rail ni le taux d'éthanol : seules les mesures Ford ci-dessous complètent.
+
+Pas interrogés (relevés sur la voiture) : le débit d'air (01 10) ne répond jamais, la température d'air de
+suralimentation (Ford 0461) vaut toujours -40 °C (brut 0). Ils prenaient une place dans chaque tour de lecture.
 """
 
 ID = "fiesta"
@@ -40,7 +43,6 @@ METRICS = [
     ("cht",      "Temp. culasse",    "°C",     None,                        None,              (-20, 160),  125,  70),
     ("oil",      "Temp. huile",      "°C",     "OIL_TEMP",                  None,              (-20, 150),  130,  70),
     ("intake",   "Temp. admission",  "°C",     "INTAKE_TEMP",               None,              (-20, 90),   60,   None),
-    ("cac",      "Temp. air suralim.", "°C",   None,                        None,              (-20, 100),  65,   None),
     ("cat",      "Temp. catalyseur", "°C",     "CATALYST_TEMP_B1S1",        None,              (0, 1000),   900,  300),
     ("ambient",  "Temp. extérieure", "°C",     "AMBIANT_AIR_TEMP",          None,              (-30, 50),   None, None),
     ("map",      "Pression admission", "kPa",  "INTAKE_PRESSURE",           None,              (0, 250),    None, None),
@@ -50,7 +52,6 @@ METRICS = [
     ("load",     "Charge moteur",    "%",      "ENGINE_LOAD",               None,              (0, 100),    None, None),
     ("pedal",    "Pédale accél.",    "%",      "ACCELERATOR_POS_D",         pedal_travel,      (0, 100),    None, None),
     ("throttle", "Papillon",         "%",      "THROTTLE_POS",              None,              (0, 100),    None, None),
-    ("maf",      "Débit d'air",      "g/s",    "MAF",                       None,              (0, 100),    None, None),
     ("ethanol",  "Taux d'éthanol",   "%",      "ETHANOL_PERCENT",           None,              (0, 100),    None, None),
     ("fuel",     "Conso. carburant", "L/h",    "FUEL_RATE",                 None,              (0, 25),     None, None),
     ("fuel_lvl", "Niveau carburant", "%",      "FUEL_LEVEL",                None,              (0, 100),    None, None),
@@ -84,7 +85,6 @@ FALLBACK = {
     "pedal":    ("09D4", 0.5, 0.0, (0, 100), 0.0, 1, False),           # pédale d'accélérateur
     "fuel_lvl": ("F42F", 100 / 255, 0.0, (0, 100), 10.0, 1, False),    # niveau de carburant
     # Mesures Ford sans équivalent standard
-    "cac":      ("0461", 1 / 64, -40.0, (-40, 150), 1.0, 2, True),     # air après l'échangeur (relevé OBDb 2017-2021)
     "cht":      ("0334", 1 / 64, 0.0, (-40, 200), 1.0, 2, True),       # température de culasse
     # pression avant le papillon = sortie du turbo (OBDb : psi = brut × 37 / 33441 ; ici en kPa)
     "tip":      ("033E", 37 / 33441 * 6.894757, 0.0, (0, 300), 0.0, 2, False),
@@ -95,9 +95,9 @@ FALLBACK = {
     "gear":     ("1E12", 1.0, 0.0, (0, 6), 0.5, 1, False),             # rapport engagé (calculé par le PCM)
     "oil_life": ("054B", 1.0, 0.0, (0, 100), 10.0, 1, False),          # durée de vie d'huile restante
 }
-# Mesures affichées sans étalonnage : équivalents directs de l'OBD standard, et la température d'air de
-# suralimentation, vérifiée sur plusieurs Fiesta dans OBDb. Les autres attendent sa validation sur la voiture.
-TRUSTED = {"oil", "voltage", "pedal", "fuel_lvl", "cac"}
+# Mesures affichées sans étalonnage : équivalents directs de l'OBD standard. Les autres attendent sa validation
+# sur la voiture.
+TRUSTED = {"oil", "voltage", "pedal", "fuel_lvl"}
 # PID standard essayés même si le calculateur ne les annonce pas (PID 00, 20, 40…) : le taux d'éthanol (01 52)
 # d'une FlexiFuel peut répondre sans être annoncé. Gardé seulement s'il répond.
 FORCE_PROBE = {"ethanol"}
@@ -143,14 +143,13 @@ def demo_values(s, noise):
     return {
         "rpm": rpm, "speed": speed, "gear": 0 if off or speed < 4 else s["gear"] + 1,
         "coolant": s["coolant"], "cht": s["coolant"] + 6 + load * 0.15, "oil": s["oil"],
-        "intake": ambient + 6, "cac": ambient + 10 + max(boost, 0) * 25,
+        "intake": ambient + 6,
         "cat": 0.0 if off else 420 + load * 4.5 + rpm * 0.04,
         "ambient": ambient,
         "map": baro + boost * 100, "tip": tip, "baro": baro,
         "wgdc": 0.0 if off else max(0.0, min(100.0, 85 - spool * load * 0.9)),
         "load": load, "pedal": pedal,
         "throttle": 0.0 if off else 4.0 + pedal * 0.8 if pedal else 3.5,
-        "maf": rpm / 1000 * (2.2 + max(boost + 0.75, 0) * 6),
         "ethanol": ETHANOL,
         "fuel": fuel,
         "fuel_lvl": 63.0,

@@ -385,7 +385,8 @@ Identifiants tirés d'OBDb ([Renault-Clio](https://github.com/OBDb/Renault-Clio)
 - **Fiesta** : d'après le relevé OBDb d'une Fiesta 2022, le PCM annonce en standard régime, vitesse, températures
   eau / admission / huile / extérieure / catalyseur, pression d'admission et atmo, charge, papillon, pédale,
   conso, niveau de carburant, richesse, corrections court / long terme, avance et tension. En Ford : voir le
-  tableau de « Vitesse de lecture ».
+  tableau de « Vitesse de lecture ». Pas interrogés : le débit d'air (01 10), qui ne répond jamais sur la voiture,
+  et la température d'air de suralimentation (Ford `0461`), toujours à -40 °C.
 
 Pour alléger ou compléter les mesures d'une voiture : sa liste `METRICS` et son `FALLBACK`, dans son module.
 Une autre voiture s'ajoute avec un module de plus sur le même modèle, déclaré dans `src/voitures.py`.
@@ -420,7 +421,6 @@ Mesures Ford de la Fiesta :
 | Mesure | DID | Affichée |
 |---|---|---|
 | huile, tension, pédale, niveau carburant | `1310`, `1172`, `09D4`, `F42F` | d'office (seulement si l'OBD standard ne les donne pas) |
-| température d'air de suralimentation | `0461` | d'office (vérifiée sur plusieurs Fiesta dans OBDb) |
 | pression turbo (avant papillon) | `033E` | après validation (onglet Étalonnage) |
 | température de culasse | `0334` | après validation |
 | wastegate, consigne rail | `0462`, `03DC` | après validation |

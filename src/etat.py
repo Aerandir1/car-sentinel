@@ -445,11 +445,14 @@ class State:
         """Fiche du trajet en cours (trajets.update), None sans trajet en cours."""
         resume = False
         with self.lock:
-            # Tronçon : fini avec son trajet ; un appui des premières secondes (trajet pas encore calculé) rejoint
-            # le trajet qui apparaît
+            # Tronçon : fini avec son trajet. Un appui sans trajet en cours (premières secondes, trajet pas encore
+            # calculé ; ou pas de calculateur) attend le trajet qui apparaît, au plus TRIP_GAP_S
             sec = self.section
-            if sec and sec["trip"] is None and row:
-                sec["trip"] = row["id"]
+            if sec and sec["trip"] is None:
+                if row:
+                    sec["trip"] = row["id"]
+                elif donnees.now_ms() - sec["t_ms"] > trajets.TRIP_GAP_S * 1000:
+                    self.section = None
             elif sec and (row is None or row["id"] != sec["trip"]):
                 self.section = None
             resume = row is not None and self.section is None and row["id"] not in self.section_seen

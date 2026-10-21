@@ -1,7 +1,7 @@
 {
   "name": "car-sentinel",
   "productName": "Car Sentinel",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Dashboard OBD de la Clio et de la Fiesta, en fond avec son icône dans la zone de notification",
   "author": "Lilian Conan",
   "private": true,
