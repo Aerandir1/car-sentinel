@@ -30,6 +30,14 @@ WAYPOINT_RADIUS_M = 40    # rayon par défaut
 WAYPOINT_HEADING = 60     # écart toléré (°) avec le sens de passage du point
 WAYPOINT_REARM = 2.5      # ressorti à plus de 2,5 rayons : le point peut se déclencher à nouveau
 MANUAL_PRIORITY_S = 60    # bouton appuyé depuis moins d'une minute : le point de passage ne change rien
+# Bouchons détectés en roulant, sur un tronçon Route ou Voie rapide : sur JAM_WINDOW_S, sous JAM_KMH au moins
+# JAM_SLOW du temps, en avançant (au-dessus de 3 km/h) au moins JAM_MOVING du temps. Un feu rouge (arrêt puis
+# départ rapide) ou une pause (station, parking) n'en sont pas. Fini quand on roule au-dessus de JAM_END_KMH
+# pendant JAM_END_S : le type d'avant reprend. Début et fin datés du vrai début du ralentissement et de la
+# reprise (étiquettes corrigées après coup). Un appui sur un bouton dans la minute passe devant
+JAM_KMH, JAM_WINDOW_S, JAM_SLOW, JAM_MOVING = 30, 90, 0.9, 0.3
+JAM_END_KMH, JAM_END_S = 45, 30
+JAM_AUTO, JAM_END_AUTO = "bouchons détectés", "fin des bouchons"
 
 
 def distance_m(lat1, lon1, lat2, lon2):
@@ -152,6 +160,9 @@ class State:
         self.waypoints = []         # points de passage : [{"id", "lat", "lon", "head", "radius", "road", "name"}]
         self.waypoints_file = None  # data/points.json : les derniers reçus du serveur (pour rouler hors réseau)
         self.wp_inside = set()      # points où l'on est passé, pas encore ressorti
+        self.speed_hist = deque()   # (t_ms, km/h) des 2 dernières minutes : bouchons détectés en roulant
+        self.jam_prev = None        # type de route d'avant les bouchons (repris à leur fin)
+        self.jam_check_ms = 0
 
     # --- Voiture en cours ---
 
@@ -358,12 +369,16 @@ class State:
             self.update("road", sec["road"], t)
             self.update("section", sec["n"], t)
 
-    def new_section(self, road, auto=None):
+    def new_section(self, road, auto=None, t_ms=None):
         """Bouton de tronçon : un nouveau tronçon de ce type commence maintenant (numéro suivant dans le trajet).
-        auto : nom du point de passage qui l'a déclenché (None : appui sur le bouton)."""
+        auto : ce qui l'a déclenché, point de passage ou bouchons (None : appui sur le bouton). t_ms : début plus
+        tôt (bouchons reconnus après coup) : les étiquettes déjà enregistrées depuis sont corrigées."""
         if road not in trajets.ROAD_LABELS:
             raise ValueError("type de route inconnu")
-        t = donnees.now_ms()
+        now = donnees.now_ms()
+        with self.lock:
+            prev_start = self.section["t_ms"] if self.section else None
+        t = now if t_ms is None else max(min(t_ms, now), (prev_start or 0) + 1)
         if auto is None:
             self.manual_ms = t
         with self.lock:
@@ -373,9 +388,13 @@ class State:
         else:   # premier appui du trajet, ou relance du script en route : les appuis déjà dans la base comptent
             n = 1 + self._presses_in_trip(trip, t)
         with self.lock:
-            self.section = {"n": n, "road": road, "t_ms": t, "trip": trip, "prev": prev, "auto": auto}
+            self.section = {"n": n, "road": road, "t_ms": t, "trip": trip, "prev": prev, "auto": auto, "set_ms": now}
         self.update("troncon", road, t)
-        self.record_labels(force=True, t=t)
+        rec = self.active_recorder()
+        if t < now and rec:   # début daté d'avant : étiquettes de la période reprises
+            rec.relabel("road", t, now, road)
+            rec.relabel("section", t, now, n)
+        self.record_labels(force=True, t=max(t, now))
 
     def undo_section(self):
         """Annule le dernier appui (moins de UNDO_S secondes) : effacé de la base, le tronçon d'avant reprend (ses
@@ -383,7 +402,7 @@ class State:
         t = donnees.now_ms()
         with self.lock:
             sec = self.section
-            if not sec or t - sec["t_ms"] > UNDO_S * 1000:
+            if not sec or t - sec.get("set_ms", sec["t_ms"]) > UNDO_S * 1000:
                 return False
             self.section = sec["prev"]
         rec = self.active_recorder()
@@ -433,7 +452,7 @@ class State:
         if not sec:
             return None
         return {"n": sec["n"], "road": sec["road"], "label": trajets.ROAD_LABELS[sec["road"]], "t_ms": sec["t_ms"],
-                "undo_until": sec["t_ms"] + UNDO_S * 1000, "auto": sec.get("auto")}
+                "undo_until": sec.get("set_ms", sec["t_ms"]) + UNDO_S * 1000, "auto": sec.get("auto")}
 
     # --- GPS et points de passage ---
 
@@ -472,6 +491,50 @@ class State:
             print(f"Point de passage « {wp.get('name') or wp['id']} » : tronçon {trajets.ROAD_LABELS[wp['road']]}")
             self.new_section(wp["road"], auto=wp.get("name") or "point de passage")
 
+    def _check_jam(self):
+        """Bouchons détectés à la vitesse lue (appelé à chaque tour de lecture, vérifié toutes les 2 s)."""
+        with self.lock:
+            t, v, sec = self.times.get("speed"), self.values.get("speed"), self.section
+        if t is None or v is None:
+            return
+        h = self.speed_hist
+        if not h or h[-1][0] != t:
+            h.append((t, v))
+        while h and h[0][0] < t - 120_000:
+            h.popleft()
+        if t - self.jam_check_ms < 2000 or not sec or donnees.now_ms() - self.manual_ms < MANUAL_PRIORITY_S * 1000:
+            return
+        self.jam_check_ms = t
+
+        def window(seconds):
+            """[(t, km/h)] depuis seconds (et depuis le début du tronçon), None tant que la fenêtre n'est pas pleine."""
+            pts = [(tt, x) for tt, x in h if tt >= max(t - seconds * 1000, sec["t_ms"])]
+            return pts if pts and t - pts[0][0] >= (seconds - 5) * 1000 else None
+
+        def since(pts, ok):
+            """Début de la dernière suite de lectures qui vérifient ok (le vrai début du ralentissement…)."""
+            start = pts[-1][0]
+            for tt, x in reversed(pts):
+                if not ok(x):
+                    break
+                start = tt
+            return start
+
+        if sec["road"] in (2, 3):
+            pts = window(JAM_WINDOW_S)
+            if pts and sum(x < JAM_KMH for _t, x in pts) >= JAM_SLOW * len(pts) \
+                    and sum(x >= 3 for _t, x in pts) >= JAM_MOVING * len(pts):
+                self.jam_prev = sec["road"]
+                start = since(pts, lambda x: x < JAM_KMH + 10)
+                print(f"Bouchons détectés depuis {(t - start) // 1000} s")
+                self.new_section(4, auto=JAM_AUTO, t_ms=start)
+        elif sec["road"] == 4 and sec.get("auto") == JAM_AUTO:
+            pts = window(JAM_END_S)
+            if pts and all(x > JAM_END_KMH for _t, x in pts[len(pts) // 3:]) and sum(x for _t, x in pts) > JAM_END_KMH * len(pts):
+                road = self.jam_prev or 2
+                print(f"Fin des bouchons : {trajets.ROAD_LABELS[road]}")
+                self.new_section(road, auto=JAM_END_AUTO, t_ms=since(pts, lambda x: x >= JAM_KMH))
+
     def load_waypoints(self, path):
         self.waypoints_file = path
         try:
@@ -501,6 +564,7 @@ class State:
 
     def derive(self):
         self.record_labels()
+        self._check_jam()
         with self.lock:
             m = self.values.get("map")
             t_map = self.times.get("map")

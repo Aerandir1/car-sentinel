@@ -636,7 +636,11 @@ moteur, passage d'un seuil d'alerte) sont gardés à part. L'onglet montre les t
   chaque seconde ; `troncon` à chaque début. Un tronçon commence par un appui sur une touche de type de route
   (Annuler pendant 15 s), ou tout seul en passant un **point de passage** (tablette avec GPS) : réglés sur la
   page du serveur (depuis la trace d'un trajet, ils retiennent le sens de passage), repris à chaque synchro et
-  gardés dans `data/points.json` pour rouler hors réseau. Un appui dans la minute d'avant passe devant.
+  gardés dans `data/points.json` pour rouler hors réseau. Un appui dans la minute d'avant passe devant ;
+- **bouchons détectés en roulant** : sur un tronçon Route ou Voie rapide, sous 30 km/h 90 % du temps sur 1 min 30
+  en avançant au moins 30 % du temps (ni un feu rouge, ni une pause), un tronçon Bouchons commence, daté du vrai
+  début du ralentissement ; le type d'avant reprend quand on roule au-dessus de 45 km/h pendant 30 s. Seuils en
+  haut de `src/etat.py` (`JAM_…`).
 
 Après le trajet, la page du serveur montre la trace sur une carte et permet de corriger les tronçons, ou de les
 déterminer d'après OpenStreetMap ; les tronçons corrigés remplacent ceux d'ici dans son CSV.

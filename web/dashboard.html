@@ -1253,7 +1253,7 @@ function updateCluster(s) {
   const sec = s.section;
   $("k-sec-now").innerHTML = sec ? `Tronçon <b>${sec.n}</b> · ${sec.label} · ${duree(Math.max(0, s.t * 1000 - sec.t_ms))}`
     + (sec.auto ? " · auto" : "") : "Tronçon : choisir le type de route";
-  $("k-sec-now").title = sec?.auto ? `Déclenché par le point de passage « ${sec.auto} »` : "";
+  $("k-sec-now").title = sec?.auto ? `Déclenché automatiquement : ${sec.auto}` : "";
   $("k-gps").hidden = !s.gps;
   $("k-gps").classList.toggle("ok", !!s.gps?.ok);
   $("k-gps").title = !s.gps ? "" : s.gps.ok ? `GPS : position à ${Math.round(s.gps.acc ?? 0)} m près`
