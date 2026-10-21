@@ -199,11 +199,12 @@
            background: var(--hot); color: #fff; font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums;
            box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
   .k-msg[hidden] { display: none; }
-  .k-info { display: grid; grid-template-columns: auto repeat(3, 1fr); align-items: center; border-top: 1px solid var(--k-edge);
+  .k-info { display: grid; grid-template-columns: repeat(3, 1fr); align-items: start; border-top: 1px solid var(--k-edge);
             padding-top: 10px; }
+  .k-info.with-sign { grid-template-columns: auto repeat(3, 1fr); }
   .k-info > div { display: grid; gap: 1px; }
   /* Limitation lue par la caméra de la voiture (panneaux.py) : panneau rond, rouge et pulsant au-delà */
-  .k-info > .k-sign { display: grid; place-items: center; padding-right: 12px; }
+  .k-info > .k-sign { display: grid; place-items: center; align-self: center; padding-right: 12px; }
   .k-info > .k-sign[hidden] { display: none; }
   .k-info > .k-sign + div { border-left: 0; }
   .k-sign i { --s: clamp(44px, 6vmin, 58px); display: grid; place-items: center; width: var(--s); height: var(--s);
@@ -241,9 +242,10 @@
              filter: drop-shadow(0 8px 14px rgba(0, 0, 0, .45)); transition: transform .1s, filter .25s; }
   .k-start > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
   .k-start .ks-face { fill: url(#ks-face); transition: fill .25s; }
-  .k-start .ks-edge { fill: none; stroke: rgba(0, 0, 0, .4); stroke-width: 1.6; }
+  .k-start .ks-edge { fill: none; stroke: rgba(226, 35, 26, .55); stroke-width: 2.2; transition: stroke .25s; }
+  .k-start[aria-pressed="true"] .ks-edge { stroke: rgba(255, 255, 255, .35); }
   .k-start > span { position: relative; display: grid; place-content: center; justify-items: center; gap: 1px;
-                    height: 100%; color: var(--dim); transition: color .25s; }
+                    height: 100%; color: color-mix(in srgb, var(--text) 80%, transparent); transition: color .25s; }
   .k-start span svg { width: calc(var(--d) * .2); height: calc(var(--d) * .2); fill: none; stroke: currentColor;
                       stroke-width: 2.6; stroke-linecap: round; }
   .k-start b { font-size: calc(var(--d) * .16); font-weight: 900; letter-spacing: .12em; margin-left: .12em; line-height: 1.1; }
@@ -269,14 +271,20 @@
                     -webkit-tap-highlight-color: transparent;
                     background: linear-gradient(145deg, var(--k-bezel3), var(--k-bezel2) 50%, var(--k-bezel1));
                     box-shadow: 0 6px 16px rgba(0, 0, 0, .35); transition: transform .1s, box-shadow .25s; }
-  .k-roads button > span { display: grid; place-items: center; height: 100%; padding: 2px 4px; border-radius: 11px;
-                           color: var(--dim); font-size: 14px; font-weight: 800; line-height: 1.1;
-                           background: linear-gradient(180deg, var(--k-screen1), var(--k-screen2));
+  /* Chaque type a sa couleur (la même que sur la carte du serveur) : liseré allumé en bas, plein quand actif */
+  .k-roads button > span { position: relative; display: grid; place-items: center; height: 100%; padding: 2px 4px 6px;
+                           border-radius: 11px; overflow: hidden;
+                           color: color-mix(in srgb, var(--text) 85%, transparent); font-size: 14px; font-weight: 800;
+                           line-height: 1.1; background: linear-gradient(180deg, var(--k-screen1), var(--k-screen2));
                            box-shadow: inset 0 2px 6px rgba(0, 0, 0, .45); transition: background .25s, color .25s; }
-  .k-roads button[aria-pressed="true"] { box-shadow: 0 0 22px var(--k-glow), 0 6px 16px rgba(0, 0, 0, .35); }
+  .k-roads button > span::after { content: ""; position: absolute; left: 18%; right: 18%; bottom: 4px; height: 3px;
+                                  border-radius: 2px; background: var(--c); opacity: .55; }
+  .k-roads button[aria-pressed="true"] { box-shadow: 0 0 22px color-mix(in srgb, var(--c) 65%, transparent),
+                                                     0 6px 16px rgba(0, 0, 0, .35); }
   .k-roads button[aria-pressed="true"] > span {
-    color: var(--on-accent); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 75%, #fff), var(--accent));
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, .25); }
+    color: #0a0c10; background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c));
+    box-shadow: inset 0 2px 6px rgba(0, 0, 0, .2); }
+  .k-roads button[aria-pressed="true"] > span::after { background: #fff; opacity: .8; }
   .k-roads button:active { transform: scale(.95); }
   /* Jauges à segments sous les cadrans (mesures cochées « Mode conduite ») */
   .k-bars { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 28px; }
@@ -1277,6 +1285,7 @@ function updateCluster(s) {
   // Limitation lue par la caméra : panneau rond, grisé si ancien, pulsant si l'on roule au-delà
   const sg = s.sign;
   $("k-sign").hidden = !sg || sg.limit == null;
+  $("k-sign").parentNode.classList.toggle("with-sign", !$("k-sign").hidden);
   if (sg && sg.limit != null) {
     $("k-sign-v").textContent = sg.limit;
     $("k-sign").classList.toggle("old", !sg.ok);
@@ -1828,6 +1837,7 @@ $("reset").onclick = () => fetch("/api/reset", { method: "POST" });
 // et la lecture suivante de l'état ne le contredit pas pendant l'envoi (sportBusy)
 // Boutons de tronçon : un appui = un nouveau tronçon de ce type (même type que l'actuel compris), numéroté
 // dans le trajet ; Annuler pendant 15 s efface l'appui de la base
+const ROAD_COLORS = { 1: "#ff9f1a", 2: "#3ccf9a", 3: "#4fb3ff", 4: "#b48cff" };   // comme la page du serveur
 function buildRoads() {
   const box = $("k-roads"), roads = meta?.roads || [];
   if (box.dataset.roads === roads.map((r) => r.code).join()) return;
@@ -1835,6 +1845,7 @@ function buildRoads() {
   box.replaceChildren(...roads.map((r) => {
     const b = document.createElement("button");
     b.dataset.road = r.code; b.setAttribute("aria-pressed", "false");
+    b.style.setProperty("--c", ROAD_COLORS[r.code] || "var(--accent)");
     b.append(document.createElement("span"));
     b.firstChild.textContent = r.label;
     b.title = `Nouveau tronçon : ${r.label}`;

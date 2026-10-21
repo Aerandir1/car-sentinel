@@ -1,5 +1,5 @@
 """Ford Fiesta VII (2022) 1.0 EcoBoost 95 FlexiFuel ST-Line : 3 cylindres essence, turbo, injection directe,
-bicarburation essence / bioéthanol E85, boîte manuelle 5 vitesses.
+bicarburation essence / bioéthanol E85, boîte manuelle 6 vitesses.
 
 Tout ce qui est propre à cette voiture : mesures, mesures Ford (UDS), seuils d'éco-conduite, simulation de la démo,
 jauges du dashboard. Le reste du code est commun aux deux voitures (voir voitures.py).
@@ -106,9 +106,10 @@ FORCE_PROBE = {"ethanol"}
 SIGN_CAN = 0x3CD
 
 # Éco-conduite (trajets.py). Rapport engagé déduit de régime / vitesse (tr/min par km/h, mesuré sur les trajets) :
-# 1re ≈ 70, 2e ≈ 45, 3e ≈ 33, 4e ≈ 26,5, 5e ≈ 22 (100 km/h ≈ 2200 tr/min en 5e)
-GEARS = [70, 45, 33, 26.5, 22]
-TOP_GEAR_RATIO = 24       # au-dessus : 4e ou moins
+# médianes de 345 km enregistrés : 1re 125,5, 2e 70,3, 3e 45,3, 4e 33,4, 5e 26,7, 6e 22,3 (100 km/h ≈ 2230 tr/min
+# en 6e ; la 1re ne se voit qu'en dessous de 20 km/h)
+GEARS = [125.5, 70.3, 45.3, 33.4, 26.7, 22.3]
+TOP_GEAR_RATIO = 24       # au-dessus : 5e ou moins
 SHIFT_RPM = 2500          # au-delà, sur un rapport intermédiaire : il fallait monter (1.0 EcoBoost : couple dès 1500)
 PEDAL_HEAVY = 70          # % de la course de la pédale au-delà : pied lourd (jamais sous régulateur, pédale au repos)
 SHIFT_TIP = "passer la vitesse supérieure vers 2000-2500 tr/min, le 1.0 EcoBoost a son couple dès 1500"
