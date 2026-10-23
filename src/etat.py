@@ -122,7 +122,8 @@ class State:
         #         "occupe" (réservé par un autre programme, un scan par exemple), "ko" (ne répond pas bien), "demo",
         #         "reconnexion" (perdu en pleine lecture : il redémarre quand la tension de la prise OBD saute,
         #         au démarrage ou à l'arrêt du moteur, et revient en quelques secondes)
-        #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé), "demo"
+        #   ecu : "off" (pas d'adaptateur), "recherche" (essai des protocoles), "ok", "muet" (contact coupé), "demo",
+        #         "sans_tension" (pas de tension sur la prise OBD : clé branchée en USB hors de la voiture)
         self.elm, self.ecu = "recherche", "off"
         self.lost_ms = None   # adaptateur perdu en pleine lecture à cet instant (ms), None une fois revenu
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »

@@ -229,7 +229,7 @@ def main():
     if port:
         fd = acquisition.lock_port(port)
     else:
-        port, found, name, fd = acquisition.find_adapter("/dev")
+        port, found, name, fd, _ = acquisition.find_adapter("/dev")
         if port is None:
             denied, busy = found, name
             if busy:

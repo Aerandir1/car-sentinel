@@ -32,6 +32,7 @@ RETRY_S = 1
 BAUDS = (38400, 9600, 115200, 230400, 57600)   # débits courants des ELM327 (sans effet sur les clés USB en ttyACM)
 # Puces USB-série des ELM327 : CH340/CH341, FTDI, CP210x, Prolific, QBD (essayées en premier sous Windows)
 USB_VIDS = (0x1A86, 0x0403, 0x10C4, 0x067B, 0x0918)
+PROBE_TRIES = 3   # envois d'ATI par débit essayé
 
 
 def candidates(dev):
@@ -49,9 +50,24 @@ def candidates(dev):
     return list(dict.fromkeys(ports))   # sans doublon, dans l'ordre
 
 
+def _ask(s, cmd, timeout=1.0):
+    """Réponse brute de l'ELM327 à cmd, jusqu'à son invite « > » (ou timeout)."""
+    s.write(cmd + b"\r")
+    reply, end = b"", time.time() + timeout
+    while time.time() < end and not reply.endswith(b">"):
+        reply += s.read(64)
+    return reply
+
+
+def powered(volts):
+    """Tension sur la prise OBD d'après la réponse à ATRV : False si l'ELM327 n'en voit aucune (« ---V » : clé
+    branchée en USB hors de la voiture), sinon True (ATRV refusé ou muet : on ne sait pas, on tente la voiture)."""
+    return not volts or volts == "?" or any(c.isdigit() for c in volts)
+
+
 def probe(port, cancel=None):
-    """(débit, réponse à ATI) si un ELM327 répond sur ce port, "occupe" si un autre programme l'a ouvert
-    (Windows), sinon None. Marche sans voiture branchée."""
+    """(débit, réponse à ATI, réponse à ATRV) si un ELM327 répond sur ce port, "occupe" si un autre programme l'a
+    ouvert (Windows), sinon None. Marche sans voiture branchée."""
     import serial
     for baud in BAUDS:
         if cancel and cancel():
@@ -61,10 +77,12 @@ def probe(port, cancel=None):
                 s.write(b"\r")             # vide une commande à moitié reçue (l'ELM répond « ? »)
                 time.sleep(0.2)
                 s.reset_input_buffer()
-                s.write(b"ATI\r")
-                reply, end = b"", time.time() + 1.0
-                while time.time() < end and not reply.endswith(b">"):
-                    reply += s.read(64)
+                # Certains clones laissent tomber les premières commandes après l'ouverture du port : ATI renvoyé
+                for _ in range(PROBE_TRIES):
+                    reply = _ask(s, b"ATI", 0.5)
+                    if reply.endswith(b">"):
+                        break
+                volts = _ask(s, b"ATRV") if reply.endswith(b">") else b""
         except Exception as e:   # OSError, SerialException, termios.error : clé débranchée ou en train de redémarrer
             if WINDOWS and "PermissionError" in str(e):   # port COM déjà ouvert ailleurs (accès refusé)
                 return "occupe"
@@ -72,7 +90,9 @@ def probe(port, cancel=None):
         if b"ELM" in reply or reply.rstrip().endswith(b">"):
             lines = [x.strip() for x in reply.decode("ascii", "ignore").replace(">", "").splitlines()]
             name = next((x for x in lines if "ELM" in x), "") or next((x for x in lines if x and x != "ATI"), "ELM327")
-            return baud, name
+            volts = next((x for x in (y.strip() for y in volts.decode("ascii", "ignore").replace(">", "").splitlines())
+                          if x and x != "ATRV"), "")
+            return baud, name, volts
     return None
 
 
@@ -110,7 +130,8 @@ def release(fd):
 
 
 def find_adapter(dev, cancel=None):
-    """Cherche l'ELM327 : (port, débit, nom, verrou) s'il répond, sinon (None, ports interdits, ports occupés, None).
+    """Cherche l'ELM327 : (port, débit, nom, verrou, tension) s'il répond (tension : réponse à ATRV), sinon
+    (None, ports interdits, ports occupés, None, None).
     cancel() vrai : recherche abandonnée (mode démo, diagnostic demandés)."""
     denied, busy = [], []
     for port in candidates(dev):
@@ -127,9 +148,9 @@ def find_adapter(dev, cancel=None):
         if found == "occupe":
             busy.append(port)
         elif found:
-            return port, found[0], found[1], fd
+            return port, found[0], found[1], fd, found[2]
         release(fd)
-    return None, denied, busy, None
+    return None, denied, busy, None, None
 
 
 def denied_message(port):
@@ -293,13 +314,25 @@ def _obd_loop_locked(state, args, logger_factory, held):
             # Détection automatique : ports COM (Windows) ; ttyUSB, ttyACM, rfcomm (Linux) ; dont l'ELM327 répond à ATI
             if state.status == "démarrage":   # premier essai : quelques secondes par port qui ne répond pas
                 state.status = "recherche de l'adaptateur…"
-            port, found, name, fd = find_adapter(args.dev, lambda: _busy(state))
+            port, found, name, fd, volts = find_adapter(args.dev, lambda: _busy(state))
             denied, busy = ([], []) if port else (found, name)
             if port:
                 state.lost_ms = None
                 held.append(fd)
                 baud = baud or found
                 state.elm, state.elm_name, state.port = "ok", name, port
+                if not powered(volts):
+                    # Clé alimentée par l'USB seul, hors de la voiture : pas de requête OBD (sans tension sur la
+                    # prise, certains clones redémarrent sur la recherche du protocole et quittent l'USB)
+                    state.source = port
+                    state.status = f"adaptateur branché hors de la voiture (ATRV : {volts}), nouvel essai dans 5 s"
+                    state.adapter = "elm"
+                    state.ecu = "sans_tension"
+                    if seen != ("sans tension", port):
+                        print(f"{name} sur {port} sans tension sur la prise OBD (hors de la voiture) : en attente")
+                        seen = ("sans tension", port)
+                    _pause(state, 5)
+                    continue
                 if (port, name) != seen:
                     print(f"Adaptateur trouvé : {name} sur {port}")
                     seen = (port, name)

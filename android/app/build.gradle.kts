@@ -28,8 +28,8 @@ android {
         applicationId = "fr.car.sentinel"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "3.0"
+        versionCode = 15
+        versionName = "3.1"
         buildConfigField("String", "CAR_VERSION", "\"${gitVersion()}\"")
         buildConfigField("String", "CAR_SERVER", "\"${confServer()}\"")
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }   // tablettes Samsung (arm64) et émulateur

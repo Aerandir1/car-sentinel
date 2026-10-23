@@ -118,7 +118,10 @@ python src/car_sentinel.py
 
 Avec `ADAPTATEUR` vide, le script cherche dans `ttyUSB*`, `ttyACM*` et `rfcomm*` celui qui répond à `ATI`
 (« Adaptateur trouvé : ELM327 v1.5 sur /dev/ttyACM0 ») et attend la clé si elle n'est pas branchée. S'il n'a pas
-le droit d'ouvrir le port, le journal donne la commande `usermod` à taper.
+le droit d'ouvrir le port, le journal donne la commande `usermod` à taper. Une clé branchée en USB hors de la
+voiture (`ATRV` : `---V`, aucune tension sur la prise OBD) est laissée en attente, témoin « hors voiture », sans
+requête OBD : sans tension, certains clones redémarrent sur la recherche du protocole et quittent l'USB.
+`src/test_elm.py` dit quelles commandes AT la clé accepte vraiment, quel que soit le numéro de version annoncé.
 
 ## Installation et lancement sous Windows
 

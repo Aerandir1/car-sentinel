@@ -550,7 +550,7 @@ class Diag:
                 end = time.time() + ADAPTER_WAIT_S
                 while True:
                     try:
-                        port, found, name, fd = acquisition.find_adapter(self.args.dev)
+                        port, found, name, fd, _ = acquisition.find_adapter(self.args.dev)
                     except OSError:   # port disparu pendant la recherche (clé qui se reconnecte)
                         port = fd = None
                     if port or time.time() > end or self.stop_flag.is_set():

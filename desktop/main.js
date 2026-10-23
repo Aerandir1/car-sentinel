@@ -197,7 +197,7 @@ const ELM = {
   recherche: "recherche…", absent: "non branché", refuse: "port interdit (droits)",
   occupe: "occupé par le diagnostic", ko: "ne répond pas bien", demo: "mode démo", reconnexion: "reconnexion…",
 };
-const ECU = { off: "—", recherche: "recherche du protocole…", muet: "muet (contact coupé ?)", demo: "mode démo" };
+const ECU = { off: "—", recherche: "recherche du protocole…", muet: "muet (contact coupé ?)", sans_tension: "pas de tension (clé hors de la voiture)", demo: "mode démo" };
 
 function heure(t) {
   return new Date(t * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
