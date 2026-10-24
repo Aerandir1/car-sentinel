@@ -222,7 +222,7 @@ def main():
     p.add_argument("--sortie", help="fichier du résultat (défaut data/scan-pid-<voiture>.json)")
     args, _ = p.parse_known_args(config.argv() + sys.argv[1:])   # ADAPTATEUR, DEBIT de car.conf
 
-    import obd
+    obd = acquisition.import_obd()
     logging.getLogger("obd").setLevel(logging.CRITICAL)   # « Failed to read port »… : le scan dit l'essentiel
 
     port, baud, fd = args.port, args.baud, -1

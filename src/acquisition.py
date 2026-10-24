@@ -33,6 +33,9 @@ BAUDS = (38400, 9600, 115200, 230400, 57600)   # débits courants des ELM327 (sa
 # Puces USB-série des ELM327 : CH340/CH341, FTDI, CP210x, Prolific, QBD (essayées en premier sous Windows)
 USB_VIDS = (0x1A86, 0x0403, 0x10C4, 0x067B, 0x0918)
 PROBE_TRIES = 3   # envois d'ATI par débit essayé
+CAN_PROTOCOLS = ("6", "8", "7", "9")   # CAN 11 bits 500k, 11 bits 250k, 29 bits 500k, 29 bits 250k
+SLOW_MS = 50   # aller-retour d'ATI au-delà duquel l'adaptateur est traité en clone lent (mode auto)
+WANT = {"adapter": "auto"}   # réglage « adapter » de la connexion en cours (etat.SETTINGS_CHOICES), lu par import_obd
 
 
 def candidates(dev):
@@ -55,7 +58,7 @@ def _ask(s, cmd, timeout=1.0):
     s.write(cmd + b"\r")
     reply, end = b"", time.time() + timeout
     while time.time() < end and not reply.endswith(b">"):
-        reply += s.read(64)
+        reply += s.read(s.in_waiting or 1)   # pas read(64) : attendrait tout le délai du port
     return reply
 
 
@@ -225,6 +228,80 @@ def find_measures(obd, conn, car):
     return cmds, missing
 
 
+def import_obd():
+    """python-obd, adapté aux clones lents d'ELM327 selon le réglage « adapter » (onglet Réglages), lu dans
+    WANT juste avant chaque connexion :
+      standard  python-obd tel quel (fonctionnement d'avant, bon avec un adaptateur rapide) ;
+      clone     contournements ci-dessous ;
+      auto      ATI à l'ouverture, chronométré : clone si l'adaptateur a perdu une commande ou met au moins
+                SLOW_MS à répondre (ELM327 v2.1 à puce Jieli : 70 ms par commande), standard sinon ; recherche
+                du protocole automatique d'abord, protocoles CAN un à un seulement si elle échoue.
+    Contournements des clones (ELM327 v2.1 Jieli en ttyACM, que python-obd ne sait pas connecter) :
+    - ils laissent tomber les premières commandes après l'ouverture du port ; python-obd n'envoie qu'une fois ATZ
+      puis ATE0 et échoue (« ATE0 did not return 'OK' ») : ATI renvoyé jusqu'à la réponse, dès l'ouverture ;
+    - leur recherche automatique du protocole (ATSP0, 0100) répond souvent « UNABLE TO CONNECT » (en double), au
+      bout de ≈ 5 s, quand le calculateur répond bien en CAN ; python-obd conclut au contact coupé : protocoles CAN
+      essayés un à un d'abord (ATTP6, 8, 7, 9 : réponse ou erreur en moins d'une seconde), recherche automatique
+      ensuite (K-line).
+    Le résultat reste sur l'interface : conn.interface.clone (lecture adaptée, requetes.Reader), .rtt_ms."""
+    import obd
+    from obd.elm327 import ELM327
+    if getattr(ELM327, "car_sentinel", False):
+        return obd
+    ELM327.car_sentinel = True
+    set_baudrate, auto_protocol = ELM327.set_baudrate, ELM327.auto_protocol
+
+    def wake(self, baud):
+        mode = WANT["adapter"]
+        self.clone, self.rtt_ms = mode == "clone", None
+        if not set_baudrate(self, baud):
+            return False
+        if mode == "standard":
+            return True
+        s, timeout = self._ELM327__port, self._ELM327__port.timeout
+        try:
+            s.timeout = 0.2   # 10 s chez python-obd : un read() bloquerait jusque-là
+            for tries in range(1, PROBE_TRIES + 2):
+                if _ask(s, b"ATI", 0.5).endswith(b">"):
+                    break
+            t0 = time.perf_counter()
+            ok = _ask(s, b"ATI", 0.5).endswith(b">")
+            self.rtt_ms = round((time.perf_counter() - t0) * 1000) if ok else None
+            if mode == "auto":
+                self.clone = tries > 1 or not ok or self.rtt_ms >= SLOW_MS
+            s.reset_input_buffer()
+        finally:
+            s.timeout = timeout
+        return True
+
+    def by_can(self):
+        """Protocoles CAN essayés un à un ; True si le calculateur répond à l'un d'eux."""
+        for p in CAN_PROTOCOLS:
+            self._ELM327__send(b"ATTP" + p.encode())   # ATTP : sans l'enregistrer dans la clé (ATSP)
+            r0100 = self._ELM327__send(b"0100")
+            if any("4100" in x.replace(" ", "") for x in r0100):   # pas « CAN ERROR », « NO DATA »…
+                self._ELM327__protocol = self._SUPPORTED_PROTOCOLS[p](r0100)
+                return True
+        return False
+
+    def search(self):
+        if getattr(self, "clone", False):
+            if by_can(self):
+                return True
+            time.sleep(0.5)
+            self._ELM327__port.reset_input_buffer()
+            return auto_protocol(self)
+        found = auto_protocol(self)
+        if found or WANT["adapter"] == "standard":
+            return found
+        time.sleep(0.5)
+        self._ELM327__port.reset_input_buffer()   # second « UNABLE TO CONNECT » des clones
+        return by_can(self)
+
+    ELM327.set_baudrate, ELM327.auto_protocol = wake, search
+    return obd
+
+
 def close_conn(state, conn):
     """Ferme la connexion python-obd. Pour un diagnostic, sans son ATZ de fermeture : certaines clés USB
     redémarrent sur ATZ et se déconnectent (ttyACM qui disparaît, parfois sans revenir avant d'être rebranchées)."""
@@ -248,6 +325,12 @@ def obd_loop(state, args, logger_factory):
             state.adapter = "absent"
             state.elm, state.ecu = "ko", "off"
             time.sleep(5)
+
+
+def _changed(state, fast, mode):
+    """Mode rapide ou réglage de l'adaptateur changé depuis la connexion : elle est à refaire."""
+    s = state.get_settings()
+    return s["fast"] != fast or s.get("adapter", "auto") != mode
 
 
 def _demo_on(state):
@@ -288,7 +371,7 @@ def _obd_loop(state, args, logger_factory):
 
 
 def _obd_loop_locked(state, args, logger_factory, held):
-    import obd
+    obd = import_obd()
 
     seen = None   # dernier message d'adaptateur écrit au journal (pas de répétition toutes les 5 s)
     while True:
@@ -391,6 +474,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             continue
         state.source = port or "auto"
         fast = state.get_settings()["fast"]
+        mode = WANT["adapter"] = state.get_settings().get("adapter", "auto")
         state.status = "connexion (mode rapide)…" if fast else "connexion…"
         state.port = port
         if state.elm == "ok" and state.ecu in ("off", "ok"):
@@ -445,7 +529,12 @@ def _obd_loop_locked(state, args, logger_factory, held):
                  else " ; taux d'éthanol (01 52) : pas de réponse"))
         state.start_session(f"{conn.port_name()} · {conn.protocol_name()}", vin, keys)
         state.status = "connecté (rapide)" if fast else "connecté"
-        reader = requetes.Reader(conn, cmds, car, requetes.load_scan(vin, car))
+        clone = getattr(conn.interface, "clone", False)
+        rtt = getattr(conn.interface, "rtt_ms", None)
+        state.adapter_kind = "clone" if clone else "standard"
+        print(f"Adaptateur ({mode}) : " + ("clone lent, lecture adaptée" if clone else "lecture standard")
+              + (f", {rtt} ms par commande" if rtt is not None else ""))
+        reader = requetes.Reader(conn, cmds, car, requetes.load_scan(vin, car), slow=clone)
         signs = panneaux.SignListener(conn, car.SIGN_CAN) if getattr(car, "SIGN_CAN", None) else None
         notes = reader.setup()
         print("Lecture : " + (", ".join(notes) if notes else "une requête par mesure (rien de plus rapide accepté)"))
@@ -454,7 +543,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
 
         try:
             while conn.is_connected():
-                if state.get_settings()["fast"] != fast or _busy(state):
+                if _changed(state, fast, mode) or _busy(state):
                     break  # mode rapide basculé (reconnexion avec le nouveau réglage), mode démo ou diagnostic
                 t0 = time.time()
                 if reader.tick(state, state.get_settings()["delay"]):
@@ -477,7 +566,7 @@ def _obd_loop_locked(state, args, logger_factory, held):
             if logger:
                 logger.close()
             close_conn(state, conn)
-        if state.get_settings()["fast"] != fast or _busy(state):
+        if _changed(state, fast, mode) or _busy(state):
             continue
         if not state.status.startswith("calculateur muet"):
             # Connexion perdue en pleine lecture : l'adaptateur a quitté l'USB (il redémarre au démarrage ou à

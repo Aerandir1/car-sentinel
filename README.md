@@ -422,6 +422,23 @@ ce qui est retenu (« Lecture : requêtes au seul calculateur moteur (7E0), rép
 Le tour est bridé par la fréquence max (défaut 20 Hz, onglet Réglages) : plus de mesures veut aussi dire une base
 plus grosse.
 
+Réglage **Adaptateur** (onglet Réglages, Acquisition ; reconnecte l'ELM327) : tous les « ELM327 » ne se valent pas.
+Beaucoup sont des copies dont le numéro de version (v1.5, v2.1) ne veut rien dire ; certaines, comme une clé
+`ELM327 v2.1` à puce Jieli (`4c4a:4155`, en `ttyACM`), mettent 70 ms par commande quoi qu'on règle, perdent les
+premières commandes après l'ouverture du port et ratent leur recherche automatique du protocole :
+
+- **Auto** (par défaut) : `ATI` chronométré à la connexion. Clone lent si l'adaptateur a perdu une commande ou
+  met 50 ms ou plus à répondre, lecture standard sinon. En standard, protocoles CAN essayés un à un seulement si
+  la recherche automatique échoue ;
+- **Standard** : python-obd tel quel et lecture d'avant (bon avec un adaptateur rapide) ;
+- **Clone lent** : adaptateur réveillé à l'ouverture (`ATI` jusqu'à la réponse), protocoles CAN essayés d'abord
+  (`ATTP6`, 8, 7, 9, sans rien enregistrer dans la clé), taille des groupes de PID essayée en entier à la
+  connexion, et à chaque tour les mesures rapides plus une seule requête pour les autres (les plus en retard).
+  Sur la Fiesta avec la clé Jieli : ≈ 1,9 Hz au lieu de ≈ 1,2 Hz.
+
+Le journal dit ce qui est retenu (« Adaptateur (auto) : clone lent, lecture adaptée, 70 ms par commande »), et
+l'infobulle du témoin Calculateur aussi.
+
 Mesures Ford de la Fiesta :
 
 | Mesure | DID | Affichée |

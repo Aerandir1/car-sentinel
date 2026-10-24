@@ -39,6 +39,7 @@ PERIOD = {
 }
 MAX_OBD = 6      # PID par requête OBD (limite de la norme)
 MAX_UDS = 4      # identifiants constructeur par requête UDS (prudent : la taille de réponse dépend du calculateur)
+MAX_EXTRA = 1    # requêtes par tour pour les mesures qui ne sont pas lues à chaque tour (tick)
 PING_EMA = 0.1   # lissage du temps de réponse affiché
 SCAN_DIR = Path(__file__).resolve().parent.parent / "data"   # scan-pid-<voiture>.json, écrit par scan_pid.py
 
@@ -62,10 +63,12 @@ def load_scan(vin, car, path=None):
 class Reader:
     """Mesures à lire et façon de les demander, choisie à la connexion (setup), puis lues tour après tour (tick)."""
 
-    def __init__(self, conn, cmds, car, scan=None):
+    def __init__(self, conn, cmds, car, scan=None, slow=False):
         """cmds : (clé, commande, conversion, lecture espacée ou None, requête forcée), comme acquisition.py ;
-        car : la voiture (identifiants de ses mesures constructeur) ; scan : résultat de scan_pid.py (load_scan)."""
-        self.conn, self.elm, self.car, self.scan = conn, conn.interface, car, scan or {}
+        car : la voiture (identifiants de ses mesures constructeur) ; scan : résultat de scan_pid.py (load_scan) ;
+        slow : adaptateur lent (clone, acquisition.import_obd) : taille des groupes essayée en entier à la
+        connexion, et requêtes des mesures qui ne sont pas lues à chaque tour limitées (MAX_EXTRA)."""
+        self.conn, self.elm, self.car, self.scan, self.slow = conn, conn.interface, car, scan or {}, slow
         self.items = []   # [clé, commande, conversion, constructeur ?, période, dernière lecture]
         for key, cmd, conv, slow, _force in cmds:
             period = slow.period if slow is not None else PERIOD.get(key, 1)
@@ -101,13 +104,34 @@ class Reader:
                 notes.append("réponse sans attente (nombre de réponses)")
         max_obd = min(MAX_OBD, self.scan.get("max_obd", MAX_OBD))
         max_uds = min(MAX_UDS, self.scan.get("max_uds", MAX_UDS))
-        if len(probe) == 2 and max_obd > 1 and self._answers(probe):
-            self.max_obd = max_obd
-            notes.append(f"jusqu'à {max_obd} PID OBD par requête")
-        if len(uds_items) >= 2 and max_uds > 1 and self._answers(uds_items[:2]):
-            self.max_uds = max_uds
-            notes.append(f"jusqu'à {max_uds} mesures {self.car.MAKER} par requête")
+        if not self.slow:
+            # Adaptateur rapide : groupage essayé sur deux mesures, ramené en roulant si le calculateur rend moins
+            if len(probe) == 2 and max_obd > 1 and self._answers(probe):
+                self.max_obd = max_obd
+                notes.append(f"jusqu'à {max_obd} PID OBD par requête")
+            if len(uds_items) >= 2 and max_uds > 1 and self._answers(uds_items[:2]):
+                self.max_uds = max_uds
+                notes.append(f"jusqu'à {max_uds} mesures {self.car.MAKER} par requête")
+            return notes
+        # Clone lent : groupes essayés à leur vraie taille, du plus grand au plus petit (des clones rendent 2 PID
+        # par requête et « NO DATA » au-delà, sans réponse partielle qui réduise les groupes en roulant : chaque
+        # tour relirait alors chaque groupe refusé mesure par mesure)
+        if probe and self._answers(probe[:1], False):
+            obd_items = probe + [it for it in obd_items if it not in probe]
+            self.max_obd = self._largest(obd_items, max_obd)
+            if self.max_obd > 1:
+                notes.append(f"jusqu'à {self.max_obd} PID OBD par requête")
+        self.max_uds = self._largest(uds_items, max_uds)
+        if self.max_uds > 1:
+            notes.append(f"jusqu'à {self.max_uds} mesures {self.car.MAKER} par requête")
         return notes
+
+    def _largest(self, items, most):
+        """Plus grand groupe (≤ most) des premières mesures auquel le calculateur répond en entier, 1 sinon."""
+        for n in range(min(most, len(items)), 1, -1):
+            if self._answers(items[:n]):
+                return n
+        return 1
 
     def _answers(self, group, count=None):
         """Toutes les mesures du groupe répondent-elles à cette façon de demander ?"""
@@ -126,18 +150,32 @@ class Reader:
     def tick(self, state, delay=0.0):
         """Lit les mesures dues ; renvoie True si le calculateur a répondu au moins une fois."""
         now = time.time()
+        # Adaptateur lent : mesures de chaque tour d'abord, puis les plus en retard ; requêtes de ces dernières
+        # limitées à MAX_EXTRA par tour : à ≈ 70 ms par commande (clones), un tour qui les lirait toutes durerait
+        # plus que leur période, toutes seraient dues à chaque tour et le régime, la vitesse ou la pédale ne
+        # seraient relus que toutes les ≈ 0,7 s. Celles laissées passent au tour suivant.
         due = [it for it in self.items if now - it[5] >= it[4]]
-        for it in due:
-            it[5] = now
+        if self.slow:
+            due.sort(key=lambda it: (it[4] > 0, it[5]))
+        groups = self._groups(due)
+        if self.slow:
+            every = [g for g in groups if any(it[4] == 0 for it in g)]
+            groups = every + [g for g in groups if g not in every][:MAX_EXTRA]
+        for group in groups:
+            for it in group:
+                it[5] = now
         answered = False
-        for group in self._groups(due):
+        for group in groups:
             values = self._read(group)
             if values is None and len(group) > 1:
-                # Groupe refusé (réponse illisible) : chacune à part, cette fois
+                # Groupe refusé (réponse illisible, « NO DATA ») : chacune à part, cette fois
                 values = {}
                 for it in group:
                     v = self._read([it])
                     values.update(v or {})
+                if self.slow and sum(v is not None for v in values.values()) >= 2:
+                    # Les mesures répondent seules mais pas ensemble : groupes plus petits ensuite
+                    self._shrink(group[0][3], len(group) - 1)
             for key, cmd, conv, maker, *_ in group:
                 answered |= self._store(state, key, conv, maker, (values or {}).get(key))
             if delay:

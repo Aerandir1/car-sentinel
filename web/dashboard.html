@@ -1047,6 +1047,15 @@
           <output id="o-delay"></output>
         </div>
         <div class="row">
+          <label for="s-adapter">Adaptateur<small>Auto : lecture adaptée si la clé est un clone lent. Reconnecte l'ELM327</small></label>
+          <select id="s-adapter">
+            <option value="auto">Auto</option>
+            <option value="standard">Standard</option>
+            <option value="clone">Clone lent</option>
+          </select>
+          <output id="o-adapter"></output>
+        </div>
+        <div class="row">
           <label for="s-fast">Mode rapide (fast)<small>Requêtes OBD plus courtes. Reconnecte l'ELM327</small></label>
           <input type="checkbox" id="s-fast">
           <output id="o-fast"></output>
@@ -1674,6 +1683,7 @@ function showLink(s) {
     ok: ["ok", "Calculateur", `${s.hz} Hz${s.ping_ms != null ? ` · ${s.ping_ms} ms` : ""}`,
          [`Calculateur connecté · ${s.hz} tours de lecture/s`
           + (s.ping_ms != null ? ` · ${s.ping_ms} ms par requête` : ""), l.protocol,
+         l.kind && `Lecture ${l.kind === "clone" ? "adaptée à un clone lent" : "standard"} (Réglages, Adaptateur)`,
          l.vin && `VIN ${l.vin}`, l.fuel_type && `Carburant annoncé (01 51) : ${l.fuel_type}`].filter(Boolean).join("\n")],
     sans_tension: ["off", "Calculateur", "hors voiture", "L'adaptateur répond mais ne voit aucune tension sur la prise OBD :"
       + " clé branchée en USB hors de la voiture. Pas de requête OBD tant qu'il n'est pas sur la prise"],
@@ -1681,6 +1691,7 @@ function showLink(s) {
     demo: ["demo", "Valeurs simulées", `${s.hz} Hz`, "Trajet simulé, enregistré dans une base à part"],
     diag: ["demo", "Calculateur", "diagnostic", "Diagnostic en cours (onglet Diagnostic), enregistrement en pause"],
   }[l.ecu] || ["off", "Calculateur", l.ecu, ""];
+  $("o-adapter").textContent = l.kind ? (l.kind === "clone" ? "clone lent" : "standard") : "";
   chip("c-elm", elm[0], elm[1], elm[2], `${elm[3]}\n${s.status}`);
   chip("c-ecu", ecu[0], ecu[1], ecu[2], `${ecu[3]}\n${s.status}`);
   $("link").dataset.wire = l.ecu === "ok" ? "ok" : l.ecu === "demo" ? "demo" : "";
@@ -3008,6 +3019,7 @@ function showServer(st) {
   if (st.server_name !== undefined) ui.serverName = st.server_name;   // « ici » dans l'origine des prix
   for (const k of ["server", "server_name"])
     if (st[k] !== undefined && document.activeElement !== $("s-" + k)) $("s-" + k).value = st[k];
+  if (st.adapter !== undefined) $("s-adapter").value = st.adapter;
   if (st.fast !== undefined) {
     $("s-fast").checked = st.fast;
     $("o-fast").textContent = st.fast ? "activé" : "désactivé";
@@ -3038,6 +3050,7 @@ for (const [k, show] of Object.entries(SERVER_FIELDS)) {
   };
 }
 $("s-fast").onchange = (e) => sendServer({ fast: e.target.checked });
+$("s-adapter").onchange = (e) => sendServer({ adapter: e.target.value });
 for (const k of ["server", "server_name"]) {
   $("s-" + k).onchange = async (e) => {
     const r = await fetch("/api/settings", { method: "POST", body: JSON.stringify({ [k]: e.target.value }) }).catch(() => null);

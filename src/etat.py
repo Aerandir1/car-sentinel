@@ -62,7 +62,11 @@ PRICE_KEYS = tuple(f"fuel_price_{c}" for c in voitures.CARS)
 # poste sur sa page : vides tant qu'ils ne sont pas changés ici, SERVEUR et NOM_PC de car.conf s'appliquent
 SETTINGS_TEXT = {"server": 300, "server_name": 60}
 # Réglages gardés d'un lancement à l'autre (les autres viennent des options). car : dernière voiture vue
-SETTINGS_SAVED = (*PRICE_KEYS, *SETTINGS_TEXT, "car", "price_sync")
+# Choix : clé -> valeurs permises (la première par défaut). adapter : façon de lire l'ELM327
+# (acquisition.import_obd), « auto » (détectée à la connexion), « standard » (python-obd tel quel), « clone »
+# (clone lent : contournements)
+SETTINGS_CHOICES = {"adapter": ("auto", "standard", "clone")}
+SETTINGS_SAVED = (*PRICE_KEYS, *SETTINGS_TEXT, *SETTINGS_CHOICES, "car", "price_sync")
 # Mode rapide python-obd : pas d'écho, nombre de réponses attendu → requêtes plus courtes.
 # Certains clones d'ELM327 le gèrent mal. Changer ce réglage relance la connexion.
 # Mode démo : valeurs simulées (demo.py) à la place de l'ECU, enregistrées dans une base à part (<voiture>-demo.db).
@@ -127,6 +131,7 @@ class State:
         self.elm, self.ecu = "recherche", "off"
         self.lost_ms = None   # adaptateur perdu en pleine lecture à cet instant (ms), None une fois revenu
         self.elm_name = None  # réponse à ATI, ex. « ELM327 v1.5 »
+        self.adapter_kind = None  # lecture retenue à la connexion : "standard" ou "clone" (réglage adapter)
         self.port = None
         self.baud = None      # débit de l'ELM327, repris par le diagnostic avec le port (diagnostic.py)
         self.protocol = None  # protocole OBD du calculateur, ex. « ISO 15765-4 (CAN 11/500) »
@@ -198,7 +203,7 @@ class State:
     def get_settings(self):
         """Réglages, plus fuel_price : celui de la voiture en cours."""
         with self.lock:
-            out = {**self.defaults, **self.settings}
+            out = {**{k: v[0] for k, v in SETTINGS_CHOICES.items()}, **self.defaults, **self.settings}
             out["fuel_price"] = out.get(f"fuel_price_{self.car.ID}")
             return out
 
@@ -226,6 +231,9 @@ class State:
             for key in SETTINGS_FLAGS:
                 if key in new:
                     self.settings[key] = bool(new[key])
+            for key, allowed in SETTINGS_CHOICES.items():
+                if new.get(key) in allowed:
+                    self.settings[key] = new[key]
             for key, n in SETTINGS_TEXT.items():
                 if key in new:
                     self.settings[key] = str(new[key] or "").strip()[:n]
@@ -255,6 +263,8 @@ class State:
                     self.settings[key] = min(PRICE_LIMITS[1], max(PRICE_LIMITS[0], float(saved[key])))
                 elif key in SETTINGS_TEXT and isinstance(saved.get(key), str):
                     self.settings[key] = saved[key][:SETTINGS_TEXT[key]]
+                elif key in SETTINGS_CHOICES and saved.get(key) in SETTINGS_CHOICES[key]:
+                    self.settings[key] = saved[key]
             if car:
                 self.settings["car"] = car
             if isinstance(saved.get("price_sync"), dict):
@@ -693,6 +703,7 @@ class State:
                 "meta_rev": self.meta_rev,
                 "sync": self.sync,
                 "link": {"elm": self.elm, "ecu": self.ecu, "name": self.elm_name, "port": self.port,
+                         "kind": self.adapter_kind,
                          "protocol": self.protocol, "vin": self.vin,
                          "fuel_type": self.fuel_type},
                 "min": dict(self.mins),
